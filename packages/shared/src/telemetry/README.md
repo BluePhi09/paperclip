@@ -119,12 +119,17 @@ durable rules are not expressible in the generated `string`/`number` types:
   connection's `sourceTemplateKey` only when that key resolves to a reviewed
   first-party catalog definition; every other connection emits the literal
   `custom`. `connectorKeyForConnection()` in
-  `server/src/services/connector-telemetry.ts` owns this rule.
+  `server/src/services/connector-telemetry.ts` owns this rule. Composio-synced
+  child connections persist a `toolkitSlug` but no catalog
+  `sourceTemplateKey`, so they report `custom` too; raw toolkit or provider
+  strings are never exported.
 - `connector.connection_created` and `connector.connection_updated` are
   emitted only after the lifecycle write commits, from returned rows. Writes
   that affect no rows and no-op changes do not emit.
-- `connector.invocation_completed` is emitted once per invocation reaching a
-  terminal status. Its `origin` dimension separates setup tests (the Apps →
+- `connector.invocation_completed` is emitted when an invocation reaches a
+  terminal status — best-effort, so duplicate and lost events are possible
+  (see the delivery rule below); do not read it as exactly one event per
+  invocation. Its `origin` dimension separates setup tests (the Apps →
   Test tab) from agent and user calls using the durable test-origin columns.
   `duration_seconds` is `completedAt - startedAt` rounded to whole seconds and
   floored at zero; it is omitted when either timestamp is unavailable.
