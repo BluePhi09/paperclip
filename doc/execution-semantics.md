@@ -1232,6 +1232,9 @@ provider exit as blockers. Explicit readiness probes let the durable runner
 commit and acknowledge retained events under the old run authority; snapshotting
 alone never discards them. ACPX checkpoints its process during the subsequent
 attachment before resuming the same provider session under the new run.
+During an in-place handoff, the ACPX descriptor binds to the validated next run
+while event correlation stays on the old run until durable authority activation.
+A changed session identity or a descriptor that names any other run is rejected.
 
 Safe native replacement may clear a Blocked status only with a durable receipt
 that the same failed run projected that exact status version. Explicitly

@@ -799,7 +799,32 @@ impl AcpxCommandExecutor {
         .map_err(|error| {
             DurableRunnerError::invalid(format!("run.attach ACPX provider is invalid: {error}"))
         })?;
-        descriptor.validate(&self.context)?;
+        let mut attachment_context = self.context.clone();
+        if let Some(boundary) = payload.get("paperclipNextAuthority") {
+            // The durable runner validates this authority's immutable bindings
+            // and PRP v2 handoff capability before dispatching run.attach. Its
+            // activation follows our command result, so self.context must keep
+            // correlating audit events with the old run until rotate_authority.
+            let identity = boundary.get("identity").ok_or_else(|| {
+                DurableRunnerError::invalid("run.attach authority identity is required")
+            })?;
+            let run_id = identity
+                .get("runId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    DurableRunnerError::invalid("run.attach authority runId is required")
+                })?;
+            if run_id == self.context.run_id
+                || identity.get("normalizedSessionId").and_then(Value::as_str)
+                    != Some(self.context.normalized_session_id.as_str())
+            {
+                return Err(DurableRunnerError::invalid(
+                    "run.attach authority changed an immutable session binding",
+                ));
+            }
+            attachment_context.run_id = run_id.to_owned();
+        }
+        descriptor.validate(&attachment_context)?;
         let tool_set = authorized_tool_set(payload)?;
         let state = self
             .state
@@ -2212,6 +2237,43 @@ mod tests {
             .attach_run(&json!({"provider": descriptor_value}))
             .unwrap();
         assert_eq!(attached.state.as_ref().unwrap().descriptor.run_id, "run-2");
+        assert!(!marker.exists());
+
+        // In-place warm handoff executes under the old authority. Only the
+        // authenticated next-authority boundary may admit the new descriptor;
+        // event correlation stays on run-1 until durable activation completes.
+        assert!(original
+            .attach_run(&json!({"provider": descriptor_value}))
+            .is_err());
+        let warm_payload = json!({
+            "provider": descriptor_value,
+            "paperclipNextAuthority": {
+                "identity": {
+                    "runnerInstanceId": original_config.runner_instance_id,
+                    "environmentLeaseId": original_config.environment_lease_id,
+                    "runId": "run-2",
+                    "normalizedSessionId": original_config.normalized_session_id,
+                    "turnId": "turn-2",
+                    "itemId": "item-2",
+                },
+                "connection": {"mode": "connect", "connectUrl": original_config.connect_url},
+            },
+        });
+        let mut wrong_run = warm_payload.clone();
+        wrong_run["paperclipNextAuthority"]["identity"]["runId"] = json!("run-3");
+        assert!(original.attach_run(&wrong_run).is_err());
+        let mut wrong_session = warm_payload.clone();
+        wrong_session["paperclipNextAuthority"]["identity"]["normalizedSessionId"] =
+            json!("other-session");
+        assert!(original.attach_run(&wrong_session).is_err());
+        let mut changed_profile = warm_payload.clone();
+        changed_profile["provider"]["instructions"] = json!("different profile");
+        assert!(original.attach_run(&changed_profile).is_err());
+        original.attach_run(&warm_payload).unwrap();
+        assert_eq!(original.state.as_ref().unwrap().descriptor.run_id, "run-2");
+        assert_eq!(original.context.run_id, "run-1");
+        original.rotate_authority(&attached_config);
+        assert_eq!(original.context.run_id, "run-2");
         assert!(!marker.exists());
         fs::remove_dir_all(directory).unwrap();
     }
