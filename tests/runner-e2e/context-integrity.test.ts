@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { contextIntegrityScenario } from "./context-integrity-cases.js";
 import { gradeContextIntegrity } from "./context-integrity-scoring.js";
+import { contextIntegrityFinalEvidence } from "./context-integrity-flow.js";
 import { runnerMatrix } from "./catalog.js";
 
 function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit-invocation", valid = true) {
@@ -34,6 +35,10 @@ function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit
 }
 
 describe("context integrity Product E2E contract", () => {
+  it("writes the generic pass evidence names required by the runner contract", () => {
+    expect(contextIntegrityFinalEvidence).toEqual({ screenshotFile: "final-state.png", apiStateFile: "api-state.json" });
+  });
+
   it("is explicit-only and covers the seven qualified legacy/native profiles", () => {
     const cells = runnerMatrix.filter((execution) => execution.suite.id === "context-integrity");
     expect(cells).toHaveLength(14);

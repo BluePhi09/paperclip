@@ -11,6 +11,11 @@ import type { MatrixExecution } from "./types.js";
 
 type Row = Record<string, any>;
 
+export const contextIntegrityFinalEvidence = {
+  screenshotFile: "final-state.png",
+  apiStateFile: "api-state.json",
+} as const;
+
 function containsSkillReference(value: unknown, runtimeName: string): boolean {
   if (typeof value === "string") {
     return value === runtimeName || value === `/${runtimeName}` || value === `$${runtimeName}` ||
@@ -202,8 +207,15 @@ export async function runContextIntegrityFlow(input: {
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     const failures = checks.filter((check) => !check.passed);
     if (failures.length) throw new Error(`Context-integrity matcher failures: ${failures.map((failure) => `${failure.id}: ${failure.detail}`).join("; ")}`);
+    await input.evidence(contextIntegrityFinalEvidence.apiStateFile, {
+      capturePhase: "final",
+      issue,
+      runs,
+      checkpoints,
+      checks,
+    });
     await page.goto(`/${fixtures.company.issuePrefix}/issues/${issue.identifier ?? issue.id}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    await captureLoadedContinuation(page, String(issue.title), () => input.capture("context-integrity-final", "Context integrity final state", "context-integrity-final.png"));
+    await captureLoadedContinuation(page, String(issue.title), () => input.capture("final-state", "Context integrity final state", contextIntegrityFinalEvidence.screenshotFile));
     return { issue, runs, checks };
   } finally {
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
