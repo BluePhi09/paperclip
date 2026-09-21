@@ -76,6 +76,17 @@ export function isChatStopReady(events: Array<{ eventType?: unknown }>, phase: "
   return phase === "active" ? active : !active && events.some(event => event.eventType === "native.process_start_requested");
 }
 
+export function assertChatStartupStopped(run: ChatRun, events: Array<{ eventType?: unknown; createdAt?: string }>) {
+  const cancellation = run.resultJson?.nativeCancellation as Record<string, unknown> | undefined;
+  const started = events.filter(event => ["turn.started", "turn.accepted"].includes(String(event.eventType)));
+  if (started.some(event => Date.parse(event.createdAt ?? "") < Date.parse(String(cancellation?.recordedAt)))) {
+    throw new Error("Harness missed startup Stop boundary: provider turn started before the Stop intent");
+  }
+  expect(cancellation).toMatchObject({ scope: "run", dispatchState: "acknowledged", dispatched: true });
+  expect(run.status).toBe("cancelled");
+  expect(started, "A stopped startup must never submit a provider turn").toHaveLength(0);
+}
+
 export async function runChatHardeningFlow(context: {
   input: ChatFlowInput; marker: string; issue(): ChatIssue;
   turn(message: string, count: number): Promise<void>; idle(count: number): Promise<void>;
@@ -91,6 +102,7 @@ export async function runChatHardeningFlow(context: {
   const latestReply = async () => (await comments()).filter(comment => comment.authorAgentId === f.agent.id).at(-1)?.body ?? "";
   const output = (id: string, token: string) => readChatOutputDocument(api, id, token);
 
+  try {
   if (execution.task.id === "hire-delegate-reuse") {
     const hireName = `Morgan Reviewer ${nonce}`;
     await turn(`Hire exactly one teammate named ${hireName}, reporting to you, using your native runner, model, and available AI connection. Have that teammate write a concise launch checklist as a saved Paperclip document containing ${marker}. Put the work in one assigned task in ${project.name}. Link it here and let the teammate complete it.`, 2);
@@ -197,4 +209,27 @@ export async function runChatHardeningFlow(context: {
       await page.unroute("**/api/issues/*/comments", handler);
     }
   } else throw new Error(`Unsupported chat hardening case ${execution.task.id}`);
+  } finally {
+    // Preserve the records the matchers inspected even when an assertion fails.
+    // Failed API reads remain explicit evidence instead of replacing the failure.
+    const capture = async (name: string, load: () => Promise<unknown>) => {
+      try { return { name, value: await load() }; }
+      catch (error) { return { name, error: String(error) }; }
+    };
+    const state = await Promise.all([
+      capture("agents", agents),
+      capture("runs", allRuns),
+      capture("chatComments", comments),
+      capture("tasks", async () => Promise.all((await tasks()).map(async task => ({
+        task,
+        comments: await capture("comments", () => api.get(`/api/issues/${task.id}/comments?order=asc`)),
+        documents: await capture("documents", async () => {
+          const summaries = await api.get<Array<{ key: string }>>(`/api/issues/${task.id}/documents`);
+          return Promise.all(summaries.map(document => capture(document.key,
+            () => api.get(`/api/issues/${task.id}/documents/${encodeURIComponent(document.key)}`))));
+        }),
+      })))),
+    ]);
+    await input.evidence("chat-hardening-state.json", state);
+  }
 }

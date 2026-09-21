@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertChatHire, assertChatSourceReview, assertCommittedSendRetry, assertGroundedChatStatus, isChatStopReady } from "./chat-hardening.js";
+import { assertChatHire, assertChatSourceReview, assertChatStartupStopped, assertCommittedSendRetry, assertGroundedChatStatus, isChatStopReady } from "./chat-hardening.js";
 import { runnerMatrix } from "./catalog.js";
 import { buildRunnerE2EProcessEnvironment } from "./harness-env.js";
 
@@ -65,6 +65,15 @@ describe("agent chat hardening oracles", () => {
     expect(() => assertCommittedSendRetry({ ...valid, runs: [...valid.runs, run] })).toThrow();
     expect(() => assertCommittedSendRetry({ ...valid, runs: [...valid.runs, { ...valid.runs[0]!, id: "duplicate" }] })).toThrow();
     expect(() => assertCommittedSendRetry({ ...valid, runs: [] })).toThrow();
+  });
+
+  it("requires dispatched Stop with no late turn and reports a missed startup checkpoint separately", () => {
+    const cancellation = { scope: "run", dispatchState: "acknowledged", dispatched: true, recordedAt: "2026-09-21T12:00:00Z" };
+    const stopped = { ...run, status: "cancelled", resultJson: { nativeCancellation: cancellation } };
+    expect(() => assertChatStartupStopped(stopped, [])).not.toThrow();
+    expect(() => assertChatStartupStopped({ ...stopped, resultJson: { nativeCancellation: { ...cancellation, dispatched: false } } }, [])).toThrow();
+    expect(() => assertChatStartupStopped(stopped, [{ eventType: "turn.started", createdAt: "2026-09-21T12:00:01Z" }])).toThrow(/must never submit/);
+    expect(() => assertChatStartupStopped(stopped, [{ eventType: "turn.started", createdAt: "2026-09-21T11:59:59Z" }])).toThrow(/Harness missed startup Stop boundary/);
   });
 
   it("keeps the paid hardening matrix explicit and limits API-tool opt-in to coordination", () => {

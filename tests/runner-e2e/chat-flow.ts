@@ -8,7 +8,7 @@ import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 import { isBlockedUnstartedWake } from "./non-execution-wake.js";
 import { chatMarker } from "./chat-cases.js";
-import { isChatStopReady, runChatHardeningFlow } from "./chat-hardening.js";
+import { assertChatStartupStopped, isChatStopReady, runChatHardeningFlow } from "./chat-hardening.js";
 
 // Public API observations only: this driver never fabricates provider results or writes DB state.
 export interface ChatIssue {
@@ -504,6 +504,12 @@ export async function runChatFlow(input: ChatFlowInput) {
           ).toEqual(
             oldComments.filter((c) => c.createdByRunId === cancelledId),
           );
+        if (caseId === "stop-startup-new-resume" && cancelledId) {
+          const stopped = await api.get<ChatRun>(`/api/heartbeat-runs/${cancelledId}`);
+          const events = await api.get<Array<{ eventType?: unknown; createdAt?: string }>>(`/api/heartbeat-runs/${cancelledId}/events?limit=1000`);
+          await input.evidence("chat-startup-stop-result.json", { stopped, events });
+          assertChatStartupStopped(stopped, events);
+        }
         await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
         await expect(
           page.getByText("New session", { exact: true }),
