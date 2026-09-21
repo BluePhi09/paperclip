@@ -73,6 +73,12 @@ execution ID because `--all` excludes explicit-only suites. Each cell applies a
 1,000-cent company and agent budget hard stop before task creation and records
 both limits in its evidence.
 
+The explicit-only `agent-chat-stories` suite covers the experimental settings
+lifecycle for a configured native agent and follow-ups during active work. Its
+fixture-driven file wait and persisted-plan oracle are documented in the
+[Product E2E guide](../tests/runner-e2e/README.md). It does not qualify the native
+onboarding wizard or change the native API-tool rollout defaults.
+
 ## Validation ladder
 
 Start with credential-free checks and a catalog listing. For Product E2E:

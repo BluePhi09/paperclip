@@ -5,6 +5,8 @@ import { createTaskThroughUi, submitTaskReply } from "./user-actions.js";
 
 import { runFirstTaskFlow, setupFirstTaskFixtures } from "./first-task-flow.js";
 import { runChatFlow } from "./chat-flow.js";
+import { restartChatServer } from "./chat-restart.js";
+import { matchesRunCount, minimumRunCount } from "./run-count.js";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -846,7 +848,7 @@ for (const execution of executions) {
       } else if (execution.task.flow === "agent_chat") {
         const chat = await runChatFlow({
           page, api, fixtures, execution, nonce, workspacePath,
-          restart: () => restartIsolatedPaperclipServer({ api, requestId: `chat-${nonce}`, deadlineAt: startedAtMs + deadlineMs }),
+          restart: () => restartChatServer(page, () => restartIsolatedPaperclipServer({ api, requestId: `chat-${nonce}`, deadlineAt: startedAtMs + deadlineMs })),
           observe: (chatIssue, chatRuns) => { issue = chatIssue; selectedRuns = chatRuns; },
           capture: captureScreenshot,
           evidence: (name, data) => writeSanitizedJson(snapshotsDir, name, data, secrets),
@@ -1562,7 +1564,7 @@ for (const execution of executions) {
         load: loadTaskState,
         accept: ({ currentIssue, taskRuns }) =>
           currentIssue.status === execution.task.expectedTerminalState.issue &&
-          taskRuns.length >= execution.task.expectedRunCount &&
+          taskRuns.length >= minimumRunCount(execution.task) &&
           taskRuns.every((run) => TERMINAL_RUN_STATUSES.has(run.status)),
         reject: ({ taskRuns }) => definitiveRunFailure(taskRuns),
       });
@@ -1579,7 +1581,7 @@ for (const execution of executions) {
           deadlineAt: Math.min(deadlineAt, Date.now() + 30_000),
           load: loadTaskState,
           accept: ({ taskRuns, comments }) => {
-            if (taskRuns.length !== execution.task.expectedRunCount) {
+            if (!matchesRunCount(execution.task, taskRuns.length)) {
               return false;
             }
             const finalRun = sortRunsChronologically(taskRuns).at(-1);
@@ -1601,7 +1603,7 @@ for (const execution of executions) {
         expect(pending.actionRequests).toHaveLength(0);
         await writeSanitizedJson(snapshotsDir, "connection-review.json", { source: "local MCP fixture", connectionId: reviewProvider.connectionId, providerCalls: reviewProvider.invocationCount(), decision: execution.task.toolReviewDecision, issueId: issue.id }, secrets);
       }
-      if (selectedRuns.length !== execution.task.expectedRunCount) {
+      if (!matchesRunCount(execution.task, selectedRuns.length)) {
         const runLogs = await Promise.all(
           selectedRuns.map(async (candidate) => ({
             runId: candidate.id,
@@ -1622,7 +1624,7 @@ for (const execution of executions) {
           secrets,
         );
         throw new Error(
-          `Expected exactly ${execution.task.expectedRunCount} task heartbeat run(s); observed ${selectedRuns.length}`,
+          `Expected ${minimumRunCount(execution.task)}..${execution.task.expectedRunCount} task heartbeat run(s); observed ${selectedRuns.length}`,
         );
       }
       // The company run-list endpoint intentionally returns only a compact,
