@@ -4489,6 +4489,20 @@ done
     }
 
     #[test]
+    fn preserves_prepared_context_in_the_durable_provider_config() {
+        let config: CodexProviderConfig = serde_json::from_value(json!({
+            "provider": "opencode", "driver": "opencode_server",
+            "providerVersion": QUALIFIED_OPENCODE_VERSION, "command": "node",
+            "cwd": "/workspace", "model": "openrouter/model",
+            "conversationMode": "prepared"
+        })).unwrap();
+        let stored = serde_json::to_value(config).unwrap();
+        assert_eq!(stored["conversationMode"], "prepared");
+        let restored: CodexProviderConfig = serde_json::from_value(stored).unwrap();
+        assert_eq!(serde_json::to_value(restored).unwrap()["conversationMode"], "prepared");
+    }
+
+    #[test]
     fn admits_only_exact_local_facade_provider_driver_pairs() {
         let mut config = CodexProviderConfig {
             provider: "opencode".to_owned(),
