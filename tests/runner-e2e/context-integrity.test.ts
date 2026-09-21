@@ -13,6 +13,7 @@ function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit
     runs: [{ id: "run-1", status: "running" }],
     ...(id === "assigned-skill-explicit-invocation" ? {
       assignedSkill: { key: scenario.skillKey, runtimeName: scenario.skillKey, versionId: "version-1", markdown: `write ${scenario.marker}` },
+      skillRequestText: `${scenario.prompt}\n\nUse /${scenario.skillKey} for this request.`,
       skillInvocationEvidence: valid,
     } : {}),
   };
@@ -46,6 +47,9 @@ describe("context integrity Product E2E contract", () => {
   it("requires distinct ordered comments, including intentional repetition", () => {
     const { scenario, checkpoints } = recording("ordered-comment-continuation");
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints }).every((check) => check.passed)).toBe(true);
+    const normalCaps = structuredClone(checkpoints);
+    (normalCaps[2].documents[0] as { body: string }).body = `# Packing List\n\n- Passport\n- Charger\n\n${scenario.comments.join("\n")}\n${scenario.marker}`;
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: normalCaps }).every((check) => check.passed)).toBe(true);
     const wrong = structuredClone(checkpoints);
     (wrong[2].comments[1] as { body: string }).body = String(scenario.changed);
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: wrong })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "ordered-comments", passed: false })]));
@@ -77,7 +81,25 @@ describe("context integrity Product E2E contract", () => {
     const { scenario, checkpoints } = recording("assigned-skill-explicit-invocation", false);
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     expect(checks.find((check) => check.id === "assigned-skill-present")?.passed).toBe(true);
-    expect(checks.find((check) => check.id === "skill-explicitly-invoked")?.passed).toBe(false);
-    expect(checks.some((check) => !check.passed)).toBe(true);
+    expect(checks.find((check) => check.id === "skill-request-explicit")?.passed).toBe(true);
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("accepts implicit native skill loading when public assignment and output provenance are valid", () => {
+    const { scenario, checkpoints } = recording("assigned-skill-explicit-invocation", false);
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints }).every((check) => check.passed)).toBe(true);
+  });
+
+  it("rejects missing assignment, missing marker, and marker leaked into the request", () => {
+    const { scenario, checkpoints } = recording("assigned-skill-explicit-invocation", false);
+    const missingAssignment = structuredClone(checkpoints);
+    (missingAssignment[0].assignedSkill as { versionId: string | null }).versionId = null;
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingAssignment })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "assigned-skill-present", passed: false })]));
+    const missingMarker = structuredClone(checkpoints);
+    (missingMarker[1].documents[0] as { body: string }).body = "Final report without provenance";
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingMarker })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "single-durable-output", passed: false })]));
+    const leakedMarker = structuredClone(checkpoints);
+    leakedMarker[0].skillRequestText = `${scenario.prompt} ${scenario.marker} /${scenario.skillKey}`;
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: leakedMarker })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "marker-not-in-request", passed: false })]));
   });
 });

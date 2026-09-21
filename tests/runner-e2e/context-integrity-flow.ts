@@ -73,6 +73,7 @@ export async function runContextIntegrityFlow(input: {
   } as const;
   let issue: Row | undefined;
   let runs: Row[] = [];
+  let skillRequestText = "";
   const checkpoints: ContextIntegrityCheckpoint[] = [];
 
   if (scenario.id === "assigned-skill-explicit-invocation") {
@@ -121,7 +122,7 @@ export async function runContextIntegrityFlow(input: {
       ? await Promise.all(runs.map((run) => api.get<Row[]>(`/api/heartbeat-runs/${run.id}/events?limit=1000`)))
       : [];
     const skillInvocationEvidence = scenario.id === "assigned-skill-explicit-invocation" && runEvents.some((events) => events.some((event) => containsExplicitSkillInput(event, String(assignedSkill?.slug ?? scenario.skillKey))));
-    checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, assignedSkill: assignedSkill ? { key: String(assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: String(assignedSkill.currentVersionId ?? assignedSkill.versionId ?? ""), markdown: scenario.assignedSkill?.markdown } : undefined, skillInvocationEvidence });
+    checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, assignedSkill: assignedSkill ? { key: String(assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: String(assignedSkill.currentVersionId ?? assignedSkill.versionId ?? ""), markdown: scenario.assignedSkill?.markdown } : undefined, skillRequestText: scenario.id === "assigned-skill-explicit-invocation" ? skillRequestText : undefined, skillInvocationEvidence });
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     input.observe(issue!, runs, checks);
     await input.evidence("context-integrity.json", { schema: "paperclip.context-integrity.v1", scenario, budgetGuard, checkpoints, checks });
@@ -147,6 +148,7 @@ export async function runContextIntegrityFlow(input: {
     const taskPrompt = scenario.id === "assigned-skill-explicit-invocation"
       ? `${scenario.prompt}\n\nUse /${scenario.skillKey} for this request.`
       : scenario.prompt;
+    skillRequestText = taskPrompt;
     await createTaskThroughUi({ page, issuePrefix: fixtures.company.issuePrefix!, agentName: fixtures.agent.name, title: execution.task.buildTitle(nonce), prompt: taskPrompt, workMode: "standard" });
     issue = await pollUntil({ label: "context-integrity task created", deadlineAt: input.deadlineAt, load: async () => (await api.get<Row[]>(`${companyPath}/issues?limit=100`)).find((row) => row.title === execution.task.buildTitle(nonce)), accept: Boolean });
     if (!issue) throw new Error("Missing context-integrity task");

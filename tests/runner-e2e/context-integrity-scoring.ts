@@ -8,6 +8,7 @@ export interface ContextIntegrityCheckpoint {
   documents: Array<{ key: string; body?: string | null }>;
   runs: Array<Record<string, unknown>>;
   assignedSkill?: { key: string; runtimeName?: string; versionId?: string | null; markdown?: string };
+  skillRequestText?: string;
   skillInvocationEvidence?: boolean;
 }
 
@@ -74,7 +75,8 @@ export function gradeContextIntegrity(input: {
       finalComments.at(2) === input.comments[2] && finalComments.at(0) === finalComments.at(1),
       "The final changed-scope comment must follow two identical earlier comments.",
     );
-    const body = String(final?.documents.find((document) => String(document.body ?? "").includes("passport"))?.body ?? "");
+    const report = final?.documents.find((document) => /passport/i.test(String(document.body ?? "")) && /charger/i.test(String(document.body ?? "")));
+    const body = String(report?.body ?? "");
     const orderedTerms = [input.comments[0], input.comments[1], input.comments[2]];
     let cursor = -1;
     const ordered = orderedTerms.every((term) => {
@@ -85,15 +87,18 @@ export function gradeContextIntegrity(input: {
     });
     check(
       "packing-report-order",
-      body.includes("passport") && body.includes("charger") && ordered,
+      /passport/i.test(body) && /charger/i.test(body) && ordered,
       "The durable packing report must retain both initial items and each verbatim request in order, including the repeated request and final scope.",
     );
     const succeededRunIds = (final?.runs ?? []).filter((run) => run.status === "succeeded").map((run) => String(run.id ?? "")).filter(Boolean);
     check("continuation-run-count", new Set(succeededRunIds).size >= 2, "The initial run and one distinct successful deferred continuation run must both be recorded.");
   }
   if (input.id === "assigned-skill-explicit-invocation") {
+    const runtimeName = String(initial?.assignedSkill?.runtimeName ?? initial?.assignedSkill?.key ?? "");
+    const requestText = String(initial?.skillRequestText ?? "");
     check("assigned-skill-present", Boolean(initial?.assignedSkill?.key && initial.assignedSkill.versionId), "The task run must receive one pinned skill version through the public assignment state.");
-    check("skill-explicitly-invoked", initial?.skillInvocationEvidence === true, "Evidence must show the assigned skill was explicitly invoked; assignment alone is insufficient.");
+    check("skill-request-explicit", Boolean(runtimeName && new RegExp(`(?:^|[\\s/])(?:\\$)?${runtimeName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i").test(requestText)), "The task request must explicitly name the assigned skill.");
+    check("marker-not-in-request", !requestText.includes(input.marker) && !finalComments.some((comment) => comment.includes(input.marker)), "The output marker must originate from the assigned skill, not the task request or comments.");
   }
   const output = final ? oneOutput(final, input.marker, input.id === "assigned-skill-explicit-invocation") : undefined;
   check("single-durable-output", Boolean(output) && final!.documents.length === 1, input.id === "assigned-skill-explicit-invocation" ? "Exactly one durable task document must contain the skill's marker." : "Exactly one durable packing report document must be saved.");
