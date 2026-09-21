@@ -102,6 +102,11 @@ export function gradeContextIntegrity(input: {
       /passport/i.test(body) && /charger/i.test(body) && ordered,
       "The durable packing report must retain both initial items and each verbatim request in order, including the repeated request and final scope.",
     );
+    check(
+      "final-scope-applied",
+      /final requested scope[\s\S]{0,240}launch checklist/i.test(body),
+      "The report must apply the final Launch checklist scope in a separate final-scope section outside the quoted request ledger.",
+    );
     const succeededRunIds = (final?.runs ?? []).filter((run) => run.status === "succeeded").map((run) => String(run.id ?? "")).filter(Boolean);
     check("continuation-run-count", new Set(succeededRunIds).size === 2, "The initial run and one distinct successful deferred continuation run must both be recorded.");
     const continuation = (final?.runs ?? [])

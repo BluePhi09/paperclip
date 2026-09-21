@@ -22,7 +22,7 @@ export function contextIntegrityScenario(id: string, nonce: string) {
     skillName: "Context integrity output skill",
     prompt:
       id === "ordered-comment-continuation"
-        ? `Maintain a packing list report document. Start with the initial scope: passport and charger. Save the initial report and leave this task waiting for follow-up comments. When follow-up comments arrive, copy each user's exact wording verbatim into one ordered ledger, including identical wording repeated more than once. After the follow-up batch, save one report containing both initial items, every verbatim request in arrival order, and the final requested scope, then finish. Do not invent extra comments, child tasks, or deliverables.`
+        ? `Maintain a packing list report document. Start with the initial scope: passport and charger. Save the initial report and leave this task waiting for follow-up comments. When follow-up comments arrive, copy each user's exact wording verbatim into one ordered ledger, including identical wording repeated more than once. After the follow-up batch, save one report containing both initial items, every verbatim request in arrival order, and apply the final requested scope as Launch checklist in a separate final-scope section outside the quoted ledger, then finish. Do not invent extra comments, child tasks, or deliverables.`
         : "Use the assigned Context integrity output skill for this task, then follow its instructions and finish the task. Do not create child tasks or unrelated deliverables.",
     comments: [repeated, repeated, changed] as const,
   };
