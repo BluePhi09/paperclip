@@ -1221,6 +1221,12 @@ session. A staged provider package is reused only after the complete expected
 manifest and artifact hashes verify. A missing, changed, or incompatible package
 must be replaced and verified before launch.
 
+Warm attachment requires two consecutive authenticated readiness snapshots.
+Blocked readiness probes back off within the reconnect deadline so they do not
+fill the durable command journal while waiting. The fast ready path keeps its
+short second barrier. If readiness never arrives, attachment fails closed with
+the last observed blocker; a full journal is not a substitute for that diagnosis.
+
 Safe native replacement may clear a Blocked status only with a durable receipt
 that the same failed run projected that exact status version. Explicitly
 reasserting Blocked or changing its blockers advances the status version, even
