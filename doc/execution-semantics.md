@@ -1280,6 +1280,11 @@ transaction that queues it. Their original authors remain intact. A former
 assignee's ordinary comment wake must not start another execution or reopen a
 completed task after the replacement finishes. Mentions, chat deliveries, and
 dedicated interaction continuations retain their separate delivery contracts.
+Comment insertion takes the issue-row lock before writing. When no valid
+historical timestamp is supplied, the comment's `createdAt` and `updatedAt`
+use one statement timestamp so a transaction that started earlier cannot make
+the later comment appear older; imported historical timestamps retain their
+existing behavior.
 
 A requested file is complete when the user can retrieve it. Native runners must
 register requested output files before reporting Done and link the resulting
