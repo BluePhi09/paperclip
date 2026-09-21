@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { contextIntegrityScenario } from "./context-integrity-cases.js";
 import { gradeContextIntegrity, type ContextIntegrityCheckpoint } from "./context-integrity-scoring.js";
 import { pollUntil, type RunnerApi } from "./api.js";
@@ -151,7 +152,7 @@ export async function runContextIntegrityFlow(input: {
     if (scenario.id === "ordered-comment-continuation") {
       await api.post(`/api/agents/${fixtures.agent.id}/pause`);
       for (let index = 0; index < scenario.comments.length; index += 1) {
-        await api.post(`/api/issues/${issue.id}/comments`, { body: scenario.comments[index], clientRequestId: `context-integrity-${nonce}-${index}` });
+        await api.post(`/api/issues/${issue.id}/comments`, { body: scenario.comments[index], clientRequestId: randomUUID() });
       }
       await snapshot("comment-3");
       const before = new Set(runs.map((run) => run.id));
