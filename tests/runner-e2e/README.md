@@ -188,6 +188,26 @@ requires the original comment, task, plan, and single consuming run. This proves
 HTTP request idempotency across restart, not replay safety for an ambiguous
 provider tool response. Existing native tool-receipt tests cover that boundary.
 
+`agent-chat-stories` adds six explicit-only local cells across native Codex and
+Claude. `enable-disable-resume` uses the Experimental settings UI to enable
+Agent Chat, starts a conversation, disables new messages, verifies the public
+write endpoint rejects a send without creating work, and re-enables the same
+conversation with its remembered context. The company, credential, and native
+agent are fixture-provisioned. This qualifies the experimental-settings path,
+not native first-run onboarding: the current production wizard offers legacy
+adapters, and native API tools remain an independent opt-in.
+
+`followup-while-running` and `revise-while-running` send a second browser message
+while the provider runs a bounded command waiting for a fixture brief file.
+The command publishes its own readiness file; the harness verifies the original
+run is still active after the follow-up is saved, then supplies the brief.
+The final reply must contain the previously undisclosed brief reference and the
+new request's marker. The revision case also checks the saved plan uses Friday
+instead of the original Monday. The oracle permits either steering the active
+run or one queued successor, but rejects missing/duplicate comments, failed or
+unfinished runs, stale plan contents, and unintended tasks/projects. This does
+not qualify active-task reassignment or worker-crash recovery.
+
 ```sh
 pnpm test:e2e:runner -- --list --suite agent-chat-hardening
 pnpm test:e2e:runner -- --id agent-chat-hardening.runner-codex.local.stop-startup-new-resume

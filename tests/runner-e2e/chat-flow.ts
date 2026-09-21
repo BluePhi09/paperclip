@@ -9,6 +9,7 @@ import type { MatrixExecution } from "./types.js";
 import { isBlockedUnstartedWake } from "./non-execution-wake.js";
 import { chatMarker } from "./chat-cases.js";
 import { assertChatRememberedAfterRestart, assertChatStartupStopped, isChatStopReady, runChatHardeningFlow } from "./chat-hardening.js";
+import { enableChatThroughSettings, runChatInterruption, runChatSettingsLifecycle } from "./chat-stories.js";
 
 // Public API observations only: this driver never fabricates provider results or writes DB state.
 export interface ChatIssue {
@@ -368,7 +369,8 @@ export async function runChatFlow(input: ChatFlowInput) {
   };
   const noTasks = async () => expect(await tasks()).toHaveLength(0);
   try {
-    await api.patch("/api/instance/settings/experimental", {
+    if (caseId === "enable-disable-resume") await enableChatThroughSettings(input);
+    else await api.patch("/api/instance/settings/experimental", {
       enableAgentChat: true,
       enableClassicTaskInterface: false,
     });
@@ -380,7 +382,12 @@ export async function runChatFlow(input: ChatFlowInput) {
     expect(await api.get(chatPath)).toBeNull();
     expect(await allRuns()).toHaveLength(0);
 
-    if (
+    if (caseId === "enable-disable-resume") {
+      await runChatSettingsLifecycle({ input, marker, issue: () => issue!, idle, allRuns, comments });
+    } else if (["followup-while-running", "revise-while-running"].includes(caseId)) {
+      await runChatInterruption({ input, marker, issue: () => issue!, idle, allRuns, comments,
+        refreshIssue: async () => { issue = await api.get<ChatIssue>(chatPath); input.observe(issue, await allRuns()); } });
+    } else if (
       ["continuity-restart", "new-session", "stop-new-resume", "stop-startup-new-resume"].includes(caseId)
     ) {
       const secret = chatMarker("OLDCONTEXT", nonce);
