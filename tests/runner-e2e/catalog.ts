@@ -950,11 +950,12 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     id: "agent-chat-hardening", label: "Agent Chat Recovery and Coordination", manualOnly: true,
     description: "Native chat startup cancellation, committed sends, hiring, grounded status, and remote continuity.",
     groups: ["chat", "native"],
-    profiles: runnerProfiles.filter(profile => ["runner-codex", "runner-acpx-claude"].includes(profile.id)).map(defaultPermissionProfile),
+    profiles: runnerProfiles.filter(profile => ["runner-codex", "runner-acpx-claude"].includes(profile.id))
+      .map(profile => productionStoryProfile(defaultPermissionProfile(profile))),
     environments: [localEnvironment, daytonaWarmEnvironment], tasks: chatHardeningTasks, expectedMatrixSize: 18,
     excludedExecutionIds: ["runner-codex", "runner-acpx-claude"].flatMap(profile =>
       ["stop-startup-new-resume", "hire-delegate-reuse", "blocked-status-review"].map(task => `agent-chat-hardening.${profile}.daytona.${task}`)),
-    definitionMetadata: { version: 1, permissions: "production-defaults", grading: "durable-state-and-source-evidence", scheduling: "explicit-only" },
+    definitionMetadata: { version: 1, permissions: "production-defaults", instructions: "production", grading: "durable-state-and-source-evidence", scheduling: "explicit-only" },
   },
   ...(process.env.PAPERCLIP_RUNNER_E2E_CONNECTION_REVIEWS === "1" ? [connectionReviewSuite] : []),
   {

@@ -74,6 +74,12 @@ describe("agent chat hardening oracles", () => {
     for (const cell of cells) {
       expect(buildRunnerE2EProcessEnvironment({}, [cell]).PAPERCLIP_RUNNER_API_TOOLS_ENABLED).toBe(
         ["hire-delegate-reuse", "blocked-status-review"].includes(cell.task.id) ? "true" : undefined);
+      const config = cell.profile.buildAgent({ executionId: "fixture", workspacePath: "/workspace", environmentId: "local",
+        environmentFixtureId: "local", secretRefs: { [cell.profile.credential]: { type: "secret_ref", secretId: "secret", version: "latest" } } });
+      expect(config.role).toBe("ceo");
+      expect(JSON.stringify(config.instructionsBundle)).not.toMatch(/mark the task done|paperclip_finish|POST \/api|PUT \/api/);
+      expect(config.adapterConfig).not.toHaveProperty("codexPermissionMode");
+      expect(config.adapterConfig).not.toHaveProperty("acpxPermissionMode");
     }
   });
 });
