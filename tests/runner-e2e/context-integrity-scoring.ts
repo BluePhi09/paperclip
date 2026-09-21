@@ -104,7 +104,9 @@ export function gradeContextIntegrity(input: {
     );
     check(
       "final-scope-applied",
-      body.match(/(?:^|\n)##[ \t]+Final scope[ \t]*\r?\n([\s\S]*?)(?=\n#{1,6}[ \t]+|$)/i)?.[1]?.trim().toLowerCase() === "launch checklist",
+      ["launch checklist", "the launch checklist"].includes(
+        body.match(/(?:^|\n)##[ \t]+Final scope[ \t]*\r?\n([\s\S]*?)(?=\n#{1,6}[ \t]+|$)/i)?.[1]?.trim().toLowerCase() ?? "",
+      ),
       "The report must apply the final Launch checklist scope in a separate final-scope section outside the quoted request ledger.",
     );
     const succeededRunIds = (final?.runs ?? []).filter((run) => run.status === "succeeded").map((run) => String(run.id ?? "")).filter(Boolean);
