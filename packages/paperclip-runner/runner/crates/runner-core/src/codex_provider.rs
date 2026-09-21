@@ -356,6 +356,9 @@ pub struct CodexProviderConfig {
     // Older persisted configurations deliberately retain the provider default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_skill_instructions: Option<bool>,
+    // Older sessions retain their standalone task envelope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_mode: Option<String>,
 }
 
 /// Explicit per-turn skill selection. The controller resolves assigned skill
@@ -399,6 +402,14 @@ impl CodexProviderConfig {
     }
 
     pub fn validate(&self) -> Result<(), LocalRunnerError> {
+        if !matches!(
+            self.conversation_mode.as_deref(),
+            None | Some("task" | "prepared")
+        ) {
+            return Err(LocalRunnerError::invalid(
+                "unsupported provider context mode",
+            ));
+        }
         if !matches!(
             (self.provider.as_str(), self.driver.as_str()),
             ("codex", "codex_app_server") | ("opencode", "opencode_server")
@@ -1042,6 +1053,9 @@ impl CodexProvider {
                 params_object.insert("permissions".to_owned(), json!(provider.permission_profile));
             }
             if config.provider == "opencode" {
+                if let Some(mode) = &config.conversation_mode {
+                    params_object.insert("conversationMode".to_owned(), json!(mode));
+                }
                 if let Some(contract) = provider.completion_contract.as_ref() {
                     params_object.insert(
                         "completionContract".to_owned(),
@@ -4019,6 +4033,7 @@ done
             approval_policy: "never".to_owned(),
             externally_sandboxed: false,
             include_skill_instructions: None,
+            conversation_mode: None,
         };
         let mut provider = CodexProvider::start(&config, None).unwrap();
         provider.start_turn("First turn", &config.cwd).unwrap();
@@ -4405,6 +4420,7 @@ done
             approval_policy: "never".to_owned(),
             externally_sandboxed: false,
             include_skill_instructions: None,
+            conversation_mode: None,
         };
         let mut spawned = None;
         let mut failure = None;
@@ -4495,11 +4511,15 @@ done
             "providerVersion": QUALIFIED_OPENCODE_VERSION, "command": "node",
             "cwd": "/workspace", "model": "openrouter/model",
             "conversationMode": "prepared"
-        })).unwrap();
+        }))
+        .unwrap();
         let stored = serde_json::to_value(config).unwrap();
         assert_eq!(stored["conversationMode"], "prepared");
         let restored: CodexProviderConfig = serde_json::from_value(stored).unwrap();
-        assert_eq!(serde_json::to_value(restored).unwrap()["conversationMode"], "prepared");
+        assert_eq!(
+            serde_json::to_value(restored).unwrap()["conversationMode"],
+            "prepared"
+        );
     }
 
     #[test]
@@ -4520,6 +4540,7 @@ done
             approval_policy: "never".to_owned(),
             externally_sandboxed: false,
             include_skill_instructions: None,
+            conversation_mode: None,
         };
         config.include_skill_instructions = Some(true);
         assert_eq!(

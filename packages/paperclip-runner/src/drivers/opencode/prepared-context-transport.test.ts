@@ -29,8 +29,6 @@ describe("prepared OpenCode context transport", () => {
       model: "openrouter/deepseek/deepseek-v4-flash-0731",
       runtimeDirectory: root,
       command: fixture,
-      // This is intentionally cast until the explicit transport mode lands in
-      // the shared harness option contract.
       conversationMode: "prepared",
       environment: { PATH: process.env.PATH, OPENROUTER_API_KEY: "fixture-key" },
       fetch: async (input, init) => {
@@ -38,7 +36,7 @@ describe("prepared OpenCode context transport", () => {
           submitted.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         return fetch(input, init);
       },
-    } as never);
+    });
 
     const session = await driver.openSession({
       runId: "run-prepared-opencode",
@@ -51,10 +49,24 @@ describe("prepared OpenCode context transport", () => {
     for await (const event of session.events()) {
       if (event.eventType === "turn.completed") break;
     }
+    const snapshot = await session.snapshot();
+    await session.close({ reason: "prepared-test" });
+    const recovered = await driver.recoverSession?.(snapshot);
+    expect(recovered?.recovered).toBe(true);
+    await recovered!.session!.startTurn({
+      message: {
+        role: "user",
+        text: "completion-only OpenCode continuation",
+      },
+    });
+    for await (const event of recovered!.session!.events()) {
+      if (event.eventType === "turn.completed") break;
+    }
     expect(submitted.map((body) => body.parts)).toEqual([
       [{ type: "text", text: "prepared OpenCode initial wake" }],
+      [{ type: "text", text: "completion-only OpenCode continuation" }],
     ]);
     expect(JSON.stringify(submitted)).not.toContain('"task"');
-    await session.close({ reason: "prepared-test" });
+    await recovered!.session!.close({ reason: "prepared-test-recovery" });
   });
 });

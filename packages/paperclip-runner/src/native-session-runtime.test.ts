@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ControlPlanePort } from "./contracts/control-plane-port.js";
-import type { NativeExecutionInputV1 } from "./contracts/native-execution.js";
+import type { NativeExecutionInputV1, NativeExecutionInputV5 } from "./contracts/native-execution.js";
 import type { NativeRunIdentity } from "./contracts/types.js";
 import type {
   NativeSession,
@@ -135,6 +136,28 @@ const input: NativeExecutionInputV1 = {
   interactionResponses: [],
   credentialBindings: [],
 };
+
+function preparedInput(): NativeExecutionInputV5 {
+  const digest = "0".repeat(64);
+  const context = {
+    prompt: { revision: PAPERCLIP_EXECUTION_PROMPT_REVISION, text: PAPERCLIP_EXECUTION_PROMPT, digest: nativeRuntimePromptDigest() },
+    instructions: { entryPath: "AGENTS.md", bundle: { schema: NATIVE_RUNTIME_ASSET_SCHEMA, digest, manifestDigest: digest, rootPath: "/runtime/instructions", fileCount: 1, totalBytes: 1 } },
+    skills: [], mcp: { assignmentSetId: "none", digest, bindingId: null },
+  } as const;
+  const requirement = input.completionContract.contract.criteria[0]!.requirement;
+  const prompt = `${input.task.prompt}\n\n${requirement}`;
+  return {
+    ...input, schema: "paperclip.native-execution-input.v5", executionMode: "default", planningContext: null,
+    task: { ...input.task, description: requirement, prompt },
+    provider: { kind: "codex", model: null, approvalPolicy: "never" },
+    runtimeContext: { ...context, aggregateDigest: canonicalNativeRuntimeContextDigest(context) },
+    completionSources: {
+      promptSha256: createHash("sha256").update(prompt).digest("hex"),
+      contractRevision: input.completionContract.contract.revision,
+      criteria: [{ id: "objective", source: { kind: "description", id: identity.issueId, revision: createHash("sha256").update(requirement).digest("hex") } }],
+    },
+  };
+}
 
 function controlEvent(
   sourceSeq: number,
@@ -6299,7 +6322,8 @@ describe("executeNativeSession recovery", () => {
     });
   });
 
-  it("only replays the original ACPX envelope for a proven effect-free initial turn", async () => {
+  it.each([false, true])("only replays the original ACPX envelope for a proven effect-free initial turn (prepared: %s)", async (prepared) => {
+    const executionInput = prepared ? preparedInput() : input;
     const checkpoint: PersistedNativeSession = {
       backendKind: "mock",
       driverKind: "acpx_runtime",
@@ -6361,9 +6385,11 @@ describe("executeNativeSession recovery", () => {
       async close() {},
     };
     const backend: NativeSessionBackend = {
+      preparedTaskConstraints: ["Retain the original workspace rule."],
       async descriptor() {
         return {
           kind: "mock",
+          runtimeContextCapabilities: { instructions: "native", skills: "native", mcp: "native" },
           name: "recovery-backend",
           version: "1",
           capabilities: {
@@ -6464,7 +6490,7 @@ describe("executeNativeSession recovery", () => {
 
     await expect(
       executeNativeSession({
-        input,
+        input: executionInput,
         backend,
         controlPlane: port,
         runnerInstanceId: "runner-recovery",
@@ -6494,7 +6520,15 @@ describe("executeNativeSession recovery", () => {
     const recoveryEnvelope = JSON.parse(
       startTurn.mock.calls[0]![0].message.text,
     ) as { task: { prompt: string } };
-    expect(recoveryEnvelope.task.prompt).toBe(input.task.prompt);
+    expect(recoveryEnvelope.task.prompt).toBe(executionInput.task.prompt);
+    if (prepared) {
+      expect(recoveryEnvelope).toMatchObject({
+        schema: "paperclip.native-model-envelope.v3",
+        constraints: ["Retain the original workspace rule."],
+        completionContract: { criteria: [{ id: "objective", source: { id: identity.issueId, location: "task.prompt" } }] },
+      });
+      expect(recoveryEnvelope.task).not.toHaveProperty("description");
+    }
 
     startTurn.mockClear();
     bySource.set("runner-recovery", [
@@ -6517,7 +6551,7 @@ describe("executeNativeSession recovery", () => {
 
     await expect(
       executeNativeSession({
-        input,
+        input: executionInput,
         backend,
         controlPlane: port,
         runnerInstanceId: "runner-recovery",
@@ -6538,6 +6572,10 @@ describe("executeNativeSession recovery", () => {
     );
     expect(dispositionEnvelope.task.prompt).not.toContain(input.task.prompt);
 
+    expect(dispositionEnvelope).toHaveProperty("completionContract", input.completionContract.contract);
+    expect(dispositionEnvelope).not.toHaveProperty("constraints");
+    if (prepared) expect(dispositionEnvelope).toHaveProperty("requestedSkills", []);
+
     checkpoint.dispositionOnlyRecoveryTurnId = undefined;
     recoveredSnapshot.dispositionOnlyRecoveryTurnId = undefined;
     startTurn.mockClear();
@@ -6552,7 +6590,7 @@ describe("executeNativeSession recovery", () => {
 
     await expect(
       executeNativeSession({
-        input,
+        input: executionInput,
         backend,
         controlPlane: port,
         runnerInstanceId: "runner-recovery",
