@@ -5,6 +5,7 @@ import { gradeContextIntegrity, type ContextIntegrityCheckpoint } from "./contex
 import { pollUntil, type RunnerApi } from "./api.js";
 import { createTaskThroughUi } from "./user-actions.js";
 import { release as releaseContextCommentGate, waitUntilHeld } from "./context-comment-gate.js";
+import { captureLoadedContinuation } from "./continuation-screenshot.js";
 import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 
@@ -201,7 +202,8 @@ export async function runContextIntegrityFlow(input: {
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     const failures = checks.filter((check) => !check.passed);
     if (failures.length) throw new Error(`Context-integrity matcher failures: ${failures.map((failure) => `${failure.id}: ${failure.detail}`).join("; ")}`);
-    await input.capture("context-integrity-final", "Context integrity final state", "context-integrity-final.png");
+    await page.goto(`/${fixtures.company.issuePrefix}/issues/${issue.identifier ?? issue.id}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await captureLoadedContinuation(page, String(issue.title), () => input.capture("context-integrity-final", "Context integrity final state", "context-integrity-final.png"));
     return { issue, runs, checks };
   } finally {
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
