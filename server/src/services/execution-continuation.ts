@@ -40,6 +40,33 @@ export function continuationOriginCommentIds(context: unknown): string[] {
   ];
 }
 
+/**
+ * Return the comment IDs explicitly represented in a delivered continuation.
+ * An absent list is intentionally different from an empty list: historical or
+ * third-party snapshots cannot prove what the provider received.
+ */
+export function deliveredContinuationCommentIds(context: unknown): {
+  known: boolean;
+  ids: Set<string>;
+} {
+  const c = object(context);
+  const wake = object(c.paperclipWake);
+  const continuation = object(c.executionContinuation);
+  const ids = new Set<string>();
+  let known = false;
+  const collect = (value: unknown) => {
+    if (!Array.isArray(value)) return;
+    known = true;
+    for (const item of value) {
+      const id = typeof item === "string" ? item : string(object(item).id);
+      if (id) ids.add(id);
+    }
+  };
+  collect(wake.comments);
+  collect(continuation.messages);
+  return { known, ids };
+}
+
 /** Keep service/tool results and generated summaries out of human authority. */
 export function projectHumanInteractionResponse(row: {
   id: string; kind: string; status: string; result: unknown;

@@ -900,6 +900,14 @@ waiting. A direct Board comment reopening completed work has the same passive
 response-wait semantics as a comment on an open task, subject to the same source,
 identity, and governance checks. An automatic continuation is not a user reply.
 
+A run must receive queued human direction before it creates a new task question.
+When the saved run context contains an explicit delivered-comment list, the
+server rejects `ask_user_questions` if a newer human comment is absent from that
+list. It returns `409` with `reason: "newer_comment_not_delivered"` and creates no
+pending question. The next run receives the queued comments and can ask a question
+if it still needs an answer. Older contexts without a delivered-comment list keep
+their existing behavior. This rule does not answer, accept, or dismiss an approval.
+
 Provider-turn identity separates recovery responses from earlier assistant
 output. A recovery turn cannot overwrite a delivered answer. File attachments
 and work products refresh in the visible conversation when delivered. Composer

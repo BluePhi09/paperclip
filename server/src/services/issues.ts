@@ -12025,10 +12025,13 @@ export function issueService(db: Db) {
           ? retryNativeChatReviewPresentation(append)
           : append();
       }
-      const issue = await dbOrTx
+      const issueQuery = dbOrTx
         .select({ companyId: issues.companyId, conversationAgentId: issues.conversationAgentId })
         .from(issues)
-        .where(eq(issues.id, issueId))
+        .where(eq(issues.id, issueId));
+      // Caller-owned transactions (including chat and review comments) must
+      // serialize with question creation before inserting the human comment.
+      const issue = await (actor.userId ? issueQuery.for("update") : issueQuery)
         .then((rows: Array<{ companyId: string; conversationAgentId: string | null }>) => rows[0] ?? null);
 
       if (!issue) throw notFound("Issue not found");
@@ -12274,9 +12277,13 @@ export function issueService(db: Db) {
             presentation,
             metadata,
             sourceTrust: options?.sourceTrust ?? null,
-            ...(createdAt && !Number.isNaN(createdAt.getTime())
-              ? { createdAt }
-              : {}),
+            // Timestamp the insert after the issue lock. The default now()
+            // uses transaction-start time and can make a waiting comment look
+            // older than the question it must supersede. Use the DB clock for
+            // both records; preserve explicitly supplied historical timestamps.
+            createdAt: createdAt && !Number.isNaN(createdAt.getTime())
+              ? createdAt
+              : sql`clock_timestamp()`,
           })
           .returning();
       }
