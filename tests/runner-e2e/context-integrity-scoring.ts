@@ -10,6 +10,7 @@ export interface ContextIntegrityCheckpoint {
   assignedSkill?: { key: string; runtimeName?: string; versionId?: string | null; markdown?: string };
   skillRequestText?: string;
   runEvents?: Array<Record<string, unknown>>;
+  runLogs?: unknown[];
   skillInvocationEvidence?: boolean;
 }
 

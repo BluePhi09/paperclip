@@ -130,12 +130,11 @@ export async function runContextIntegrityFlow(input: {
       ? skillRows.find((skill) => skill.key === scenario.assignedSkill?.key || skill.slug === scenario.assignedSkill?.key)
       : undefined;
     const desiredSkill = (assignedState.desiredSkillEntries as Array<Row> | undefined)?.find((entry) => entry.key === scenario.assignedSkill?.key);
-    const runEvents = scenario.id === "assigned-skill-explicit-invocation"
-      ? await Promise.all(runs.map((run) => api.get<Row[]>(`/api/heartbeat-runs/${run.id}/events?limit=1000`)))
-      : [];
+    const runEvents = await Promise.all(runs.map((run) => api.get<Row[]>(`/api/heartbeat-runs/${run.id}/events?limit=1000`)));
+    const runLogs = await Promise.all(runs.map((run) => api.get<unknown>(`/api/heartbeat-runs/${run.id}/log?limitBytes=1048576`)));
     const skillInvocationEvidence = scenario.id === "assigned-skill-explicit-invocation" && runEvents.some((events) => events.some((event) => containsExplicitSkillInput(event, String(assignedSkill?.slug ?? scenario.skillKey))));
     skillRequestText = scenario.id === "assigned-skill-explicit-invocation" ? String(issue?.description ?? "") : "";
-    checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, runEvents: runEvents.flat(), assignedSkill: assignedSkill ? { key: String(desiredSkill?.key ?? assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: desiredSkill?.versionId === assignedVersionId ? assignedVersionId : null, markdown: String(assignedSkill.markdown ?? scenario.assignedSkill?.markdown ?? "") } : undefined, skillRequestText: scenario.id === "assigned-skill-explicit-invocation" ? skillRequestText : undefined, skillInvocationEvidence });
+    checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, runEvents: runEvents.flat(), runLogs, assignedSkill: assignedSkill ? { key: String(desiredSkill?.key ?? assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: desiredSkill?.versionId === assignedVersionId ? assignedVersionId : null, markdown: String(assignedSkill.markdown ?? scenario.assignedSkill?.markdown ?? "") } : undefined, skillRequestText: scenario.id === "assigned-skill-explicit-invocation" ? skillRequestText : undefined, skillInvocationEvidence });
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     input.observe(issue!, runs, checks);
     await input.evidence("context-integrity.json", { schema: "paperclip.context-integrity.v1", scenario, budgetGuard, checkpoints, checks });
@@ -213,6 +212,8 @@ export async function runContextIntegrityFlow(input: {
       runs,
       checkpoints,
       checks,
+      runEvents: checkpoints.at(-1)?.runEvents,
+      runLogs: checkpoints.at(-1)?.runLogs,
     });
     await page.goto(`/${fixtures.company.issuePrefix}/issues/${issue.identifier ?? issue.id}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await captureLoadedContinuation(page, String(issue.title), () => input.capture("final-state", "Context integrity final state", contextIntegrityFinalEvidence.screenshotFile));
