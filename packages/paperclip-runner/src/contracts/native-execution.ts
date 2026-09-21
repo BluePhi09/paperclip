@@ -199,6 +199,8 @@ export interface NativeExecutionInputV4 extends Omit<NativeExecutionInputV3, "sc
   provider: NativeProviderConfigV4;
   /** Used only after the runtime proves provider-session recovery succeeded. */
   continuationPrompt?: string | null;
+  /** Restored only when starting a fresh provider session, never on a resume. */
+  initialCommunicationGuidance?: string | null;
 }
 
 /** Identity and content revision supplied by the builder that owns the source. */
@@ -327,7 +329,7 @@ export function parseNativeExecutionInput(value: unknown): NativeExecutionInput 
     "credentialBindings",
     ...(isV2 ? ["executionMode", "planningContext"] : []),
     ...(isV3 ? ["runtimeContext"] : []),
-    ...(isV4 ? ["continuationPrompt"] : []),
+    ...(isV4 ? ["continuationPrompt", "initialCommunicationGuidance"] : []),
     ...(isV5 ? ["completionSources"] : []),
   ], "input");
   if (!isV2 && input.schema !== NATIVE_EXECUTION_INPUT_SCHEMA_V1) {
@@ -752,6 +754,7 @@ export function parseNativeExecutionInput(value: unknown): NativeExecutionInput 
   const withPermissions = {
     ...withRuntimeContext,
     ...(input.continuationPrompt !== undefined ? { continuationPrompt: nullableText(input.continuationPrompt, "input.continuationPrompt") } : {}),
+    ...(input.initialCommunicationGuidance !== undefined ? { initialCommunicationGuidance: nullableText(input.initialCommunicationGuidance, "input.initialCommunicationGuidance") } : {}),
     provider: parsedProvider as NativeProviderConfigV4,
   };
   if (!isV5) return { ...withPermissions, schema: NATIVE_EXECUTION_INPUT_SCHEMA_V4 };
@@ -828,7 +831,14 @@ export function buildNativeModelEnvelope(input: NativeExecutionInput, options?: 
     return {
       schema: NATIVE_MODEL_ENVELOPE_SCHEMA,
       requestedSkills: explicitTaskSkillNames(input.task.description, input.runtimeContext.skills.map((skill) => skill.runtimeName)),
-      task: { identifier: input.task.identifier, title: input.task.title, prompt: input.task.prompt, workMode: input.task.workMode },
+      task: {
+        identifier: input.task.identifier,
+        title: input.task.title,
+        prompt: !options?.resumedSession && input.initialCommunicationGuidance
+          ? `${input.initialCommunicationGuidance}\n\n${input.task.prompt}`
+          : input.task.prompt,
+        workMode: input.task.workMode,
+      },
       executionMode: input.executionMode,
       planningContext: structuredClone(input.planningContext),
       workspace: input.provider.kind === "claude_managed" || input.provider.kind === "aws_agentcore" ? null : { cwd: input.workspace.cwd },
@@ -846,7 +856,12 @@ export function buildNativeModelEnvelope(input: NativeExecutionInput, options?: 
   }
   return {
     schema: NATIVE_MODEL_ENVELOPE_SCHEMA_V2,
-    task: structuredClone(input.task),
+    task: {
+      ...structuredClone(input.task),
+      prompt: !options?.resumedSession && "initialCommunicationGuidance" in input && input.initialCommunicationGuidance
+        ? `${input.initialCommunicationGuidance}\n\n${input.task.prompt}`
+        : input.task.prompt,
+    },
     executionMode: input.executionMode,
     planningContext: structuredClone(input.planningContext),
     workspace: input.provider.kind === "claude_managed" || input.provider.kind === "aws_agentcore"

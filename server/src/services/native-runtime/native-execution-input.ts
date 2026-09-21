@@ -41,6 +41,7 @@ export function buildNativeExecutionInput(input: {
     workMode: string;
   };
   taskPrompt: string;
+  initialCommunicationGuidance?: string | null;
   /**
    * The already-sanitized Paperclip wake envelope for this run. Native drivers
    * receive a closed execution input rather than the legacy adapter context,
@@ -179,6 +180,7 @@ export function buildNativeExecutionInput(input: {
     : [];
   return parseNativeExecutionInput({
     schema: "paperclip.native-execution-input.v5",
+    ...(input.initialCommunicationGuidance ? { initialCommunicationGuidance: input.initialCommunicationGuidance } : {}),
     ...(input.resumedSession && input.previousTurn && !input.conversationMode ? {
       continuationPrompt: buildNativeContinuationPrompt({
         wakePayload: input.wakePayload,

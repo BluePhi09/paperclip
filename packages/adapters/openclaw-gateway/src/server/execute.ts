@@ -12,6 +12,8 @@ import {
   readPaperclipIssueWorkModeFromContext,
   renderPaperclipWakePrompt,
   selectPaperclipTaskMarkdown,
+  selectInitialCommunicationGuidance,
+  joinPromptSections,
   stringifyPaperclipWakePayload,
   paperclipWakeCommentsArePromptOwned,
 } from "@paperclipai/adapter-utils/server-utils";
@@ -1120,7 +1122,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       : structuredWakePrompt,
     resolveClaimedApiKeyPath(ctx.config.claimedApiKeyPath),
     ctx.context.conversationMode === true
-      ? selectPaperclipTaskMarkdown(ctx.context, { resumedSession: Boolean(ctx.runtime?.sessionId) })
+      ? selectPaperclipTaskMarkdown(ctx.context, { resumedSession: Boolean(ctx.runtime?.sessionId), includeCommunicationGuidance: false })
       : undefined,
   );
 
@@ -1136,7 +1138,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   });
 
   const templateMessage = nonEmpty(payloadTemplate.message) ?? nonEmpty(payloadTemplate.text);
-  const message = templateMessage ? appendWakeText(templateMessage, wakeText) : wakeText;
+  const message = joinPromptSections([
+    selectInitialCommunicationGuidance(ctx.context, { resumedSession: Boolean(ctx.runtime?.sessionId) }),
+    templateMessage ? appendWakeText(templateMessage, wakeText) : wakeText,
+  ]);
 
   const agentParams = buildAgentParams({
     payloadTemplate,
