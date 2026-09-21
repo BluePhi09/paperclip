@@ -8,7 +8,7 @@ import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 import { isBlockedUnstartedWake } from "./non-execution-wake.js";
 import { chatMarker } from "./chat-cases.js";
-import { assertChatStartupStopped, isChatStopReady, runChatHardeningFlow } from "./chat-hardening.js";
+import { assertChatRememberedAfterRestart, assertChatStartupStopped, isChatStopReady, runChatHardeningFlow } from "./chat-hardening.js";
 
 // Public API observations only: this driver never fabricates provider results or writes DB state.
 export interface ChatIssue {
@@ -409,8 +409,13 @@ export async function runChatFlow(input: ChatFlowInput) {
         await idle(2);
         expect(runs).toHaveLength(count);
         await turn(
-          `We are done discussing it. Reply with ${marker} only; no further work.`,
+          `What phrase did I ask you to remember earlier? Reply with that remembered phrase followed by ${marker}; no further work.`,
           3,
+        );
+        assertChatRememberedAfterRestart(
+          (await comments()).filter((comment) => comment.authorAgentId).at(-1)?.body ?? "",
+          secret,
+          marker,
         );
       } else {
         let cancelledId: string | undefined;

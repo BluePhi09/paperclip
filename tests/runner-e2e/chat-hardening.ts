@@ -76,6 +76,11 @@ export function isChatStopReady(events: Array<{ eventType?: unknown }>, phase: "
   return phase === "active" ? active : !active && events.some(event => event.eventType === "native.process_start_requested");
 }
 
+export function assertChatRememberedAfterRestart(reply: string, remembered: string, marker: string) {
+  expect(reply).toContain(remembered);
+  expect(reply).toContain(marker);
+}
+
 export function assertChatStartupStopped(run: ChatRun, events: Array<{ eventType?: unknown; createdAt?: string }>) {
   const cancellation = run.resultJson?.nativeCancellation as Record<string, unknown> | undefined;
   const started = events.filter(event => ["turn.started", "turn.accepted"].includes(String(event.eventType)));

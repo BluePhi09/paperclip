@@ -168,6 +168,10 @@ lifecycle/performance events are insufficient. The startup case must stop after
 a process launch request but before a provider turn starts. Missing the boundary
 fails the case instead of silently testing another phase.
 
+Restart continuity requires the agent to recall a phrase after the server
+restarts. The final prompt does not reveal that phrase. A generic successful
+reply after restart cannot pass this check.
+
 The committed-send case withholds the browser's comment acknowledgement until
 the agent has saved one backlog task, drops that response, restarts Paperclip,
 and replays the exact public request with the original client request ID. It

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertChatHire, assertChatSourceReview, assertChatStartupStopped, assertCommittedSendRetry, assertGroundedChatStatus, isChatStopReady } from "./chat-hardening.js";
+import { assertChatHire, assertChatRememberedAfterRestart, assertChatSourceReview, assertChatStartupStopped, assertCommittedSendRetry, assertGroundedChatStatus, isChatStopReady } from "./chat-hardening.js";
 import { runnerMatrix } from "./catalog.js";
 import { buildRunnerE2EProcessEnvironment } from "./harness-env.js";
 
@@ -10,6 +10,11 @@ const run = { id: "run", companyId: "company", agentId: "hire", status: "succeed
 const hiring = { agents: [{ id: "lead", name: "Lead", adapterConfig: { model: "model" } }, hire], leadId: "lead", hireName: "Morgan", hiredId: "hire", connectionId: "account", binding, taskIds: ["task"], tasks: [task], runs: [run] };
 
 describe("agent chat hardening oracles", () => {
+  it("requires remembered context after restart, not just a new reply", () => {
+    expect(() => assertChatRememberedAfterRestart("OLDCONTEXT123 CHAT123", "OLDCONTEXT123", "CHAT123")).not.toThrow();
+    expect(() => assertChatRememberedAfterRestart("CHAT123", "OLDCONTEXT123", "CHAT123")).toThrow();
+    expect(() => assertChatRememberedAfterRestart("OLDCONTEXT999 CHAT123", "OLDCONTEXT123", "CHAT123")).toThrow();
+  });
   it("grades actual execution by the original hired identity and managed account", () => {
     expect(() => assertChatHire(hiring)).not.toThrow();
     for (const wrong of [
