@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { contextCommentGateSelected, holdCommittedDocumentResponse, release, waitUntilHeld } from "./context-comment-gate.js";
+import { canonicalDocumentIssueId, contextCommentGateSelected, holdCommittedDocumentResponse, release, waitUntilHeld } from "./context-comment-gate.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -14,6 +14,11 @@ describe("context comment gate", () => {
   it("selects only the ordered comment execution", () => {
     expect(contextCommentGateSelected(["context_integrity.runner-codex.ordered-comment-continuation"])).toBe(true);
     expect(contextCommentGateSelected(["context_integrity.runner-codex.assigned-skill-explicit-invocation"])).toBe(false);
+  });
+
+  it("uses the canonical issue ID returned by a successful document response", () => {
+    expect(canonicalDocumentIssueId("/api/issues/RUN-1/documents/packing-report", JSON.stringify({ issueId: "issue-uuid" }))).toBe("issue-uuid");
+    expect(canonicalDocumentIssueId("/api/issues/RUN-1/documents/packing-report", "not-json")).toBe("RUN-1");
   });
 
   it("waits for a committed hold and releases it", async () => {

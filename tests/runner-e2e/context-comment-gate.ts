@@ -5,6 +5,15 @@ const GATE_DIR = "context-comment-gates";
 const HELD_FILE = "held";
 const RELEASE_FILE = "release";
 
+export function canonicalDocumentIssueId(url: string | undefined, body: unknown): string | undefined {
+  let parsed: any;
+  if (typeof body === "string" || Buffer.isBuffer(body)) {
+    try { parsed = JSON.parse(body.toString()); } catch { /* fall through to URL */ }
+  }
+  if (typeof parsed?.issueId === "string" && parsed.issueId.length > 0) return parsed.issueId;
+  return url?.match(/\/api\/issues\/([^/]+)\/documents\/[^/?]+(?:\?|$)/)?.[1];
+}
+
 function privateDir(): string {
   const value = process.env.PAPERCLIP_RUNNER_E2E_PRIVATE_DIR?.trim();
   if (!value) throw new Error("PAPERCLIP_RUNNER_E2E_PRIVATE_DIR is required for the context comment gate");
