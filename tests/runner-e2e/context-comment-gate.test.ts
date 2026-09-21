@@ -1,14 +1,13 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clear, contextCommentGateSelected, holdCommittedDocumentResponse, release, waitUntilHeld } from "./context-comment-gate.js";
+import { contextCommentGateSelected, holdCommittedDocumentResponse, release, waitUntilHeld } from "./context-comment-gate.js";
 
 const roots: string[] = [];
 afterEach(async () => {
+  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
-  for (const root of roots.splice(0)) await clear("issue-1").catch(() => undefined);
-  await Promise.all([]);
 });
 
 describe("context comment gate", () => {
@@ -26,9 +25,10 @@ describe("context comment gate", () => {
     await release("issue-1");
     await expect(held).resolves.toBeUndefined();
     await expect(readFile(path.join(root, "context-comment-gates", "issue-1", "held"))).resolves.toBeTruthy();
+    await expect(holdCommittedDocumentResponse("issue-1", Date.now() + 100)).resolves.toBeUndefined();
   });
 
-  it("holds only the first write and times out without release", async () => {
+  it("times out without release", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "context-comment-gate-"));
     roots.push(root);
     vi.stubEnv("PAPERCLIP_RUNNER_E2E_PRIVATE_DIR", root);

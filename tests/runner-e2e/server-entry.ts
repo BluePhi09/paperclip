@@ -58,7 +58,7 @@ if (contextCommentGate) {
   PaperclipRunnerToolAuthority.prototype.execute = async function (...args) {
     const result = await execute.apply(this, args);
     if (args[0].tool === "write_document") {
-      const issueId = (this as any).binding?.issueId;
+      const issueId = this.binding?.issueId;
       if (typeof issueId === "string") await holdFirstDocument(issueId);
     }
     return result;
