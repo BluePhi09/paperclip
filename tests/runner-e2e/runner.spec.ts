@@ -1,5 +1,6 @@
 import { runContinuationFlow } from "./continuation-flow.js";
 import { runEverydayFlow } from "./everyday-flow.js";
+import { runContextIntegrityFlow } from "./context-integrity-flow.js";
 import { createTaskThroughUi, submitTaskReply } from "./user-actions.js";
 
 import { runFirstTaskFlow, setupFirstTaskFixtures } from "./first-task-flow.js";
@@ -527,7 +528,7 @@ for (const execution of executions) {
     const credentials = credentialValues();
     const secrets = normalizedSecrets(Object.values(credentials));
     const api = new RunnerApi(request);
-    const companyRunFlow = ["continuation", "agent_chat", "everyday_workflow", "first_task"].includes(execution.task.flow);
+    const companyRunFlow = ["continuation", "context_integrity", "agent_chat", "everyday_workflow", "first_task"].includes(execution.task.flow);
     const consoleDiagnostics: Array<Record<string, unknown>> = [];
     const networkDiagnostics: Array<Record<string, unknown>> = [];
     let fixtures: LiveFixtureValues | undefined;
@@ -812,6 +813,19 @@ for (const execution of executions) {
         });
         issue = story.issue; selectedRuns = story.runs;
         matcherResults = story.evidence.checks.map(check => ({ matcher: { kind: "json_path" as const, path: check.id, expected: true }, passed: check.passed, detail: check.detail }));
+      } else if (execution.task.flow === "context_integrity") {
+        const contextIntegrity = await runContextIntegrityFlow({
+          page, api, fixtures, execution, nonce, deadlineAt: startedAtMs + deadlineMs,
+          capture: captureScreenshot,
+          evidence: (name, data) => writeSanitizedJson(snapshotsDir, name, data, secrets),
+          observe: (currentIssue, currentRuns, checks) => {
+            issue = currentIssue as unknown as IssueRecord;
+            selectedRuns = currentRuns as unknown as RunRecord[];
+            matcherResults = checks.map(check => ({ matcher: { kind: "json_path" as const, path: `contextIntegrity.${check.id}`, expected: true }, passed: check.passed, detail: check.detail }));
+          },
+        });
+        issue = contextIntegrity.issue as unknown as IssueRecord;
+        selectedRuns = contextIntegrity.runs as unknown as RunRecord[];
       } else if (execution.task.flow === "agent_chat") {
         const chat = await runChatFlow({
           page, api, fixtures, execution, nonce, workspacePath,

@@ -1,4 +1,5 @@
 import { continuationTasks } from "./continuation-cases.js";
+import { contextIntegrityTasks } from "./context-integrity-cases.js";
 import { everydayTasks, productionStoryProfile } from "./everyday-cases.js";
 
 import { firstTaskTasks } from "./first-task-cases.js";
@@ -37,6 +38,7 @@ const SELECTABLE_GROUPS = [
   "breadth",
   "chat",
   "onboarding",
+  "context-integrity",
 ] as const;
 const SAMPLE_UUID = "11111111-1111-4111-8111-111111111111";
 
@@ -290,6 +292,33 @@ export const runnerProfiles: readonly RunnerProfileFixture[] = [
     credential: "OPENAI_API_KEY",
   }),
 ] as const;
+
+/** Narrow legacy ACP lanes used only by the explicit context-integrity matrix. */
+export const legacyAcpxProfiles: readonly RunnerProfileFixture[] = [
+  legacyProfile({
+    id: "legacy-acp-codex",
+    label: "Legacy ACP Codex",
+    adapterType: "codex_local",
+    provider: "codex",
+    model: DEFAULT_CODEX_LOCAL_MODEL,
+    credential: "OPENAI_API_KEY",
+    extraConfig: { engine: "acp", mode: "oneshot" },
+  }),
+  legacyProfile({
+    id: "legacy-acp-claude",
+    label: "Legacy ACP Claude",
+    adapterType: "claude_local",
+    provider: "claude",
+    model: claudeLegacyModel,
+    credential: "ANTHROPIC_API_KEY",
+    extraConfig: { engine: "acp", mode: "oneshot" },
+  }),
+] as const;
+
+export const contextIntegrityProfiles: readonly RunnerProfileFixture[] = [
+  ...runnerProfiles.filter((profile) => ["runner-codex", "runner-acpx-claude", "runner-opencode", "legacy-codex", "legacy-claude"].includes(profile.id)),
+  ...legacyAcpxProfiles,
+];
 
 export const openRouterBreadthExcludedModelIds = ["xiaomi/mimo-v2.5"] as const;
 export const openRouterBreadthExcludedExecutionIds = [
@@ -934,6 +963,24 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     definitionMetadata: { version: 3, instructions: "production", grading: "outcome-and-invariants", scheduling: "explicit-only" },
   },
   {
+    id: "context-integrity",
+    label: "Context Integrity",
+    manualOnly: true,
+    description: "Explicit-only proof that ordered user comments and assigned skills stay bound to the current task context.",
+    groups: ["context-integrity", "native", "legacy"],
+    profiles: contextIntegrityProfiles,
+    environments: [localEnvironment],
+    tasks: contextIntegrityTasks,
+    expectedMatrixSize: contextIntegrityProfiles.length * contextIntegrityTasks.length,
+    definitionMetadata: {
+      version: 1,
+      instructions: "production",
+      grading: "ordered-public-context-and-explicit-skill-invocation",
+      scheduling: "explicit-only",
+      paidCalls: "one provider run per skill case; two bounded turns per comment case",
+    },
+  },
+  {
     id: "first-task", label: "First-task onboarding",
     description: "Production onboarding, first replies, approval, and durable task execution.",
     groups: ["onboarding"],
@@ -1120,7 +1167,7 @@ function assertNoRawSecretValues(value: unknown, label: string) {
 }
 
 export function validateRunnerCatalog(): MatrixExecution[] {
-  const allProfiles = [...runnerProfiles, ...openRouterBreadthProfiles, ...everydayProfiles.filter(p => !runnerProfiles.some(existing => existing.id === p.id))];
+  const allProfiles = [...runnerProfiles, ...legacyAcpxProfiles, ...openRouterBreadthProfiles, ...everydayProfiles.filter(p => !runnerProfiles.some(existing => existing.id === p.id))];
   const allTasks = [
     ...continuationTasks,
     ...everydayTasks,

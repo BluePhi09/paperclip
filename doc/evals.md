@@ -66,6 +66,11 @@ Daytona paths. Its [fixture contract](../tests/runner-e2e/README.md) distinguish
 startup cancellation from active response cancellation and HTTP send replay
 from ambiguous provider action recovery. Select it explicitly; `--all` excludes it.
 
+The explicit-only `context-integrity` Product E2E suite covers ordered public
+comment continuation and explicit invocation of an assigned pinned skill across
+the seven qualified legacy/native local profiles. Select it by suite or exact
+execution ID because `--all` excludes explicit-only suites.
+
 ## Validation ladder
 
 Start with credential-free checks and a catalog listing. For Product E2E:

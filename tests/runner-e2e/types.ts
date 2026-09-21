@@ -11,6 +11,7 @@ export type RunnerEnvironmentId = "local" | "daytona";
 export type RunnerTaskWorkMode = "standard" | "planning" | "ask";
 export type RunnerTaskFlow =
   | "everyday_workflow"
+  | "context_integrity"
 
   | "continuation"
   | "first_task"

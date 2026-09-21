@@ -83,7 +83,7 @@ pnpm test:e2e:runner -- --suite daytona-warm-continuity
 pnpm test:e2e:runner -- --all
 ```
 
-The catalog contains eight suites, including the explicit-only everyday suite. `core-compatibility` (**Core Runner
+The catalog contains nine suites, including the explicit-only everyday and context-integrity suites. `core-compatibility` (**Core Runner
 Compatibility**) is seven major runner profiles × local/Daytona × three
 workflows: 42 cells. Its cases are:
 
@@ -186,6 +186,19 @@ provider tool response. Existing native tool-receipt tests cover that boundary.
 ```sh
 pnpm test:e2e:runner -- --list --suite agent-chat-hardening
 pnpm test:e2e:runner -- --id agent-chat-hardening.runner-codex.local.stop-startup-new-resume
+```
+
+`context-integrity` is an explicit-only local suite with two bounded cases across
+the seven qualified legacy/native profiles (14 cells). `ordered-comment-continuation`
+sends three separate user comments through the public comments API, retaining an
+intentional repeated comment before a changed scope. `assigned-skill-explicit-invocation`
+creates and pins a task skill through public skill APIs, requires an explicit
+provider skill invocation, and keeps the output requirement in the skill body.
+The suite is excluded from `--all` and has no Daytona cells.
+
+```sh
+pnpm test:e2e:runner -- --list --suite context-integrity
+pnpm test:e2e:runner -- --id context-integrity.runner-codex.local.ordered-comment-continuation
 ```
 
 Each hardening oracle has positive and plausible-negative calibration tests.
