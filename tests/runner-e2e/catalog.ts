@@ -1169,6 +1169,7 @@ function assertNoRawSecretValues(value: unknown, label: string) {
 export function validateRunnerCatalog(): MatrixExecution[] {
   const allProfiles = [...runnerProfiles, ...legacyAcpxProfiles, ...openRouterBreadthProfiles, ...everydayProfiles.filter(p => !runnerProfiles.some(existing => existing.id === p.id))];
   const allTasks = [
+    ...contextIntegrityTasks,
     ...continuationTasks,
     ...everydayTasks,
     ...runnerTasks,
