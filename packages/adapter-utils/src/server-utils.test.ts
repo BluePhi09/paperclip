@@ -3893,7 +3893,7 @@ describe("wake continuation comment ownership", () => {
       comments: [],
       commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
       fallbackFetchNeeded: false,
-      executionContinuation: { ...continuation([]), objective, objectiveSource: { kind: "description", id: "issue-1", revision: "issue-v1" } },
+      executionContinuation: { ...continuation([]), objective, objectiveSource: { kind: "description", id: "issue-1", revision: "3afeec397239f147627f99ddaa883639fa50d191fc2bbce0dc7515a0f05deedb" } },
     }, { suppressIssueDescription: true });
     expect(prompt).not.toContain(`"objective":"${objective}"`);
   });
@@ -3906,7 +3906,7 @@ describe("wake continuation comment ownership", () => {
       comments: [],
       commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
       fallbackFetchNeeded: false,
-      executionContinuation: { ...continuation([]), objective, objectiveSource: { kind: "description", id: "issue-1", revision: "issue-v2" } },
+      executionContinuation: { ...continuation([]), objective, objectiveSource: { kind: "description", id: "issue-1", revision: "3fdd2539337403e2e9551085a24ce3737978e6f0d2fc129d71d6a27c2befb523" } },
     }, { resumedSession: true, suppressIssueDescription: true });
     expect(prompt).toContain(`"objective":"${objective}"`);
   });
@@ -3919,7 +3919,7 @@ describe("wake continuation comment ownership", () => {
       comments: [],
       commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
       fallbackFetchNeeded: false,
-      executionContinuation: { ...continuation([]), issueId: "issue-2", objective, objectiveSource: { kind: "description", id: "issue-2", revision: "issue-v1" } },
+      executionContinuation: { ...continuation([]), issueId: "issue-2", objective, objectiveSource: { kind: "description", id: "issue-2", revision: "ba02348ecb9f87dd102e0faf7ae65731c856c8a13ba64874394a873cc529c63f" } },
     }, { suppressIssueDescription: true });
     expect(prompt).toContain(`"objective":"${objective}"`);
   });
@@ -3936,6 +3936,36 @@ describe("wake continuation comment ownership", () => {
       executionContinuation: { ...continuation([source]), objective, objectiveSource: { kind: "comment", id: source.id, revision: source.updatedAt } },
     }, { suppressIssueDescription: true });
     expect(full).not.toContain(`"objective":"${objective}"`);
+
+    const stale = renderPaperclipWakePrompt({
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: "Assignment brief" },
+      comments: [{ id: "comment-latest", body: objective }],
+      commentWindow: { requestedCount: 1, includedCount: 1, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: { ...continuation([source]), objective, objectiveSource: { kind: "comment", id: source.id, revision: "stale-revision" } },
+    }, { suppressIssueDescription: true });
+    expect(stale).toContain(`"objective":"${objective}"`);
+
+    const wrongSource = renderPaperclipWakePrompt({
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: "Assignment brief" },
+      comments: [{ id: "comment-latest", body: objective }],
+      commentWindow: { requestedCount: 1, includedCount: 1, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: { ...continuation([source]), objective, objectiveSource: { kind: "comment", id: "comment-other", revision: source.updatedAt } },
+    }, { suppressIssueDescription: true });
+    expect(wrongSource).toContain(`"objective":"${objective}"`);
+
+    const missingDelta = renderPaperclipWakePrompt({
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: "Assignment brief" },
+      comments: [{ id: "comment-latest", body: objective }],
+      commentWindow: { requestedCount: 1, includedCount: 1, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: { ...continuation([source], []), objective, objectiveSource: { kind: "comment", id: source.id, revision: source.updatedAt } },
+    }, { resumedSession: true, suppressIssueDescription: true });
+    expect(missingDelta).toContain(`"objective":"${objective}"`);
 
     const legacy = renderPaperclipWakePrompt({
       reason: "issue_commented",

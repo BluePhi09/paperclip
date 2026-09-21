@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -241,11 +242,12 @@ export async function buildExecutionContinuation(input: {
     (row) =>
       row.authorType === "user" && !row.createdByRunId && !row.deleted && row.body.trim().length > 0,
   );
+  const hashObjectiveSource = (value: string) => createHash("sha256").update(value.trim()).digest("hex");
   const objectiveSource = latestRequest
     ? { kind: "comment" as const, id: latestRequest.id, revision: latestRequest.updatedAt }
-    : issue.description
-      ? { kind: "description" as const, id: issue.id, revision: issue.updatedAt.toISOString() }
-      : { kind: "title" as const, id: issue.id, revision: issue.updatedAt.toISOString() };
+    : issue.description !== null && issue.description !== undefined
+      ? { kind: "description" as const, id: issue.id, revision: hashObjectiveSource(issue.description) }
+      : { kind: "title" as const, id: issue.id, revision: hashObjectiveSource(issue.title) };
   const priorRuns = await db
     .select({ id: heartbeatRuns.id, result: heartbeatRuns.resultJson, status: heartbeatRuns.status, errorCode: heartbeatRuns.errorCode, runtimeMode: heartbeatRuns.runtimeMode, retryOfRunId: heartbeatRuns.retryOfRunId })
     .from(heartbeatRuns)

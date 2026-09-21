@@ -2263,8 +2263,16 @@ function renderPaperclipWakePromptBody(
     options.suppressIssueDescription === true &&
     continuation.issueId === normalized.issue?.id &&
     !resumeOmitsIssueDescription &&
-    (continuation.objectiveSource?.kind === "description" ||
-      continuation.objectiveSource?.kind === "title");
+    continuation.objectiveSource !== undefined &&
+    ((continuation.objectiveSource.kind === "description" &&
+      continuation.objectiveSource.id === normalized.issue.id &&
+      !normalized.issue.descriptionTruncated &&
+      normalized.issue.description !== null &&
+      continuation.objectiveSource.revision === createHash("sha256").update(normalized.issue.description.trim()).digest("hex")) ||
+      (continuation.objectiveSource.kind === "title" &&
+        continuation.objectiveSource.id === normalized.issue.id &&
+        normalized.issue.title !== null &&
+        continuation.objectiveSource.revision === createHash("sha256").update(normalized.issue.title.trim()).digest("hex")));
   const originalAssigneeLabel =
     recovery?.originalAssignee?.name ??
     recovery?.originalAssignee?.id ??
@@ -2484,6 +2492,8 @@ function renderPaperclipWakePromptBody(
       "humanResponses contains server-verified user answers and decisions; apply each only to its question or approval scope.");
     const { interactionOutcomes, completedActions, completedWork, recoveryOutcomes, objective, objectiveSource, ...requestContextBase } = continuation;
     const objectiveOwnedByDisplayedSource = continuation.objectiveSource?.kind === "comment" &&
+      continuation.issueId === normalized.issue?.id &&
+      Boolean(continuation.objectiveSource.revision) &&
       continuation.messages.some((message) =>
         message.id === continuation.objectiveSource?.id &&
         message.updatedAt === continuation.objectiveSource.revision &&
