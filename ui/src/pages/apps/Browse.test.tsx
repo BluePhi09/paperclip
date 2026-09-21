@@ -28,8 +28,7 @@ vi.mock("@/api/tools", () => ({
     listConnections: (companyId: string) => listConnectionsMock(companyId),
     archiveConnection: (
       connectionId: string,
-      options?: { confirmComposioChildren?: boolean },
-    ) => archiveConnectionMock(connectionId, options),
+    ) => archiveConnectionMock(connectionId),
   },
 }));
 
@@ -189,6 +188,34 @@ describe("Connectors landing page", () => {
     await flushReact();
     return client;
   }
+
+  it("shows retirement guidance before paused state for an obsolete Composio account", async () => {
+    listApplicationsMock.mockResolvedValue({ applications: [application({ id: "old-app", name: "Composio", metadata: { sourceTemplateKey: "composio" } })] });
+    listConnectionsMock.mockResolvedValue({ connections: [connection({ applicationId: "old-app", enabled: false, healthStatus: "error", transport: "rest_api", config: { sourceTemplateKey: "composio", connectionMethodKey: "api-key" } })] });
+    await renderBrowse();
+    expect(container.textContent).toContain("Retired");
+    expect(container.textContent).toContain("Add a new Composio MCP connection");
+    expect(container.textContent).not.toContain("Paused");
+  });
+
+  it("hides cached MCP aggregators until enabled and preserves saved MCP connections", async () => {
+    const providers = ["zapier", "arcade", "composio", "executor"];
+    listGalleryMock.mockResolvedValue({ apps: [...providers, "notion"].map(getAppStoreDefinition) });
+    const client = await renderBrowse();
+    for (const slug of providers) expect(container.querySelector(`[data-app-slug="${slug}"]`)).toBeNull();
+    expect(container.querySelector('[data-app-slug="notion"]')).not.toBeNull();
+    await act(() => { client.setQueryData(queryKeys.instance.experimentalSettings, { enableMcpAggregators: true }); });
+    await flushReact();
+    for (const slug of providers) expect(container.querySelector(`[data-app-slug="${slug}"]`)).not.toBeNull();
+    await act(() => {
+      client.setQueryData(queryKeys.tools.connections("company-1"), { connections: [connection({ id: "saved", applicationId: "saved-app", config: { sourceTemplateKey: "composio", connectionMethodKey: "mcp" }, transport: "mcp_remote" })] });
+      client.setQueryData(queryKeys.tools.applications("company-1"), { applications: [application({ id: "saved-app", name: "Composio", metadata: { sourceTemplateKey: "composio" } })] });
+      client.setQueryData(queryKeys.instance.experimentalSettings, { enableMcpAggregators: false });
+    });
+    await flushReact();
+    expect(container.textContent).toContain("Composio");
+    for (const slug of ["zapier", "arcade", "executor"]) expect(container.querySelector(`[data-app-slug="${slug}"]`)).toBeNull();
+  });
 
   it("defaults to tools-only GitHub and hides chat-only catalog and existing chat accounts", async () => {
     experimentalMock.mockResolvedValue({});
@@ -432,9 +459,7 @@ describe("Connectors landing page", () => {
     });
     await flushReact();
 
-    expect(archiveConnectionMock).toHaveBeenCalledWith("conn-notion", {
-      confirmComposioChildren: false,
-    });
+    expect(archiveConnectionMock).toHaveBeenCalledWith("conn-notion");
     expect(pushToastMock).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Connection removed",

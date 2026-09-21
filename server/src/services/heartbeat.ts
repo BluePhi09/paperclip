@@ -1,5 +1,6 @@
 import type { PaperclipTurnContext } from "@paperclipai/adapter-utils/server-utils";
 import { publicChatTaskUrl } from "./chat-task-url.js";
+import { toolActionDeliveryService } from "./tool-action-delivery.js";
 import { readQueuedInteractionResponse } from "./queued-interaction-response.js";
 import { AGENT_CHAT_DIRECTIVE, conversationReplay, isConversation, isConversationExecutionWake, isWaitingConversation, prepareConversationTurn, settleConversationTurn } from "./agent-conversations.js";
 import { PROCESS_IDENTITY_RECORDED, recordNativeLocalProcessStop } from "./native-local-process-stop.js";
@@ -26094,6 +26095,13 @@ export function heartbeatService(
         if (latestRun) await resumeRemoteStopComments(latestRun).catch(err => {
           logger.warn({ err, runId: run.id }, "failed to resume user messages after remote Stop");
         });
+        if (latestRun && isHeartbeatRunTerminalStatus(latestRun.status)) {
+          await toolActionDeliveryService(db, { wakeup: trackWakeup })
+            .deliverForRun({ companyId: run.companyId, runId: run.id })
+            .catch(err => {
+              logger.warn({ err, runId: run.id }, "failed to deliver settled tool reviews after execution cleanup");
+            });
+        }
         await startNextQueuedRunForAgent(run.agentId);
       }
     }
