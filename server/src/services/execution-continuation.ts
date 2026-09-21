@@ -241,6 +241,11 @@ export async function buildExecutionContinuation(input: {
     (row) =>
       row.authorType === "user" && !row.createdByRunId && !row.deleted && row.body.trim().length > 0,
   );
+  const objectiveSource = latestRequest
+    ? { kind: "comment" as const, id: latestRequest.id, revision: latestRequest.updatedAt }
+    : issue.description
+      ? { kind: "description" as const, id: issue.id, revision: issue.updatedAt.toISOString() }
+      : { kind: "title" as const, id: issue.id, revision: issue.updatedAt.toISOString() };
   const priorRuns = await db
     .select({ id: heartbeatRuns.id, result: heartbeatRuns.resultJson, status: heartbeatRuns.status, errorCode: heartbeatRuns.errorCode, runtimeMode: heartbeatRuns.runtimeMode, retryOfRunId: heartbeatRuns.retryOfRunId })
     .from(heartbeatRuns)
@@ -357,6 +362,7 @@ export async function buildExecutionContinuation(input: {
     },
     originCommentIds,
     objective: latestRequest?.body ?? issue.description ?? issue.title,
+    objectiveSource,
     messages,
     humanResponses: interactions.flatMap(row => {
       const response = projectHumanInteractionResponse(row);

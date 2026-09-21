@@ -3893,7 +3893,7 @@ describe("wake continuation comment ownership", () => {
       comments: [],
       commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
       fallbackFetchNeeded: false,
-      executionContinuation: { ...continuation([]), objective },
+      executionContinuation: { ...continuation([]), objective, objectiveSource: { kind: "description", id: "issue-1", revision: "issue-v1" } },
     }, { suppressIssueDescription: true });
     expect(prompt).not.toContain(`"objective":"${objective}"`);
   });
@@ -3906,7 +3906,7 @@ describe("wake continuation comment ownership", () => {
       comments: [],
       commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
       fallbackFetchNeeded: false,
-      executionContinuation: { ...continuation([]), objective },
+      executionContinuation: { ...continuation([]), objective, objectiveSource: { kind: "description", id: "issue-1", revision: "issue-v2" } },
     }, { resumedSession: true, suppressIssueDescription: true });
     expect(prompt).toContain(`"objective":"${objective}"`);
   });
@@ -3919,8 +3919,32 @@ describe("wake continuation comment ownership", () => {
       comments: [],
       commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
       fallbackFetchNeeded: false,
-      executionContinuation: { ...continuation([]), issueId: "issue-2", objective },
+      executionContinuation: { ...continuation([]), issueId: "issue-2", objective, objectiveSource: { kind: "description", id: "issue-2", revision: "issue-v1" } },
     }, { suppressIssueDescription: true });
     expect(prompt).toContain(`"objective":"${objective}"`);
+  });
+
+  it("suppresses a latest comment objective only when its exact revised message is displayed", () => {
+    const objective = "Latest user direction.";
+    const source = { ...message("comment-latest", objective), updatedAt: "2026-09-21T00:02:00.000Z" };
+    const full = renderPaperclipWakePrompt({
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: "Assignment brief" },
+      comments: [{ id: "comment-latest", body: objective }],
+      commentWindow: { requestedCount: 1, includedCount: 1, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: { ...continuation([source]), objective, objectiveSource: { kind: "comment", id: source.id, revision: source.updatedAt } },
+    }, { suppressIssueDescription: true });
+    expect(full).not.toContain(`"objective":"${objective}"`);
+
+    const legacy = renderPaperclipWakePrompt({
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: "Assignment brief" },
+      comments: [],
+      commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: { ...continuation([]), objective },
+    }, { suppressIssueDescription: true });
+    expect(legacy).toContain(`"objective":"${objective}"`);
   });
 });

@@ -694,6 +694,7 @@ describe("codex execute", () => {
               trigger: { reason: "issue_commented", interactionId: null, sourceRunId: null },
               originCommentIds: [],
               objective: "Repeat phrase Repeat phrase",
+              objectiveSource: { kind: "description", id: "issue-1", revision: "issue-v1" },
               messages: [],
               interactionOutcomes: [],
               completedWork: null,
