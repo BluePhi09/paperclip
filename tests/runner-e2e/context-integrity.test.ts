@@ -65,6 +65,24 @@ describe("context integrity Product E2E contract", () => {
     }
   });
 
+  it("accepts the saved article-style final scope heading", () => {
+    const { scenario, checkpoints } = recording("ordered-comment-continuation");
+    const article = structuredClone(checkpoints);
+    (article[2].documents[0] as { body: string }).body =
+      (article[2].documents[0] as { body: string }).body.replace(
+        "## Final scope\nLaunch checklist",
+        "## Final scope\nthe launch checklist",
+      );
+    expect(
+      gradeContextIntegrity({
+        id: scenario.id,
+        marker: scenario.marker,
+        comments: scenario.comments,
+        checkpoints: article,
+      }),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ id: "final-scope-applied", passed: true })]));
+  });
+
   it("requires distinct ordered comments, including intentional repetition", () => {
     const { scenario, checkpoints } = recording("ordered-comment-continuation");
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints }).every((check) => check.passed)).toBe(true);
