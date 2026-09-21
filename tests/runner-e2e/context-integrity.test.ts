@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contextIntegrityScenario } from "./context-integrity-cases.js";
 import { gradeContextIntegrity } from "./context-integrity-scoring.js";
-import { contextIntegrityFinalEvidence } from "./context-integrity-flow.js";
 import { runnerMatrix } from "./catalog.js";
 
 function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit-invocation", valid = true) {
@@ -23,7 +22,7 @@ function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit
     phase: "final" as const,
     issue: { id: "issue", status: "done" },
     comments: scenario.comments.map((body, index) => ({ body, authorType: "user", id: `comment-${index}` })),
-    documents: [{ key: "output", body: id === "ordered-comment-continuation" ? `passport\ncharger\n## Ordered request ledger\n${scenario.comments.join("\n")}\n## Final requested scope\n- Launch checklist\n${scenario.marker}` : `Final ${scenario.marker}` }],
+    documents: [{ key: "output", body: id === "ordered-comment-continuation" ? `passport\ncharger\n## Ordered request ledger\n${scenario.comments.join("\n")}\n## Final scope\nLaunch checklist` : `Final ${scenario.marker}` }],
     runs: [{ id: "run-1", status: "succeeded", startedAt: "2026-01-01T00:00:00Z" }, { id: "run-2", status: "succeeded", startedAt: "2026-01-01T00:01:00Z", contextSnapshot: { paperclipWake: { commentIds: ["comment-0", "comment-1", "comment-2"] } } }],
   };
   const queued = {
@@ -35,11 +34,7 @@ function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit
 }
 
 describe("context integrity Product E2E contract", () => {
-  it("writes the generic pass evidence names required by the runner contract", () => {
-    expect(contextIntegrityFinalEvidence).toEqual({ screenshotFile: "final-state.png", apiStateFile: "api-state.json" });
-  });
-
-  it("is explicit-only and covers the seven qualified legacy/native profiles", () => {
+  it("is explicit-only and covers the seven selected legacy/native profiles", () => {
     const cells = runnerMatrix.filter((execution) => execution.suite.id === "context-integrity");
     expect(cells).toHaveLength(14);
     expect(new Set(cells.map((execution) => execution.profile.id))).toEqual(new Set([
@@ -49,11 +44,32 @@ describe("context integrity Product E2E contract", () => {
     expect(runnerMatrix.filter((execution) => execution.suite.id === "context-integrity" && execution.suite.manualOnly).every((execution) => !execution.suite.groups.includes("core"))).toBe(true);
   });
 
+  it("does not reveal the future scope in the initial request", () => {
+    const scenario = contextIntegrityScenario("ordered-comment-continuation", "nonce");
+    expect(scenario.prompt.toLowerCase()).not.toContain("launch checklist");
+    expect(scenario.comments[2]).toContain("launch checklist");
+  });
+
+  it("grades applied scope separately from a quoted direction in either section order", () => {
+    const { scenario, checkpoints } = recording("ordered-comment-continuation");
+    for (const ledgerFirst of [true, false]) {
+      const ledger = `## Ordered request ledger\n${scenario.comments.join("\n")}`;
+      for (const [scope, expected] of [["Launch checklist", true], ["Passport and charger", false]] as const) {
+        const finalScope = `## Final scope\n${scope}`;
+        const sections = ledgerFirst ? [ledger, finalScope] : [finalScope, ledger];
+        const candidate = structuredClone(checkpoints);
+        candidate[2]!.documents[0]!.body = `passport\ncharger\n${sections.join("\n\n")}`;
+        expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: candidate }))
+          .toEqual(expect.arrayContaining([expect.objectContaining({ id: "final-scope-applied", passed: expected })]));
+      }
+    }
+  });
+
   it("requires distinct ordered comments, including intentional repetition", () => {
     const { scenario, checkpoints } = recording("ordered-comment-continuation");
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints }).every((check) => check.passed)).toBe(true);
     const normalCaps = structuredClone(checkpoints);
-    (normalCaps[2].documents[0] as { body: string }).body = `# Packing List\n\n- Passport\n- Charger\n\n## Ordered request ledger\n${scenario.comments.join("\n")}\n\n## Final requested scope\n- Launch checklist\n${scenario.marker}`;
+    (normalCaps[2].documents[0] as { body: string }).body = `# Packing List\n\n- Passport\n- Charger\n\n## Ordered request ledger\n${scenario.comments.join("\n")}\n\n## Final scope\nLaunch checklist`;
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: normalCaps }).every((check) => check.passed)).toBe(true);
     const wrong = structuredClone(checkpoints);
     (wrong[2].comments[1] as { body: string }).body = String(scenario.changed);
@@ -72,7 +88,7 @@ describe("context integrity Product E2E contract", () => {
     missingSecondRun[2].runs = [{ id: "run-1", status: "succeeded" }];
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingSecondRun })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "continuation-run-count", passed: false })]));
     const unchangedScope = structuredClone(checkpoints);
-    (unchangedScope[2].documents[0] as { body: string }).body = `passport\ncharger\n## Ordered request ledger\n${scenario.comments.join("\n")}\n## Final requested scope\n- Passport and charger\n${scenario.marker}`;
+    (unchangedScope[2].documents[0] as { body: string }).body = `passport\ncharger\n## Ordered request ledger\n${scenario.comments.join("\n")}\n## Final scope\nPassport and charger`;
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: unchangedScope })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "final-scope-applied", passed: false })]));
     const missingScope = structuredClone(checkpoints);
     (missingScope[2].documents[0] as { body: string }).body = `passport\ncharger\n${scenario.comments.join("\n")}\n${scenario.marker}`;
