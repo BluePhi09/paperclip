@@ -1226,6 +1226,12 @@ Blocked readiness probes back off within the reconnect deadline so they do not
 fill the durable command journal while waiting. The fast ready path keeps its
 short second barrier. If readiness never arrives, attachment fails closed with
 the last observed blocker; a full journal is not a substitute for that diagnosis.
+Both native providers publish this readiness contract. ACPX reports its durable
+session identity, active turn, pending audit events, closed state, and unproven
+provider exit as blockers. Explicit readiness probes let the durable runner
+commit and acknowledge retained events under the old run authority; snapshotting
+alone never discards them. ACPX checkpoints its process during the subsequent
+attachment before resuming the same provider session under the new run.
 
 Safe native replacement may clear a Blocked status only with a durable receipt
 that the same failed run projected that exact status version. Explicitly
