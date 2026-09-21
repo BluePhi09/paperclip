@@ -9,6 +9,7 @@ export interface ContextIntegrityCheckpoint {
   runs: Array<Record<string, unknown>>;
   assignedSkill?: { key: string; runtimeName?: string; versionId?: string | null; markdown?: string };
   skillRequestText?: string;
+  runEvents?: Array<Record<string, unknown>>;
   skillInvocationEvidence?: boolean;
 }
 
@@ -96,8 +97,10 @@ export function gradeContextIntegrity(input: {
   if (input.id === "assigned-skill-explicit-invocation") {
     const runtimeName = String(initial?.assignedSkill?.runtimeName ?? initial?.assignedSkill?.key ?? "");
     const requestText = String(initial?.skillRequestText ?? "");
+    const escapedName = runtimeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     check("assigned-skill-present", Boolean(initial?.assignedSkill?.key && initial.assignedSkill.versionId), "The task run must receive one pinned skill version through the public assignment state.");
-    check("skill-request-explicit", Boolean(runtimeName && new RegExp(`(?:^|[\\s/])(?:\\$)?${runtimeName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i").test(requestText)), "The task request must explicitly name the assigned skill.");
+    check("skill-request-explicit", Boolean(runtimeName && new RegExp(`(?:^|\\s)(?:/|\\$)${escapedName}(?=$|\\s|[.,])`, "i").test(requestText)), "The task request must explicitly name the assigned skill with a supported slash or dollar reference.");
+    check("skill-source-marker", Boolean(initial?.assignedSkill?.markdown?.includes(input.marker)), "The assigned pinned skill source must contain the output marker.");
     check("marker-not-in-request", !requestText.includes(input.marker) && !finalComments.some((comment) => comment.includes(input.marker)), "The output marker must originate from the assigned skill, not the task request or comments.");
   }
   const output = final ? oneOutput(final, input.marker, input.id === "assigned-skill-explicit-invocation") : undefined;

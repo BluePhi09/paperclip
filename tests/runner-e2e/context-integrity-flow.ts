@@ -74,6 +74,7 @@ export async function runContextIntegrityFlow(input: {
   let issue: Row | undefined;
   let runs: Row[] = [];
   let skillRequestText = "";
+  let assignedVersionId: string | null = null;
   const checkpoints: ContextIntegrityCheckpoint[] = [];
 
   if (scenario.id === "assigned-skill-explicit-invocation") {
@@ -96,6 +97,8 @@ export async function runContextIntegrityFlow(input: {
     const assigned = await api.get<Row>(`/api/agents/${fixtures.agent.id}/skills?companyId=${fixtures.company.id}`);
     const desired = (assigned.desiredSkillEntries as Array<Row> | undefined)?.find((entry) => entry.key === (skill.key ?? skill.slug ?? scenario.skillKey));
     if (!desired?.versionId) throw new Error("Context-integrity skill was not assigned with a pinned version");
+    if (String(desired.versionId) !== String(skill.currentVersionId ?? skill.versionId ?? "")) throw new Error("Context-integrity skill assignment does not match the created current version");
+    assignedVersionId = String(desired.versionId);
     scenario.assignedSkill = { key: String(skill.key ?? skill.slug ?? scenario.skillKey), runtimeName: String(skill.slug ?? scenario.skillKey), markdown };
   }
 
@@ -108,21 +111,24 @@ export async function runContextIntegrityFlow(input: {
   }
   async function snapshot(phase: ContextIntegrityCheckpoint["phase"]) {
     await refresh();
-    const [comments, documents, skillRows, queuedComments] = await Promise.all([
+    const [comments, documents, skillRows, queuedComments, assignedState] = await Promise.all([
       api.get<Row[]>(`/api/issues/${issue!.id}/comments?order=asc`),
       api.get<Row[]>(`/api/issues/${issue!.id}/documents`),
       api.get<Row[]>(`${companyPath}/skills`),
       api.get<Row>(`/api/issues/${issue!.id}/queued-comments`),
+      scenario.id === "assigned-skill-explicit-invocation" ? api.get<Row>(`/api/agents/${fixtures.agent.id}/skills?companyId=${fixtures.company.id}`) : Promise.resolve({}),
     ]);
     const detailedDocuments = await Promise.all(documents.map((document) => api.get<Row>(`/api/issues/${issue!.id}/documents/${encodeURIComponent(String(document.key))}`)));
     const assignedSkill = scenario.id === "assigned-skill-explicit-invocation"
       ? skillRows.find((skill) => skill.key === scenario.assignedSkill?.key || skill.slug === scenario.assignedSkill?.key)
       : undefined;
+    const desiredSkill = (assignedState.desiredSkillEntries as Array<Row> | undefined)?.find((entry) => entry.key === scenario.assignedSkill?.key);
     const runEvents = scenario.id === "assigned-skill-explicit-invocation"
       ? await Promise.all(runs.map((run) => api.get<Row[]>(`/api/heartbeat-runs/${run.id}/events?limit=1000`)))
       : [];
     const skillInvocationEvidence = scenario.id === "assigned-skill-explicit-invocation" && runEvents.some((events) => events.some((event) => containsExplicitSkillInput(event, String(assignedSkill?.slug ?? scenario.skillKey))));
-    checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, assignedSkill: assignedSkill ? { key: String(assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: String(assignedSkill.currentVersionId ?? assignedSkill.versionId ?? ""), markdown: scenario.assignedSkill?.markdown } : undefined, skillRequestText: scenario.id === "assigned-skill-explicit-invocation" ? skillRequestText : undefined, skillInvocationEvidence });
+    skillRequestText = scenario.id === "assigned-skill-explicit-invocation" ? String(issue?.description ?? "") : "";
+    checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, runEvents: runEvents.flat(), assignedSkill: assignedSkill ? { key: String(desiredSkill?.key ?? assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: desiredSkill?.versionId ? String(desiredSkill.versionId) : null, markdown: String(assignedSkill.markdown ?? scenario.assignedSkill?.markdown ?? "") } : undefined, skillRequestText: scenario.id === "assigned-skill-explicit-invocation" ? skillRequestText : undefined, skillInvocationEvidence });
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     input.observe(issue!, runs, checks);
     await input.evidence("context-integrity.json", { schema: "paperclip.context-integrity.v1", scenario, budgetGuard, checkpoints, checks });

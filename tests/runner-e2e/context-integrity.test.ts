@@ -77,20 +77,12 @@ describe("context integrity Product E2E contract", () => {
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: duplicate })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "distinct-comment-identities", passed: false })]));
   });
 
-  it("fails closed when assigned skill invocation evidence is missing", () => {
-    const { scenario, checkpoints } = recording("assigned-skill-explicit-invocation", false);
-    const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
-    expect(checks.find((check) => check.id === "assigned-skill-present")?.passed).toBe(true);
-    expect(checks.find((check) => check.id === "skill-request-explicit")?.passed).toBe(true);
-    expect(checks.every((check) => check.passed)).toBe(true);
-  });
-
   it("accepts implicit native skill loading when public assignment and output provenance are valid", () => {
     const { scenario, checkpoints } = recording("assigned-skill-explicit-invocation", false);
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints }).every((check) => check.passed)).toBe(true);
   });
 
-  it("rejects missing assignment, missing marker, and marker leaked into the request", () => {
+  it("rejects missing assignment, missing marker, leaked marker, and non-explicit skill names", () => {
     const { scenario, checkpoints } = recording("assigned-skill-explicit-invocation", false);
     const missingAssignment = structuredClone(checkpoints);
     (missingAssignment[0].assignedSkill as { versionId: string | null }).versionId = null;
@@ -101,5 +93,14 @@ describe("context integrity Product E2E contract", () => {
     const leakedMarker = structuredClone(checkpoints);
     leakedMarker[0].skillRequestText = `${scenario.prompt} ${scenario.marker} /${scenario.skillKey}`;
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: leakedMarker })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "marker-not-in-request", passed: false })]));
+    const missingExplicitName = structuredClone(checkpoints);
+    missingExplicitName[0].skillRequestText = scenario.prompt;
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingExplicitName })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "skill-request-explicit", passed: false })]));
+    const wrongPrefix = structuredClone(checkpoints);
+    wrongPrefix[0].skillRequestText = `${scenario.prompt} Use ${scenario.skillKey} for this request.`;
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: wrongPrefix })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "skill-request-explicit", passed: false })]));
+    const missingSourceMarker = structuredClone(checkpoints);
+    (missingSourceMarker[0].assignedSkill as { markdown: string }).markdown = "---\nname: skill\n---\nNo output marker.";
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingSourceMarker })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "skill-source-marker", passed: false })]));
   });
 });
