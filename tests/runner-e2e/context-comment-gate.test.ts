@@ -19,6 +19,7 @@ describe("context comment gate", () => {
   it("uses the canonical issue ID returned by a successful document response", () => {
     expect(canonicalDocumentIssueId("/api/issues/RUN-1/documents/packing-report", JSON.stringify({ issueId: "issue-uuid" }))).toBe("issue-uuid");
     expect(canonicalDocumentIssueId("/api/issues/RUN-1/documents/packing-report", "not-json")).toBe("RUN-1");
+    expect(canonicalDocumentIssueId("/api/issues/RUN-1/feedback", JSON.stringify({ issueId: "issue-uuid" }))).toBeUndefined();
   });
 
   it("waits for a committed hold and releases it", async () => {

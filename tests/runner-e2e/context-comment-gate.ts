@@ -6,12 +6,14 @@ const HELD_FILE = "held";
 const RELEASE_FILE = "release";
 
 export function canonicalDocumentIssueId(url: string | undefined, body: unknown): string | undefined {
+  const documentIssueId = url?.match(/\/api\/issues\/([^/]+)\/documents\/[^/?]+(?:\?|$)/)?.[1];
+  if (!documentIssueId) return undefined;
   let parsed: any;
   if (typeof body === "string" || Buffer.isBuffer(body)) {
     try { parsed = JSON.parse(body.toString()); } catch { /* fall through to URL */ }
   }
   if (typeof parsed?.issueId === "string" && parsed.issueId.length > 0) return parsed.issueId;
-  return url?.match(/\/api\/issues\/([^/]+)\/documents\/[^/?]+(?:\?|$)/)?.[1];
+  return documentIssueId;
 }
 
 function privateDir(): string {
