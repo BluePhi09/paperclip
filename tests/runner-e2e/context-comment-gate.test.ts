@@ -35,7 +35,7 @@ describe("context comment gate", () => {
     let observeHook!: () => void;
     const released = new Promise<void>((resolve) => { releaseResponse = resolve; });
     const hookObserved = new Promise<void>((resolve) => { observeHook = resolve; });
-    router.use((req, res, next) => {
+    router.use((req: any, res: any, next: any) => {
       const originalEnd = res.end.bind(res);
       res.end = ((chunk?: any, ...rest: any[]) => {
         const originalUrl = (req as typeof req & { originalUrl?: string }).originalUrl;
@@ -46,7 +46,7 @@ describe("context comment gate", () => {
       }) as typeof res.end;
       next();
     });
-    router.put("/issues/:key/documents/:document", (_req, res) => res.status(201).json({ issueId: "issue-uuid" }));
+    router.put("/issues/:key/documents/:document", (_req: any, res: any) => res.status(201).json({ issueId: "issue-uuid" }));
     app.use("/api", router);
     const server = await new Promise<http.Server>((resolve) => {
       const value = app.listen(0, "127.0.0.1", () => resolve(value));
