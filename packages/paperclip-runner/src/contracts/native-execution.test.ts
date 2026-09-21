@@ -461,6 +461,60 @@ describe("native task context ownership", () => {
     });
   }
 
+  it.each([
+    ["v4", "paperclip.native-execution-input.v4", "paperclip.native-model-envelope.v2"],
+    ["v5", NATIVE_EXECUTION_INPUT_SCHEMA, "paperclip.native-model-envelope.v3"],
+  ] as const)("applies communication guidance once for fresh %s input and never on resume", (_label, schema, envelopeSchema) => {
+    const guidance = "Saved Slack instructions";
+    const v5 = currentInput();
+    const source = {
+      kind: "description" as const,
+      id: v5.binding.issueId,
+      revision: createHash("sha256").update(v5.task.description!).digest("hex"),
+    };
+    const contract = {
+      ...v5.completionContract.contract,
+      criteria: [{ id: "objective", requirement: v5.task.description! }],
+    };
+    const parsed = parseNativeExecutionInput({
+      ...v5,
+      schema,
+      initialCommunicationGuidance: guidance,
+      ...(schema === NATIVE_EXECUTION_INPUT_SCHEMA ? {
+        completionContract: { ...v5.completionContract, contract },
+        completionSources: {
+          promptSha256: createHash("sha256").update(v5.task.prompt).digest("hex"),
+          contractRevision: contract.revision,
+          criteria: [{ id: "objective", source }],
+        },
+      } : {}),
+    });
+    const fresh = buildNativeModelEnvelope(parsed);
+    expect(fresh.schema).toBe(envelopeSchema);
+    expect(fresh.task.prompt).toBe(`${guidance}\n\n${parsed.task.prompt}`);
+    expect(fresh.task.prompt.match(/Saved Slack instructions/g)).toHaveLength(1);
+    if (schema === NATIVE_EXECUTION_INPUT_SCHEMA) {
+      expect(fresh.task).not.toHaveProperty("description");
+      expect(fresh.completionContract.criteria).toEqual([
+        { id: "objective", source: { ...source, location: "task.prompt" } },
+      ]);
+    } else {
+      expect(fresh.task).toHaveProperty("description", parsed.task.description);
+    }
+
+    const fullResume = buildNativeModelEnvelope(parsed, { resumedSession: true });
+    expect(fullResume.schema).toBe(envelopeSchema);
+    expect(fullResume.task.prompt).toBe(parsed.task.prompt);
+    expect(fullResume.task.prompt).not.toContain(guidance);
+
+    const compactResume = buildNativeModelEnvelope(
+      parseNativeExecutionInput({ ...parsed, continuationPrompt: "new message" }),
+      { resumedSession: true },
+    );
+    expect(compactResume).toMatchObject({ schema: "paperclip.native-continuation.v1" });
+    expect(JSON.stringify(compactResume)).not.toContain(guidance);
+  });
+
   it("selects model fields without losing the internal skill-selection description", () => {
     const execution = currentInput();
     const envelope = buildNativeModelEnvelope(execution);
