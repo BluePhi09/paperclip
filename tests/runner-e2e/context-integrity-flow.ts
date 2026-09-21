@@ -158,12 +158,12 @@ export async function runContextIntegrityFlow(input: {
         accept: (currentRuns) => currentRuns.some((run) => run.status === "running" && (run.issueId === issue!.id || run.nativeIssueId === issue!.id || run.contextSnapshot?.issueId === issue!.id || run.contextSnapshot?.taskId === issue!.id)),
       });
       await snapshot("initial");
+      const initialRunIds = new Set(runs.map((run) => run.id));
       for (let index = 0; index < scenario.comments.length; index += 1) {
         await api.post(`/api/issues/${issue.id}/comments`, { body: scenario.comments[index], clientRequestId: randomUUID() });
       }
       await snapshot("comment-3");
-      const before = new Set(runs.map((run) => run.id));
-      await settle(before);
+      await settle(initialRunIds);
     } else {
       await settle(new Set());
       await snapshot("initial");
