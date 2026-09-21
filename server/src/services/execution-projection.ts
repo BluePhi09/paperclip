@@ -260,6 +260,7 @@ export function projectExecution(
   }
   if (coordinator?.phase === "terminal_failure" || recoveryAction || cleanupQuarantined) {
     if (
+      !cleanupQuarantined &&
       coordinator?.failureCode === "native_provider_terminal_failed" &&
       !detail.replacementDenied &&
       run.finishedAt &&

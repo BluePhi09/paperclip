@@ -88,3 +88,30 @@ Two user-facing limitations remain worth deciding:
 
 Production instructions were preserved. These observations must not be hidden by
 changing prompts solely to make the benchmark green.
+
+## Grounded status answers: corrected live proof
+
+[Campaign 35658262695](https://github.com/paperclipai/paperclip/actions/runs/35658262695)
+on `4a26f10be7dd6aeabf2ca7b44b3d6b2ece7817e0`: **2/2 passed**, both
+cleanup passes. Each provider answered both turns, preserved both source tasks,
+and started no execution on either task. The original failed attempts above are
+retained; this is a new campaign with an explicit output contract.
+
+Semantic review of all four retained replies against the task descriptions and
+chronological comments found:
+
+- Both identified venue confirmation as the current blocker, printing as deferred,
+  no task execution, and unknown attendance. Both gave the useful next step of
+  confirming the venue before printing.
+- Both rejected the obsolete budget claim and unsupported printing claim on the
+  follow-up, and distinguished a planned Friday from a guaranteed calendar date.
+  Neither invented a venue, date, or attendance count.
+- Codex's explanations were compact and clear. Claude's second explanation was
+  longer but readable and grounded in named task records. Its phrase “no venue has
+  been confirmed” is slightly stronger than “no confirmation is recorded”; its
+  immediately following quotation and null fact make the evidence limitation clear.
+
+This qualifies these two-turn grounding stories, not general answer quality,
+statistical reliability, multilingual behavior, or arbitrary long conversations.
+The five review dimensions remain factual grounding, stale-premise correction,
+honest uncertainty, useful next step, and clear prose. No production prompt changed.
