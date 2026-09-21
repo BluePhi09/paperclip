@@ -195,6 +195,9 @@ intentional repeated comment before a changed scope. `assigned-skill-explicit-in
 creates and pins a task skill through public skill APIs, requires an explicit
 provider skill invocation, and keeps the output requirement in the skill body.
 The suite is excluded from `--all` and has no Daytona cells.
+Each cell applies a public API 1,000-cent company and agent budget hard stop
+before task creation and records both limits in its evidence. Unknown provider
+billing or a budget incident is not admitted as a pass.
 
 ```sh
 pnpm test:e2e:runner -- --list --suite context-integrity

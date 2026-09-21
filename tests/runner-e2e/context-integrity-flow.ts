@@ -64,6 +64,12 @@ export async function runContextIntegrityFlow(input: {
     assignedSkill?: { key: string; runtimeName: string; markdown: string };
   };
   const companyPath = `/api/companies/${fixtures.company.id}`;
+  const budgetGuard = {
+    companyMonthlyCents: 1_000,
+    agentMonthlyCents: 1_000,
+    currency: "USD",
+    hardStop: true,
+  } as const;
   let issue: Row | undefined;
   let runs: Row[] = [];
   const checkpoints: ContextIntegrityCheckpoint[] = [];
@@ -114,7 +120,7 @@ export async function runContextIntegrityFlow(input: {
     checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, assignedSkill: assignedSkill ? { key: String(assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: String(assignedSkill.currentVersionId ?? assignedSkill.versionId ?? ""), markdown: scenario.assignedSkill?.markdown } : undefined, skillInvocationEvidence });
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     input.observe(issue!, runs, checks);
-    await input.evidence("context-integrity.json", { schema: "paperclip.context-integrity.v1", scenario, checkpoints, checks });
+    await input.evidence("context-integrity.json", { schema: "paperclip.context-integrity.v1", scenario, budgetGuard, checkpoints, checks });
   }
   async function settle(before: Set<string>) {
     await pollUntil({
@@ -128,6 +134,12 @@ export async function runContextIntegrityFlow(input: {
   }
   try {
     await api.patch("/api/instance/settings/experimental", { enableClassicTaskInterface: false });
+    await api.patch(`/api/companies/${fixtures.company.id}/budgets`, {
+      budgetMonthlyCents: budgetGuard.companyMonthlyCents,
+    });
+    await api.patch(`/api/agents/${fixtures.agent.id}/budgets`, {
+      budgetMonthlyCents: budgetGuard.agentMonthlyCents,
+    });
     const taskPrompt = scenario.id === "assigned-skill-explicit-invocation"
       ? `${scenario.prompt}\n\nUse /${scenario.skillKey} for this request.`
       : scenario.prompt;
@@ -155,6 +167,6 @@ export async function runContextIntegrityFlow(input: {
   } finally {
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     if (issue) input.observe(issue, runs, checks);
-    await input.evidence("context-integrity.json", { schema: "paperclip.context-integrity.v1", scenario, checkpoints, checks });
+    await input.evidence("context-integrity.json", { schema: "paperclip.context-integrity.v1", scenario, budgetGuard, checkpoints, checks });
   }
 }

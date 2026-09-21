@@ -69,7 +69,9 @@ from ambiguous provider action recovery. Select it explicitly; `--all` excludes 
 The explicit-only `context-integrity` Product E2E suite covers ordered public
 comment continuation and explicit invocation of an assigned pinned skill across
 the seven qualified legacy/native local profiles. Select it by suite or exact
-execution ID because `--all` excludes explicit-only suites.
+execution ID because `--all` excludes explicit-only suites. Each cell applies a
+1,000-cent company and agent budget hard stop before task creation and records
+both limits in its evidence.
 
 ## Validation ladder
 
