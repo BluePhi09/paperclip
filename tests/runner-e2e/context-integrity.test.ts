@@ -57,7 +57,8 @@ describe("context integrity Product E2E contract", () => {
     (echoed[2].documents[0] as { body: string }).body = `passport\ncharger\n${scenario.comments[2]}\n${scenario.comments[0]}\n${scenario.comments[1]}`;
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: echoed })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "packing-report-order", passed: false })]));
     const missingQueue = structuredClone(checkpoints);
-    missingQueue[1].queuedComments = { entries: (missingQueue[1].queuedComments?.entries as Array<unknown>).slice(0, 2) };
+    const queuedEntries = (missingQueue[1] as { queuedComments?: { entries?: unknown[] } }).queuedComments?.entries ?? [];
+    (missingQueue[1] as { queuedComments?: { entries: unknown[] } }).queuedComments = { entries: queuedEntries.slice(0, 2) };
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingQueue })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "comments-queued-as-batch", passed: false })]));
     const missingInitialItem = structuredClone(checkpoints);
     (missingInitialItem[2].documents[0] as { body: string }).body = `passport\n${scenario.comments.join("\n")}`;

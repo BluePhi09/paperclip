@@ -4,7 +4,7 @@ import { contextIntegrityScenario } from "./context-integrity-cases.js";
 import { gradeContextIntegrity, type ContextIntegrityCheckpoint } from "./context-integrity-scoring.js";
 import { pollUntil, type RunnerApi } from "./api.js";
 import { createTaskThroughUi } from "./user-actions.js";
-import { clear as clearContextCommentGate, release as releaseContextCommentGate, waitUntilHeld } from "./context-comment-gate.js";
+import { release as releaseContextCommentGate, waitUntilHeld } from "./context-comment-gate.js";
 import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 
@@ -117,7 +117,7 @@ export async function runContextIntegrityFlow(input: {
       api.get<Row[]>(`/api/issues/${issue!.id}/documents`),
       api.get<Row[]>(`${companyPath}/skills`),
       api.get<Row>(`/api/issues/${issue!.id}/queued-comments`),
-      scenario.id === "assigned-skill-explicit-invocation" ? api.get<Row>(`/api/agents/${fixtures.agent.id}/skills?companyId=${fixtures.company.id}`) : Promise.resolve({}),
+      scenario.id === "assigned-skill-explicit-invocation" ? api.get<Row>(`/api/agents/${fixtures.agent.id}/skills?companyId=${fixtures.company.id}`) : Promise.resolve({} as Row),
     ]);
     const detailedDocuments = await Promise.all(documents.map((document) => api.get<Row>(`/api/issues/${issue!.id}/documents/${encodeURIComponent(String(document.key))}`)));
     const assignedSkill = scenario.id === "assigned-skill-explicit-invocation"
@@ -179,13 +179,20 @@ export async function runContextIntegrityFlow(input: {
           await api.post(`/api/issues/${issue.id}/comments`, { body: scenario.comments[index], clientRequestId: randomUUID() });
         }
         await snapshot("comment-3");
+        const queuedEntries = checkpoints.at(-1)?.queuedComments?.entries;
+        const queuedRows = Array.isArray(queuedEntries) ? queuedEntries.map((entry) => {
+          const comment = (entry as Row).comment as Row | undefined;
+          return { id: String(comment?.id ?? ""), body: String(comment?.body ?? "") };
+        }) : [];
+        if (queuedRows.length < scenario.comments.length || scenario.comments.some((body, index) => queuedRows[index]?.body !== body) || queuedRows.slice(0, scenario.comments.length).some((row) => !row.id) || new Set(queuedRows.slice(0, scenario.comments.length).map((row) => row.id)).size !== scenario.comments.length) {
+          throw new Error("Context-integrity comment gate observed an incomplete or reordered deferred queue");
+        }
         await releaseContextCommentGate(issue.id);
         gateReleased = true;
         await settle(initialRunIds);
       } finally {
         if (!gateReleased) await releaseContextCommentGate(issue.id);
       }
-      await clearContextCommentGate(issue.id);
     } else {
       await settle(new Set());
       await snapshot("initial");
