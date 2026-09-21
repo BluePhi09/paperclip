@@ -8,6 +8,7 @@ import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 import { isBlockedUnstartedWake } from "./non-execution-wake.js";
 import { chatMarker } from "./chat-cases.js";
+import { isChatStopReady, runChatHardeningFlow } from "./chat-hardening.js";
 
 // Public API observations only: this driver never fabricates provider results or writes DB state.
 export interface ChatIssue {
@@ -285,7 +286,7 @@ export function assertChatReassignment(input: {
   expect(input.outputBody).toContain(input.marker);
 }
 
-export async function runChatFlow(input: {
+export interface ChatFlowInput {
   page: Page;
   api: RunnerApi;
   fixtures: LiveFixtureValues;
@@ -296,13 +297,15 @@ export async function runChatFlow(input: {
   observe: (issue: ChatIssue, runs: ChatRun[]) => void;
   capture: (id: string, label: string, file: string) => Promise<void>;
   evidence: (name: string, data: unknown) => Promise<void>;
-}) {
+}
+export async function runChatFlow(input: ChatFlowInput) {
   const { page, api, fixtures: f, execution, nonce } = input;
   const chatPath = `/api/companies/${f.company.id}/chats/${f.agent.id}`;
   const route = `/${f.company.issuePrefix}/chats/${f.agent.id}`;
   const marker = execution.task.buildVisibleMarker(nonce);
   const draftMarker = chatMarker("DRAFT", nonce);
   const caseId = execution.task.id;
+  const stopCase = ["stop-new-resume", "stop-startup-new-resume"].includes(caseId);
   let issue: ChatIssue;
   let runs: ChatRun[] = [];
   const settings = await api.get<Record<string, unknown>>(
@@ -346,7 +349,7 @@ export async function runChatFlow(input: {
           activeRuns: runs
             .filter((run) => ["queued", "running"].includes(run.status))
             .map((run) => run.id),
-          failure: chatRunFailure(runs, caseId === "stop-new-resume"),
+          failure: chatRunFailure(runs, stopCase),
         };
       },
       reject: (state) => state.failure ?? inconsistentIdle(state),
@@ -378,7 +381,7 @@ export async function runChatFlow(input: {
     expect(await allRuns()).toHaveLength(0);
 
     if (
-      ["continuity-restart", "new-session", "stop-new-resume"].includes(caseId)
+      ["continuity-restart", "new-session", "stop-new-resume", "stop-startup-new-resume"].includes(caseId)
     ) {
       const secret = chatMarker("OLDCONTEXT", nonce);
       await turn(
@@ -411,7 +414,7 @@ export async function runChatFlow(input: {
         );
       } else {
         let cancelledId: string | undefined;
-        if (caseId === "stop-new-resume") {
+        if (stopCase) {
           await sendChatMessage(
             page,
             "Explain the history of gardening at length here, in 100 numbered paragraphs. This is discussion only; do not create work.",
@@ -427,9 +430,14 @@ export async function runChatFlow(input: {
                 const events = await api.get<Array<Record<string, unknown>>>(
                   `/api/heartbeat-runs/${active.id}/events?limit=1000`,
                 );
-                const log = await readRunningChatLog(api, active.id);
-                if (!(events.length || log?.length)) return false;
+                if (execution.profile.generation === "native") {
+                  if (!isChatStopReady(events, caseId === "stop-startup-new-resume" ? "startup" : "active")) return false;
+                } else if (!(events.length || (await readRunningChatLog(api, active.id))?.length)) return false;
                 cancelledId = active.id;
+                await input.evidence("chat-stop-boundary.json", {
+                  phase: caseId === "stop-startup-new-resume" ? "startup" : "active",
+                  runId: active.id, events,
+                });
                 return true;
               },
               { timeout: 120_000 },
@@ -441,6 +449,7 @@ export async function runChatFlow(input: {
               async () =>
                 (await api.get<ChatRun>(`/api/heartbeat-runs/${cancelledId}`))
                   .status,
+              { timeout: 30_000 },
             )
             .toBe("cancelled");
         }
@@ -502,6 +511,8 @@ export async function runChatFlow(input: {
       }
       expect(issue!.id).toBe(initialId);
       await noTasks();
+    } else if (["hire-delegate-reuse", "blocked-status-review", "committed-send-retry"].includes(caseId)) {
+      await runChatHardeningFlow({ input, marker, issue: () => issue!, turn, idle, tasks, allRuns, comments });
     } else if (caseId === "create-backlog") {
       const project = await api.post<{ id: string }>(`/api/companies/${f.company.id}/projects`, {
         name: `Later planning ${nonce}`, description: "Repository-free plans to save for later.",
@@ -894,7 +905,7 @@ export async function runChatFlow(input: {
     for (const run of runs.filter((run) => !isResetRun(run))) {
       expect(run.runtimeMode).toBe(execution.profile.expectedRuntimeMode);
       expect(run.status).toBe(
-        caseId === "stop-new-resume" && run.status === "cancelled"
+        stopCase && run.status === "cancelled"
           ? "cancelled"
           : "succeeded",
       );
