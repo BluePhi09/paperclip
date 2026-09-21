@@ -12,6 +12,27 @@ import type { MatrixExecution } from "./types.js";
 
 type Row = Record<string, any>;
 
+export type ContextIntegrityRunLogEvidence =
+  | { status: "available"; content: unknown }
+  | { status: "unavailable"; reason: "not_found"; statusCode: 404 };
+
+/** A run can be visible before its log file exists; only that 404 is optional. */
+export async function readContextIntegrityRunLog(
+  api: Pick<RunnerApi, "request">,
+  runId: string,
+): Promise<ContextIntegrityRunLogEvidence> {
+  const response = await api.request.get(
+    `/api/heartbeat-runs/${runId}/log?limitBytes=1048576`,
+  );
+  if (response.status() === 404) {
+    return { status: "unavailable", reason: "not_found", statusCode: 404 };
+  }
+  if (!response.ok()) {
+    throw new Error(`Run ${runId} log returned ${response.status()}`);
+  }
+  return { status: "available", content: await response.json() };
+}
+
 
 function containsSkillReference(value: unknown, runtimeName: string): boolean {
   if (typeof value === "string") {
@@ -128,7 +149,7 @@ export async function runContextIntegrityFlow(input: {
       : undefined;
     const desiredSkill = (assignedState.desiredSkillEntries as Array<Row> | undefined)?.find((entry) => entry.key === scenario.assignedSkill?.key);
     const runEvents = await Promise.all(runs.map((run) => api.get<Row[]>(`/api/heartbeat-runs/${run.id}/events?limit=1000`)));
-    const runLogs = await Promise.all(runs.map((run) => api.get<unknown>(`/api/heartbeat-runs/${run.id}/log?limitBytes=1048576`)));
+    const runLogs = await Promise.all(runs.map((run) => readContextIntegrityRunLog(api, run.id)));
     const skillInvocationEvidence = scenario.id === "assigned-skill-explicit-invocation" && runEvents.some((events) => events.some((event) => containsExplicitSkillInput(event, String(assignedSkill?.slug ?? scenario.skillKey))));
     skillRequestText = scenario.id === "assigned-skill-explicit-invocation" ? String(issue?.description ?? "") : "";
     checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, runEvents: runEvents.flat(), runLogs, assignedSkill: assignedSkill ? { key: String(desiredSkill?.key ?? assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: desiredSkill?.versionId === assignedVersionId ? assignedVersionId : null, markdown: String(assignedSkill.markdown ?? scenario.assignedSkill?.markdown ?? "") } : undefined, skillRequestText: scenario.id === "assigned-skill-explicit-invocation" ? skillRequestText : undefined, skillInvocationEvidence });
