@@ -279,6 +279,25 @@ test("preserves custom prompt templates while exposing runtime and wake variable
   expect(prompt).not.toContain("Paperclip runtime identity:");
 });
 
+test("keeps historical task markdown available to custom templates while automatic context uses assignment markdown", () => {
+  const historical = "Historical task with current comment.";
+  const assignment = "Assignment task without current comment.";
+  const prompt = buildPrompt(baseContext({
+    paperclipTaskMarkdown: historical,
+    paperclipTaskMarkdownAssignment: assignment,
+    paperclipWake: {
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", status: "in_progress" },
+      comments: [{ id: "comment-1", body: "Current comment." }],
+      commentWindow: { requestedCount: 1, includedCount: 1, missingCount: 0 },
+      fallbackFetchNeeded: false,
+    },
+  }), { promptTemplate: "custom={{paperclipTaskMarkdown}}" });
+  expect(prompt).toContain(`custom=${historical}`);
+  expect(prompt).toContain(assignment);
+  expect(prompt).toContain("Current comment.");
+});
+
 
 test.each([false, true])("conversation prompts preserve the handoff policy (resumed=%s)", (resumedSession) => {
   const directive = "Chat directive: clarify goals and hand the plan off to project tasks.";
