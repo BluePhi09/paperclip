@@ -687,6 +687,19 @@ describe("codex execute", () => {
           paperclipWake: {
             reason: "issue_commented",
             issue: { id: "issue-1", identifier: "PAP-900", title: "Repeat phrase Repeat phrase", description: "Repeat phrase Repeat phrase", status: "in_progress" },
+            executionContinuation: {
+              version: 1,
+              companyId: "company-1",
+              issueId: "issue-1",
+              trigger: { reason: "issue_commented", interactionId: null, sourceRunId: null },
+              originCommentIds: [],
+              objective: "Repeat phrase Repeat phrase",
+              messages: [],
+              interactionOutcomes: [],
+              completedWork: null,
+              unresolvedInteractionIds: [],
+              coverage: { kind: "full_task_history", throughCommentId: null, summaryThroughCommentId: null },
+            },
             comments: [
               { id: "comment-a", issueId: "issue-1", body: "Same event body.", bodyTruncated: false, createdAt: "2026-09-21T00:00:00.000Z" },
               { id: "comment-b", issueId: "issue-1", body: "Same event body.", bodyTruncated: false, createdAt: "2026-09-21T00:01:00.000Z" },
@@ -706,6 +719,7 @@ describe("codex execute", () => {
       // The custom template intentionally repeats task context; ownership only
       // removes automatic wake-event duplication.
       expect(capture.prompt.split("Repeat phrase Repeat phrase")).toHaveLength(4);
+      expect(capture.prompt).not.toContain('"objective":"Repeat phrase Repeat phrase"');
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

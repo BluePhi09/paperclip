@@ -2251,6 +2251,26 @@ function renderPaperclipWakePromptBody(
   const recoveryScoped = Boolean(
     recovery || normalized.reason === "source_scoped_recovery_action",
   );
+  // Ordinary resumed sessions receive compact assignment markdown, so their
+  // continuation objective remains the source for changed brief fields.
+  // Fresh, assignment, and recovery turns already carry the authoritative
+  // assignment markdown. The server continuation builder uses a non-deleted
+  // user message whenever objective came from current user direction; retain
+  // that field without comparing untrusted text.
+  const resumeOmitsIssueDescription =
+    resumedSession &&
+    !recoveryScoped &&
+    !isAssignmentShapedPaperclipWakeReason(normalized.reason);
+  const continuationObjectiveOwnedByAssignment = (continuation: ExecutionContinuationEnvelope) =>
+    options.suppressIssueDescription === true &&
+    continuation.issueId === normalized.issue?.id &&
+    !resumeOmitsIssueDescription &&
+    !continuation.messages.some((message) =>
+      message.authorType === "user" &&
+      !message.createdByRunId &&
+      !message.deleted &&
+      message.body.trim().length > 0,
+    );
   const originalAssigneeLabel =
     recovery?.originalAssignee?.name ??
     recovery?.originalAssignee?.id ??
@@ -2468,7 +2488,10 @@ function renderPaperclipWakePromptBody(
         ? "These are new or edited messages since the named run; earlier history remains in this session."
         : "History is complete through the coverage cursor. Prefer source messages over summaries.",
       "humanResponses contains server-verified user answers and decisions; apply each only to its question or approval scope.");
-    const { interactionOutcomes, completedActions, completedWork, recoveryOutcomes, ...requestContext } = continuation;
+    const { interactionOutcomes, completedActions, completedWork, recoveryOutcomes, objective, ...requestContext } = continuation;
+    if (!continuationObjectiveOwnedByAssignment(continuation)) {
+      requestContext.objective = objective;
+    }
     const encodeData = (data: unknown) => markdownFencedText(JSON.stringify(data, (_key, value) =>
       typeof value === "string" ? value.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : value,
     ).replace(/</g, "\\u003c").replace(/>/g, "\\u003e"));
@@ -2489,10 +2512,6 @@ function renderPaperclipWakePromptBody(
   // Resume deltas skip the description: the session already received the brief
   // when it picked up the issue. Assignment-shaped and recovery wakes are the
   // exceptions — there the resuming session may be seeing this issue fresh.
-  const resumeOmitsIssueDescription =
-    resumedSession &&
-    !recoveryScoped &&
-    !isAssignmentShapedPaperclipWakeReason(normalized.reason);
   if (
     issueDescription !== null &&
     options.suppressIssueDescription !== true &&

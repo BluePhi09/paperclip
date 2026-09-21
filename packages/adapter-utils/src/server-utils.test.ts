@@ -3884,4 +3884,43 @@ describe("wake continuation comment ownership", () => {
     expect(prompt).toContain("comment-new");
     expect(prompt).toContain("Current delta body");
   });
+
+  it("does not repeat the shared issue brief as continuation objective on a fresh owned wake", () => {
+    const objective = "Assignment brief owned by task markdown.";
+    const prompt = renderPaperclipWakePrompt({
+      reason: "issue_assigned",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: objective },
+      comments: [],
+      commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: { ...continuation([]), objective },
+    }, { suppressIssueDescription: true });
+    expect(prompt).not.toContain(`"objective":"${objective}"`);
+  });
+
+  it("keeps a changed continuation objective on an ordinary compact resume", () => {
+    const objective = "Changed objective must reach the compact resumed turn.";
+    const prompt = renderPaperclipWakePrompt({
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: "Original brief" },
+      comments: [],
+      commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: { ...continuation([]), objective },
+    }, { resumedSession: true, suppressIssueDescription: true });
+    expect(prompt).toContain(`"objective":"${objective}"`);
+  });
+
+  it("keeps continuation objective when its issue identity does not match the assignment", () => {
+    const objective = "Mismatched continuation objective remains visible.";
+    const prompt = renderPaperclipWakePrompt({
+      reason: "issue_assigned",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: "Assignment brief" },
+      comments: [],
+      commentWindow: { requestedCount: 0, includedCount: 0, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: { ...continuation([]), issueId: "issue-2", objective },
+    }, { suppressIssueDescription: true });
+    expect(prompt).toContain(`"objective":"${objective}"`);
+  });
 });
