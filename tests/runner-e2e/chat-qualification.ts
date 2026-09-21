@@ -150,6 +150,23 @@ export async function runWorkerCrash(context: Context) {
     const failed = await input.api.get<Row>(`/api/heartbeat-runs/${boundary.id}`);
     await input.capture("worker-failed", "Worker loss before user Retry", "worker-failed.png");
     await writeFile(wait.gate, reference);
+    if (failed.errorCode === "native_session_cleanup_quarantined") {
+      // Preserve the red qualification result, but verify the stop is honest:
+      // the UI/API must not offer an attempt which cannot pass cleanup admission.
+      await input.page.reload({ waitUntil: "domcontentloaded" });
+      await expect(input.page.getByTestId("task-chat-composer-input")).toBeVisible();
+      await expect(input.page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+      const refused = await input.api.request.post(`/api/agents/${input.fixtures.agent.id}/wakeup`, {
+        data: { failedRunId: failed.id, reason: "retry_failed_run" },
+      });
+      expect(refused.status()).toBe(409);
+      expect(await context.allRuns()).toHaveLength(1);
+      expect(await input.api.get(`/api/issues/${context.issue().id}/documents/plan`)).toEqual(planBefore);
+      await input.evidence("chat-worker-quarantine.json", { failed, retryStatus: refused.status(), savedPlanPreserved: true,
+        usableRecovery: false, classification: "product recovery boundary; no provider retry was admitted" });
+      await input.capture("worker-quarantined", "Worker recovery requires reconciliation", "worker-quarantined.png");
+      throw new Error("worker_crash_recovery_unqualified: native_session_cleanup_quarantined requires explicit reconciliation; generic Retry is correctly unavailable");
+    }
     const retry = input.page.getByRole("button", { name: "Retry", exact: true });
     await expect(retry).toHaveCount(1, { timeout: 60_000 });
     await retry.click();

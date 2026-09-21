@@ -930,3 +930,10 @@ runtime switch occurs after the real wizard creates its first agent and before
 any provider work. It preserves the wizard's model, persona, skills, and task.
 This tests the native first-task process in advance of the UI/default rollout;
 it does not certify a native option in the wizard, which is not offered yet.
+
+Current proof and remaining decisions are recorded in
+[the 21 September qualification report](QUALIFICATION-2026-09-21.md). In particular,
+worker loss currently quarantines both providers. The crash eval retains a red
+qualification result when no usable recovery exists, while also verifying that
+quarantine preserves the plan and rejects a misleading generic Retry. A passing
+quarantine guard is not a recovered workflow.
