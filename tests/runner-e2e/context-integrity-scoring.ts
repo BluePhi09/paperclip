@@ -38,6 +38,16 @@ function oneOutput(checkpoint: ContextIntegrityCheckpoint, marker: string, requi
   return outputs.length === 1 ? outputs[0] : undefined;
 }
 
+function wakeCommentIds(run: Record<string, unknown>): string[] {
+  const context = (run.contextSnapshot ?? {}) as Record<string, unknown>;
+  const paperclipWake = (context.paperclipWake ?? {}) as Record<string, unknown>;
+  const continuation = (context.executionContinuation ?? {}) as Record<string, unknown>;
+  for (const candidate of [paperclipWake.commentIds, paperclipWake.wakeCommentIds, continuation.commentIds, continuation.wakeCommentIds]) {
+    if (Array.isArray(candidate)) return candidate.map(String);
+  }
+  return [];
+}
+
 export function gradeContextIntegrity(input: {
   id: ContextIntegrityCase;
   marker: string;
@@ -92,14 +102,19 @@ export function gradeContextIntegrity(input: {
       "The durable packing report must retain both initial items and each verbatim request in order, including the repeated request and final scope.",
     );
     const succeededRunIds = (final?.runs ?? []).filter((run) => run.status === "succeeded").map((run) => String(run.id ?? "")).filter(Boolean);
-    check("continuation-run-count", new Set(succeededRunIds).size >= 2, "The initial run and one distinct successful deferred continuation run must both be recorded.");
+    check("continuation-run-count", new Set(succeededRunIds).size === 2, "The initial run and one distinct successful deferred continuation run must both be recorded.");
+    const continuation = (final?.runs ?? [])
+      .filter((run) => run.status === "succeeded")
+      .sort((a, b) => Date.parse(String(a.startedAt ?? "")) - Date.parse(String(b.startedAt ?? "")))[1];
+    const expectedCommentIds = humanRows.slice(0, input.comments.length).map((comment) => String(comment.id ?? ""));
+    check("continuation-wake-comment-ids", Boolean(continuation) && JSON.stringify(wakeCommentIds(continuation)) === JSON.stringify(expectedCommentIds), "The deferred continuation wake must carry all public comment IDs in arrival order.");
   }
   if (input.id === "assigned-skill-explicit-invocation") {
     const runtimeName = String(initial?.assignedSkill?.runtimeName ?? initial?.assignedSkill?.key ?? "");
     const requestText = String(initial?.skillRequestText ?? "");
-    const escapedName = runtimeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const references = requestText.split(/\s+/).map((word) => word.replace(/[.,]$/, ""));
     check("assigned-skill-present", Boolean(initial?.assignedSkill?.key && initial.assignedSkill.versionId), "The task run must receive one pinned skill version through the public assignment state.");
-    check("skill-request-explicit", Boolean(runtimeName && new RegExp(`(?:^|\\s)(?:/|\\$)${escapedName}(?=$|\\s|[.,])`, "i").test(requestText)), "The task request must explicitly name the assigned skill with a supported slash or dollar reference.");
+    check("skill-request-explicit", Boolean(runtimeName && references.some((word) => word === `/${runtimeName}` || word === `$${runtimeName}`)), "The task request must explicitly name the assigned skill with a supported slash or dollar reference.");
     check("skill-source-marker", Boolean(initial?.assignedSkill?.markdown?.includes(input.marker)), "The assigned pinned skill source must contain the output marker.");
     check("marker-not-in-request", !requestText.includes(input.marker) && !finalComments.some((comment) => comment.includes(input.marker)), "The output marker must originate from the assigned skill, not the task request or comments.");
   }

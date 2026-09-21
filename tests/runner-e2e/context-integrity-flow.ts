@@ -4,6 +4,7 @@ import { contextIntegrityScenario } from "./context-integrity-cases.js";
 import { gradeContextIntegrity, type ContextIntegrityCheckpoint } from "./context-integrity-scoring.js";
 import { pollUntil, type RunnerApi } from "./api.js";
 import { createTaskThroughUi } from "./user-actions.js";
+import { clear as clearContextCommentGate, release as releaseContextCommentGate, waitUntilHeld } from "./context-comment-gate.js";
 import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 
@@ -128,7 +129,7 @@ export async function runContextIntegrityFlow(input: {
       : [];
     const skillInvocationEvidence = scenario.id === "assigned-skill-explicit-invocation" && runEvents.some((events) => events.some((event) => containsExplicitSkillInput(event, String(assignedSkill?.slug ?? scenario.skillKey))));
     skillRequestText = scenario.id === "assigned-skill-explicit-invocation" ? String(issue?.description ?? "") : "";
-    checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, runEvents: runEvents.flat(), assignedSkill: assignedSkill ? { key: String(desiredSkill?.key ?? assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: desiredSkill?.versionId ? String(desiredSkill.versionId) : null, markdown: String(assignedSkill.markdown ?? scenario.assignedSkill?.markdown ?? "") } : undefined, skillRequestText: scenario.id === "assigned-skill-explicit-invocation" ? skillRequestText : undefined, skillInvocationEvidence });
+    checkpoints.push({ phase, issue: { id: issue!.id, status: String(issue!.status) }, comments, queuedComments, documents: detailedDocuments as Array<{ key: string; body?: string | null }>, runs, runEvents: runEvents.flat(), assignedSkill: assignedSkill ? { key: String(desiredSkill?.key ?? assignedSkill.key ?? assignedSkill.slug), runtimeName: String(assignedSkill.slug ?? ""), versionId: desiredSkill?.versionId === assignedVersionId ? assignedVersionId : null, markdown: String(assignedSkill.markdown ?? scenario.assignedSkill?.markdown ?? "") } : undefined, skillRequestText: scenario.id === "assigned-skill-explicit-invocation" ? skillRequestText : undefined, skillInvocationEvidence });
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
     input.observe(issue!, runs, checks);
     await input.evidence("context-integrity.json", { schema: "paperclip.context-integrity.v1", scenario, budgetGuard, checkpoints, checks });
@@ -165,13 +166,26 @@ export async function runContextIntegrityFlow(input: {
         load: async () => { await refresh(); return runs; },
         accept: (currentRuns) => currentRuns.some((run) => run.status === "running" && (run.issueId === issue!.id || run.nativeIssueId === issue!.id || run.contextSnapshot?.issueId === issue!.id || run.contextSnapshot?.taskId === issue!.id)),
       });
-      await snapshot("initial");
-      const initialRunIds = new Set(runs.map((run) => run.id));
-      for (let index = 0; index < scenario.comments.length; index += 1) {
-        await api.post(`/api/issues/${issue.id}/comments`, { body: scenario.comments[index], clientRequestId: randomUUID() });
+      await waitUntilHeld(issue.id, input.deadlineAt);
+      let gateReleased = false;
+      try {
+        await snapshot("initial");
+        const initialCheckpoint = checkpoints.at(-1);
+        if (!initialCheckpoint?.runs.some((run) => run.status === "running") || initialCheckpoint.documents.length === 0) {
+          throw new Error("Context-integrity gate did not expose a running initial run with a committed document");
+        }
+        const initialRunIds = new Set(runs.map((run) => run.id));
+        for (let index = 0; index < scenario.comments.length; index += 1) {
+          await api.post(`/api/issues/${issue.id}/comments`, { body: scenario.comments[index], clientRequestId: randomUUID() });
+        }
+        await snapshot("comment-3");
+        await releaseContextCommentGate(issue.id);
+        gateReleased = true;
+        await settle(initialRunIds);
+      } finally {
+        if (!gateReleased) await releaseContextCommentGate(issue.id);
       }
-      await snapshot("comment-3");
-      await settle(initialRunIds);
+      await clearContextCommentGate(issue.id);
     } else {
       await settle(new Set());
       await snapshot("initial");
