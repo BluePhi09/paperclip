@@ -404,8 +404,10 @@ export async function runChatFlow(input: ChatFlowInput) {
         await input.restart();
         // Re-enter the canonical route after the server replaces its browser
         // transport; reloading the stale document can target a detached page.
-        await page.goto(route, { waitUntil: "domcontentloaded", timeout: 60_000 });
-        await expect(page.getByTestId("task-chat-composer-input")).toBeVisible();
+        // The restarted dev server can leave DOMContentLoaded pending after the
+        // app is interactive. Require the actual chat composer after navigation.
+        await page.goto(route, { waitUntil: "commit", timeout: 60_000 });
+        await expect(page.getByTestId("task-chat-composer-input")).toBeVisible({ timeout: 60_000 });
         await idle(2);
         expect(runs).toHaveLength(count);
         await turn(

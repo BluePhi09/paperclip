@@ -1,6 +1,7 @@
-import { expect, type Route } from "@playwright/test";
+import { expect } from "@playwright/test";
 import type { RunnerApi } from "./api.js";
 import { readChatOutputDocument, sendChatMessage, type ChatFlowInput, type ChatIssue, type ChatRun } from "./chat-flow.js";
+import { dropChatSendAcknowledgement } from "./lost-send.js";
 
 type Agent = {
   id: string; name: string; reportsTo?: string; adapterType?: string;
@@ -172,37 +173,24 @@ export async function runChatHardeningFlow(context: {
     expect(await api.get(`/api/issues/${source.id}`)).toMatchObject({ status: "blocked" });
     await input.evidence("chat-status-review.json", { source, sourcePlan, sourceBrief, review, document, reviewRuns, reply });
   } else if (execution.task.id === "committed-send-retry") {
-    let sent: { path: string; data: Record<string, unknown>; commentId: string } | undefined;
-    let abortResponse!: () => void;
-    const responseMayDrop = new Promise<void>(resolve => { abortResponse = resolve; });
-    const handler = async (route: Route) => {
-      if (route.request().method() !== "POST") return route.continue();
-      const data = route.request().postDataJSON() as Record<string, unknown>;
-      if (typeof data.body !== "string" || !data.body.includes(marker) || sent) return route.continue();
-      const response = await route.fetch();
-      expect(response.ok()).toBe(true);
-      const comment = await response.json() as { id: string };
-      sent = { path: new URL(route.request().url()).pathname, data, commentId: comment.id };
-      await responseMayDrop;
-      await route.abort("connectionreset");
-    };
-    await page.route("**/api/issues/*/comments", handler);
+    const interception = await dropChatSendAcknowledgement(page, marker);
     try {
       await sendChatMessage(page, `Create exactly one task titled Later ${nonce} in ${project.name}, assigned to yourself, in backlog. Save an initial plan containing ${marker}. Do not start it. Link the task here.`);
-      await idle(1); // The server and real agent complete while the browser acknowledgement is withheld.
-      expect(sent).toBeTruthy();
+      const sent = await interception.committed;
+      // The real agent completes the accepted request despite its lost HTTP ACK.
+      await idle(1);
       const saved = (await tasks())[0]!;
       expect(saved).toBeTruthy();
       const plan = await api.get<Document>(`/api/issues/${saved.id}/documents/plan`);
       expect(plan.body).toContain(marker);
-      abortResponse();
-      await page.unroute("**/api/issues/*/comments", handler);
+      await interception.dispose();
       await input.restart();
       // Replay the exact interrupted public request, including its original key.
       // This tests transport retries, not automatic replay of a failed provider turn.
       const retried = await api.post<Comment>(sent!.path, sent!.data);
       expect(retried.id).toBe(sent!.commentId);
-      await page.goto(`/${f.company.issuePrefix}/chats/${f.agent.id}`, { waitUntil: "domcontentloaded" });
+      await page.goto(`/${f.company.issuePrefix}/chats/${f.agent.id}`, { waitUntil: "commit", timeout: 60_000 });
+      await expect(page.getByTestId("task-chat-composer-input")).toBeVisible({ timeout: 60_000 });
       await turn(`What is the saved status of ${saved.identifier}? Just report it; do not create or change work.`, 2);
       assertCommittedSendRetry({ commentId: sent!.commentId, clientRequestId: String(sent!.data.clientRequestId),
         comments: await comments(), taskId: saved.id, tasks: await tasks(), runs: await allRuns(), chatId: context.issue().id });
@@ -210,8 +198,7 @@ export async function runChatHardeningFlow(context: {
       expect(await latestReply()).toMatch(/backlog/i);
       await input.evidence("chat-committed-send-retry.json", { commentId: sent!.commentId, task: saved, plan, runs: await allRuns() });
     } finally {
-      abortResponse();
-      await page.unroute("**/api/issues/*/comments", handler);
+      await interception.dispose();
     }
   } else throw new Error(`Unsupported chat hardening case ${execution.task.id}`);
   } finally {

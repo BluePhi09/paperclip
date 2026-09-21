@@ -172,9 +172,9 @@ Restart continuity requires the agent to recall a phrase after the server
 restarts. The final prompt does not reveal that phrase. A generic successful
 reply after restart cannot pass this check.
 
-The committed-send case withholds the browser's comment acknowledgement until
-the agent has saved one backlog task, drops that response, restarts Paperclip,
-and replays the exact public request with the original client request ID. It
+The committed-send case drops the browser's acknowledgement after the server
+saves its comment. It waits for the agent to save one backlog task, restarts
+Paperclip, and replays the exact public request with the original client request ID. It
 requires the original comment, task, plan, and single consuming run. This proves
 HTTP request idempotency across restart, not replay safety for an ambiguous
 provider tool response. Existing native tool-receipt tests cover that boundary.
