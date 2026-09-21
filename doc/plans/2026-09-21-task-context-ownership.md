@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Paperclip assembles a task brief and a wake event for several adapter lanes. The
-same description or current comment must reach the provider once per automatic
-source. This contract makes the source explicit while keeping the existing
+Paperclip assembles a task brief and a wake event for several adapter lanes.
+Each task description or current comment has one automatic model-facing owner
+when its source can be verified. This contract makes the source explicit while keeping the existing
 task, wake, continuation, attachment, and custom-template fields intact.
 
 ## Ownership
@@ -49,6 +49,14 @@ is for the same issue, the message ID is present in the actually rendered
 continuation selection, and the trimmed body matches. Edited bodies, missing
 resume-delta messages, deleted messages, unrelated issue IDs, and distinct IDs
 with equal bodies remain visible.
+
+The continuation builder records `objectiveSource` when it selects the current
+objective. A comment source uses its comment ID and update revision. A task
+description or title uses its issue ID and a hash of the trimmed source text.
+The renderer can then refer to the displayed source instead of repeating its
+body. It retains the full objective for older envelopes, unknown or stale
+revisions, a truncated brief, or a source absent from the selected resume delta.
+This preserves changed task fields on compact resumes.
 
 ## Source and completion checks
 
