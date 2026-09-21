@@ -268,15 +268,25 @@ printf '%s\\n' '{"type":"result","subtype":"success","session_id":"cursor-sessio
     const runnerState = {
       commands: [] as string[],
     };
+    // The managed-runtime restore path probes the generated archive with
+    // `wc -c` before reading bounded `dd | base64` chunks. Keep this fixture's
+    // shell seam faithful to that protocol instead of returning empty stdout
+    // for every shell command.
+    const emptyArchive = Buffer.alloc(1024);
     const runner = {
       execute: async (input: { command: string; args?: string[]; env?: Record<string, string> }) => {
         runnerState.commands.push(input.command);
+        const shellText = (input.args ?? []).join(" ");
         if (input.command === "sh") {
           return {
             exitCode: 0,
-          signal: null,
-          timedOut: false,
-          stdout: "",
+            signal: null,
+            timedOut: false,
+            stdout: shellText.includes("wc -c")
+              ? `${emptyArchive.length}\n`
+              : shellText.includes("dd if=")
+                ? emptyArchive.toString("base64")
+                : "",
           stderr: "",
           pid: 555,
           startedAt: new Date().toISOString(),
