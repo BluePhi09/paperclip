@@ -77,6 +77,8 @@ export async function runChatInterruption(context: Context & { refreshIssue(): P
     }, { timeout: 120_000 }).toBe(true);
     await context.refreshIssue();
     await sendChatMessage(input.page, followup);
+    await expect.poll(async () => (await comments()).filter(comment => !comment.authorAgentId && comment.body === followup).length,
+      { timeout: 30_000 }).toBe(1);
     activeAtFollowup = await input.api.get<ChatRun>(`/api/heartbeat-runs/${boundaryRun!.id}`);
     await input.evidence("chat-interruption-boundary.json", { first, followup, boundaryRun, activeAtFollowup, comments: await comments() });
     expect(activeAtFollowup.status, "Follow-up must persist while the first provider run is active").toBe("running");
