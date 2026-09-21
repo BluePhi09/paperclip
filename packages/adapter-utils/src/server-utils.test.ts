@@ -3040,6 +3040,21 @@ describe("selectPaperclipTaskMarkdown", () => {
     ).toBe(fullMarkdown);
   });
 
+  it("prefers assignment-only fields while preserving historical fallback fields", () => {
+    const context = {
+      paperclipTaskMarkdown: `${fullMarkdown}\nHistorical wake comment`,
+      paperclipTaskMarkdownCompact: `${compactMarkdown}\nHistorical compact comment`,
+      paperclipTaskMarkdownAssignment: fullMarkdown,
+      paperclipTaskMarkdownAssignmentCompact: compactMarkdown,
+      paperclipWake: wake("issue_commented"),
+    };
+    expect(selectPaperclipTaskMarkdown(context)).toBe(fullMarkdown);
+    expect(selectPaperclipTaskMarkdown(context, { resumedSession: true })).toBe(compactMarkdown);
+    expect(
+      selectPaperclipTaskMarkdown({ paperclipTaskMarkdown: "legacy", paperclipWake: wake("issue_commented") }),
+    ).toBe("legacy");
+  });
+
   it("returns the compact markdown for non-assignment resume deltas", () => {
     expect(
       selectPaperclipTaskMarkdown(
@@ -3803,5 +3818,70 @@ describe("runtime skill assignment boundaries", () => {
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("wake continuation comment ownership", () => {
+  const continuation = (messages: Array<Record<string, unknown>>, resumeDelta?: Array<Record<string, unknown>>) => ({
+    version: 1,
+    companyId: "company-1",
+    issueId: "issue-1",
+    trigger: { reason: "issue_commented", interactionId: null, sourceRunId: null },
+    originCommentIds: [],
+    objective: "Continue the task.",
+    messages,
+    ...(resumeDelta ? { resumeDelta: { baseRunId: "run-old", messages: resumeDelta } } : {}),
+    interactionOutcomes: [],
+    completedWork: null,
+    unresolvedInteractionIds: [],
+    coverage: { kind: "full_task_history", throughCommentId: null, summaryThroughCommentId: null },
+  });
+
+  const message = (id: string, body: string) => ({
+    id,
+    authorType: "user",
+    authorId: "user-1",
+    body,
+    createdAt: "2026-09-21T00:00:00.000Z",
+    updatedAt: "2026-09-21T00:00:00.000Z",
+    deleted: false,
+    sourceTrust: "human",
+  });
+
+  it("suppresses only an exact continuation owner and keeps same-body distinct IDs", () => {
+    const prompt = renderPaperclipWakePrompt({
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: null },
+      comments: [
+        { id: "comment-a", body: "Repeat body" },
+        { id: "comment-b", body: "Repeat body" },
+        { id: "comment-edited", body: "Edited current body" },
+      ],
+      commentWindow: { requestedCount: 3, includedCount: 3, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: continuation([
+        message("comment-a", "Repeat body"),
+        message("comment-edited", "Original body"),
+      ]),
+    });
+    expect(prompt).toContain("comment-b");
+    expect(prompt).toContain("comment-edited");
+    expect(prompt).not.toContain("comment-a at");
+  });
+
+  it("does not suppress a current comment absent from the rendered resume delta", () => {
+    const prompt = renderPaperclipWakePrompt({
+      reason: "issue_commented",
+      issue: { id: "issue-1", identifier: "PAP-1", title: "Task", description: null },
+      comments: [{ id: "comment-new", body: "Current delta body" }],
+      commentWindow: { requestedCount: 1, includedCount: 1, missingCount: 0 },
+      fallbackFetchNeeded: false,
+      executionContinuation: continuation(
+        [message("comment-new", "Current delta body")],
+        [],
+      ),
+    }, { resumedSession: true });
+    expect(prompt).toContain("comment-new");
+    expect(prompt).toContain("Current delta body");
   });
 });

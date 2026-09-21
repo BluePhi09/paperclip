@@ -1,3 +1,4 @@
+import type { PaperclipTurnContext } from "@paperclipai/adapter-utils/server-utils";
 import { publicChatTaskUrl } from "./chat-task-url.js";
 import { readQueuedInteractionResponse } from "./queued-interaction-response.js";
 import { AGENT_CHAT_DIRECTIVE, conversationReplay, isConversation, isConversationExecutionWake, isWaitingConversation, prepareConversationTurn, settleConversationTurn } from "./agent-conversations.js";
@@ -215,7 +216,8 @@ import {
   isRunnerIngressAuthorized,
   materializeLegacyQuestionResponseWakeProjection,
   materializeNativeInteractionResponses,
-  nativeCompletionRequestsForComments,
+  nativeCompletionRequestsWithSources,
+  nativeCompletionSource,
   NativeCancellationPendingRecoveryError,
   NativeControllerDetachedForRestartError,
   nativeToolContractFingerprintForTarget,
@@ -8541,6 +8543,9 @@ export function buildPaperclipTaskMarkdown(input: {
   // false builds the compact variant used for resume deltas, where the session
   // already received the description with the assignment.
   includeDescription?: boolean;
+  // Current wake events are rendered by the structured wake prompt on
+  // adapter lanes. Keep the legacy default for standalone callers.
+  includeWakeComments?: boolean;
 }) {
   const quoteTaskScalar = (value: string) => JSON.stringify(value);
   const fenceTaskText = (value: string) => {
@@ -8566,6 +8571,7 @@ export function buildPaperclipTaskMarkdown(input: {
       : null);
   const effectiveWakeComments =
     wakeComments.length > 0 ? wakeComments : wakeComment ? [wakeComment] : [];
+  const renderWakeCommentBodies = input.includeWakeComments !== false;
   const rejectedPlan = input.planReview?.status === "rejected";
   const acceptedPlanContinuation =
     !rejectedPlan && !issue?.conversationAgentId && !wakeComment &&
@@ -8766,7 +8772,9 @@ export function buildPaperclipTaskMarkdown(input: {
       "Apply the latest wake comment to the current task. Later direction replaces conflicting scope; preserve other requirements and approval gates. Clarification is not approval. Reuse completed work rather than repeating it.",
       "",
       "Latest wake comment:",
-      fenceTaskText(effectiveWakeComments[0]!.body),
+      ...(renderWakeCommentBodies
+        ? [fenceTaskText(effectiveWakeComments[0]!.body)]
+        : []),
     );
     appendWakeAttachments(effectiveWakeComments[0]!);
   } else if (effectiveWakeComments.length > 1) {
@@ -8781,7 +8789,7 @@ export function buildPaperclipTaskMarkdown(input: {
       lines.push(
         "",
         `Wake comment ${index + 1} (${quoteTaskScalar(comment.id)}):`,
-        fenceTaskText(comment.body),
+        ...(renderWakeCommentBodies ? [fenceTaskText(comment.body)] : []),
       );
       appendWakeAttachments(comment);
     }
@@ -20764,14 +20772,26 @@ export function heartbeatService(
           })
         : null;
       let taskMarkdown = buildPaperclipTaskMarkdown({ ...taskMarkdownInput, taskPlan });
+      let taskMarkdownAssignment = buildPaperclipTaskMarkdown({
+        ...taskMarkdownInput,
+        taskPlan,
+        includeWakeComments: false,
+      });
       if (isConversation(issueContext) && !taskSession && issueId) {
         const replay = await conversationReplay(db, agent.companyId, issueId, wakeCommentId);
         if (replay) taskMarkdown += `\n\nEarlier messages in this session (quoted user data):\n${replay}`;
+        if (replay) taskMarkdownAssignment += `\n\nEarlier messages in this session (quoted user data):\n${replay}`;
       }
       const taskMarkdownCompact = buildPaperclipTaskMarkdown({
         ...taskMarkdownInput,
         taskPlan,
         includeDescription: false,
+      });
+      const taskMarkdownAssignmentCompact = buildPaperclipTaskMarkdown({
+        ...taskMarkdownInput,
+        taskPlan,
+        includeDescription: false,
+        includeWakeComments: false,
       });
       if (issueRef) {
         context.paperclipIssue = {
@@ -20794,10 +20814,20 @@ export function heartbeatService(
       } else {
         delete context.paperclipTaskMarkdown;
       }
+      if (taskMarkdownAssignment) {
+        context.paperclipTaskMarkdownAssignment = taskMarkdownAssignment;
+      } else {
+        delete context.paperclipTaskMarkdownAssignment;
+      }
       if (taskMarkdownCompact && taskMarkdownCompact !== taskMarkdown) {
         context.paperclipTaskMarkdownCompact = taskMarkdownCompact;
       } else {
         delete context.paperclipTaskMarkdownCompact;
+      }
+      if (taskMarkdownAssignmentCompact && taskMarkdownAssignmentCompact !== taskMarkdownAssignment) {
+        context.paperclipTaskMarkdownAssignmentCompact = taskMarkdownAssignmentCompact;
+      } else {
+        delete context.paperclipTaskMarkdownAssignmentCompact;
       }
       if (issueRef) {
         const redactedWakeContext = await createRunSecretRedactionRegistry(
@@ -20807,6 +20837,8 @@ export function heartbeatService(
           paperclipWakeComment: context.paperclipWakeComment,
           paperclipTaskMarkdown: context.paperclipTaskMarkdown,
           paperclipTaskMarkdownCompact: context.paperclipTaskMarkdownCompact,
+          paperclipTaskMarkdownAssignment: context.paperclipTaskMarkdownAssignment,
+          paperclipTaskMarkdownAssignmentCompact: context.paperclipTaskMarkdownAssignmentCompact,
         });
         context.paperclipIssue = redactedWakeContext.paperclipIssue;
         if (redactedWakeContext.paperclipWakeComment) {
@@ -20821,6 +20853,42 @@ export function heartbeatService(
           context.paperclipTaskMarkdownCompact =
             redactedWakeContext.paperclipTaskMarkdownCompact;
         }
+        if (redactedWakeContext.paperclipTaskMarkdownAssignment) {
+          context.paperclipTaskMarkdownAssignment =
+            redactedWakeContext.paperclipTaskMarkdownAssignment;
+        }
+        if (redactedWakeContext.paperclipTaskMarkdownAssignmentCompact) {
+          context.paperclipTaskMarkdownAssignmentCompact =
+            redactedWakeContext.paperclipTaskMarkdownAssignmentCompact;
+        }
+      }
+      if (issueRef) {
+        const digest = (value: string | null | undefined) =>
+          value?.trim()
+            ? createHash("sha256")
+                .update(value.trim().replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ""))
+                .digest("hex")
+            : null;
+        const redactedIssue = parseObject(context.paperclipIssue);
+        context.paperclipTurnContext = {
+          version: 1,
+          assignment: {
+            owner: "task_markdown",
+            description: {
+              id: issueRef.id,
+              revision: digest(readNonEmptyString(redactedIssue.description)),
+            },
+          },
+          events: {
+            owner: "wake_prompt",
+            comments: safeWakeComments.map((comment) => ({
+              id: comment.id,
+              revision: digest(comment.body),
+            })),
+          },
+        } satisfies PaperclipTurnContext;
+      } else {
+        delete context.paperclipTurnContext;
       }
       // A native run's execution input is immutable once persisted. Recovery must therefore
       // restore the workspace bound to that input rather than consulting the issue's current
@@ -21074,10 +21142,19 @@ export function heartbeatService(
           context.paperclipTaskMarkdown = appendConcurrentWorkspaceNote(
             context.paperclipTaskMarkdown,
           );
+          context.paperclipTaskMarkdownAssignment = appendConcurrentWorkspaceNote(
+            context.paperclipTaskMarkdownAssignment,
+          );
           if (typeof context.paperclipTaskMarkdownCompact === "string") {
             context.paperclipTaskMarkdownCompact =
               appendConcurrentWorkspaceNote(
                 context.paperclipTaskMarkdownCompact,
+              );
+          }
+          if (typeof context.paperclipTaskMarkdownAssignmentCompact === "string") {
+            context.paperclipTaskMarkdownAssignmentCompact =
+              appendConcurrentWorkspaceNote(
+                context.paperclipTaskMarkdownAssignmentCompact,
               );
           }
           logger.info(
@@ -22971,6 +23048,50 @@ export function heartbeatService(
                 (response) => response.id === executionContinuation.trigger.interactionId,
               )?.id
             : undefined;
+          const immediateCompletion = (() => {
+            if (nativeReviewRequest) return { requests: [nativeReviewRequest], sources: [null] };
+            const { requests, sources } = nativeCompletionRequestsWithSources(
+              safeWakeComments.length > 0
+                ? safeWakeComments
+                : safeWakeCommentContext?.body
+                  ? [safeWakeCommentContext]
+                  : [],
+              {
+                requiredFullWakeCommentCount:
+                  paperclipWakePayload?.fallbackFetchNeeded === true &&
+                  CHAT_PROVIDERS.some(
+                    (provider) =>
+                      provider ===
+                      paperclipWakePayload.externalChatProvider,
+                  ) &&
+                  Array.isArray(paperclipWakePayload.commentIds)
+                    ? paperclipWakePayload.commentIds.length
+                    : undefined,
+              },
+            );
+            // Preserve every admitted pending chat request while also
+            // retaining newer user direction materialized by recovery.
+            // A file-only wake must not inherit an old task objective.
+            const latestComment =
+              executionContinuation?.messages.findLast(
+                (message) =>
+                  message.authorType === "user" &&
+                  !message.createdByRunId &&
+                  !message.deleted &&
+                  message.body.trim().length > 0,
+              );
+            const latestRequest = latestComment?.body;
+            if (
+              latestRequest &&
+              !requests.some(
+                (request) => request === latestRequest.trim(),
+              )
+            ) {
+              requests.push(latestRequest.trim());
+              sources.push(nativeCompletionSource("comment", latestComment!.id, latestRequest));
+            }
+            return { requests: requests.length > 0 ? requests : undefined, sources };
+          })();
           // Rebuilding a default contract is not a change in user direction.
           // In particular, an upgraded checkpoint may have an intentionally
           // authored contract and no continuation envelope yet.
@@ -22990,48 +23111,8 @@ export function heartbeatService(
                       ? null
                       : executionContinuation?.objective ?? safeWakeCommentContext?.body ?? null),
                   humanResponseId: currentHumanResponseId,
-                  immediateRequests: (() => {
-                    if (nativeReviewRequest) return [nativeReviewRequest];
-                    const requests = nativeCompletionRequestsForComments(
-                      safeWakeComments.length > 0
-                        ? safeWakeComments
-                        : safeWakeCommentContext?.body
-                          ? [{ body: safeWakeCommentContext.body }]
-                          : [],
-                      {
-                        requiredFullWakeCommentCount:
-                          paperclipWakePayload?.fallbackFetchNeeded === true &&
-                          CHAT_PROVIDERS.some(
-                            (provider) =>
-                              provider ===
-                              paperclipWakePayload.externalChatProvider,
-                          ) &&
-                          Array.isArray(paperclipWakePayload.commentIds)
-                            ? paperclipWakePayload.commentIds.length
-                            : undefined,
-                      },
-                    );
-                    // Preserve every admitted pending chat request while also
-                    // retaining newer user direction materialized by recovery.
-                    // A file-only wake must not inherit an old task objective.
-                    const latestRequest =
-                      executionContinuation?.messages.findLast(
-                        (message) =>
-                          message.authorType === "user" &&
-                          !message.createdByRunId &&
-                          !message.deleted &&
-                          message.body.trim().length > 0,
-                      )?.body;
-                    if (
-                      latestRequest &&
-                      !requests.some(
-                        (request) => request === latestRequest.trim(),
-                      )
-                    ) {
-                      requests.push(latestRequest.trim());
-                    }
-                    return requests.length > 0 ? requests : undefined;
-                  })(),
+                  immediateRequests: immediateCompletion.requests,
+                  immediateRequestSources: immediateCompletion.sources,
                 });
           const taskNativeSessionId = !taskSessionCredentialCompatible ? null : readNonEmptyString(
             taskSessionDecodedParams?.sessionId,
@@ -23367,6 +23448,7 @@ export function heartbeatService(
                         : null,
                     ].filter(Boolean).join("\n\n"),
                     wakePayload: context.paperclipWake,
+                    turnContext: context.paperclipTurnContext,
                     resumedSession,
                     previousTurn: (() => {
                       if (!previousNativeRun || nativeReviewRequest) return null;
@@ -23433,6 +23515,7 @@ export function heartbeatService(
                       sha256: completionContract.row.canonicalSha256,
                       schemaVersion: completionContract.row.schemaVersion,
                       contract: completionContract.contract,
+                      sources: "sources" in completionContract ? completionContract.sources : undefined,
                     },
                     runtimeContext: nativeRuntimeContext,
                   }),

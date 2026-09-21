@@ -1939,6 +1939,21 @@ export function stringifyPaperclipWakePayload(
   return JSON.stringify(normalized);
 }
 
+/** Source ownership only. Canonical task, plan, response and event data stay in their existing fields. */
+export interface PaperclipTurnContext {
+  version: 1;
+  assignment: { owner: "task_markdown"; description?: { id: string; revision: string | null } };
+  events: { owner: "wake_prompt"; comments: Array<{ id: string; revision: string | null }> };
+}
+
+/** True when the structured prompt owns current wake comments. */
+export function paperclipWakeCommentsArePromptOwned(value: unknown): boolean {
+  const context = parseObject(value);
+  const turn = parseObject(context.paperclipTurnContext);
+  const events = parseObject(turn.events);
+  return turn.version === 1 && events.owner === "wake_prompt";
+}
+
 export function isPaperclipRecoveryWakePayload(value: unknown): boolean {
   const normalized = normalizePaperclipWakePayload(value);
   return Boolean(
@@ -2159,7 +2174,10 @@ export function selectPaperclipTaskMarkdown(
   context: Record<string, unknown> | null | undefined,
   options: { resumedSession?: boolean } = {},
 ): string {
-  const full = asString(context?.paperclipTaskMarkdown, "").trim();
+  const full = asString(
+    context?.paperclipTaskMarkdownAssignment ?? context?.paperclipTaskMarkdown,
+    "",
+  ).trim();
   if (!full) return "";
   if (options.resumedSession !== true) return full;
   const wake = normalizePaperclipWakePayload(context?.paperclipWake);
@@ -2170,7 +2188,10 @@ export function selectPaperclipTaskMarkdown(
   ) {
     return full;
   }
-  const compact = asString(context?.paperclipTaskMarkdownCompact, "").trim();
+  const compact = asString(
+    context?.paperclipTaskMarkdownAssignmentCompact ?? context?.paperclipTaskMarkdownCompact,
+    "",
+  ).trim();
   return compact || full;
 }
 
@@ -3026,7 +3047,19 @@ function renderPaperclipWakePromptBody(
       lines.push("");
     }
   };
-  const comments = normalized.comments.map((comment, index) => ({
+  const continuation = normalized.executionContinuation;
+  const continuationMessages = continuation && resumedSession && continuation.resumeDelta
+    ? continuation.resumeDelta.messages
+    : continuation?.messages ?? [];
+  const comments = normalized.comments
+    .filter((comment) => {
+      if (!continuation || continuation.issueId !== normalized.issue?.id) return true;
+      const message = continuationMessages.find(
+        (candidate) => candidate.id === comment.id && !candidate.deleted,
+      );
+      return !message || message.body.trim() !== comment.body.trim();
+    })
+    .map((comment, index) => ({
     index,
     comment,
   }));
