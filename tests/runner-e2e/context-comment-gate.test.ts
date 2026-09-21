@@ -1,8 +1,12 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import http from "node:http";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalDocumentIssueId, contextCommentGateSelected, holdCommittedDocumentResponse, release, waitUntilHeld } from "./context-comment-gate.js";
+
+const express = createRequire(import.meta.url)("../../server/node_modules/express");
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -20,6 +24,52 @@ describe("context comment gate", () => {
     expect(canonicalDocumentIssueId("/api/issues/RUN-1/documents/packing-report", JSON.stringify({ issueId: "issue-uuid" }))).toBe("issue-uuid");
     expect(canonicalDocumentIssueId("/api/issues/RUN-1/documents/packing-report", "not-json")).toBe("RUN-1");
     expect(canonicalDocumentIssueId("/api/issues/RUN-1/feedback", JSON.stringify({ issueId: "issue-uuid" }))).toBeUndefined();
+  });
+
+  it("holds a mounted Express document response using originalUrl", async () => {
+    const app = express();
+    app.use(express.json());
+    const router = express.Router();
+    let observed: { url?: string; originalUrl?: string; issueId?: string } | undefined;
+    let releaseResponse!: () => void;
+    let observeHook!: () => void;
+    const released = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    const hookObserved = new Promise<void>((resolve) => { observeHook = resolve; });
+    router.use((req, res, next) => {
+      const originalEnd = res.end.bind(res);
+      res.end = ((chunk?: any, ...rest: any[]) => {
+        const originalUrl = (req as typeof req & { originalUrl?: string }).originalUrl;
+        observed = { url: req.url, originalUrl, issueId: canonicalDocumentIssueId(req.url, chunk, originalUrl) };
+        observeHook();
+        if (observed.issueId) { void released.then(() => originalEnd(chunk, ...rest)); return res; }
+        return originalEnd(chunk, ...rest);
+      }) as typeof res.end;
+      next();
+    });
+    router.put("/issues/:key/documents/:document", (_req, res) => res.status(201).json({ issueId: "issue-uuid" }));
+    app.use("/api", router);
+    const server = await new Promise<http.Server>((resolve) => {
+      const value = app.listen(0, "127.0.0.1", () => resolve(value));
+    });
+    let responseSettled = false;
+    try {
+      const responsePromise = new Promise<number>((resolve, reject) => {
+        const request = http.request({ host: "127.0.0.1", port: (server.address() as any).port, method: "PUT", path: "/api/issues/RUN-1/documents/report", headers: { "content-type": "application/json" } }, (response) => { response.resume(); response.on("end", () => resolve(response.statusCode ?? 0)); });
+        request.on("error", reject);
+        request.end(JSON.stringify({ issueId: "issue-uuid" }));
+      });
+      await hookObserved;
+      expect(observed).toMatchObject({ url: "/issues/RUN-1/documents/report", originalUrl: "/api/issues/RUN-1/documents/report", issueId: "issue-uuid" });
+      void responsePromise.then(() => { responseSettled = true; });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(responseSettled).toBe(false);
+      releaseResponse();
+      await expect(responsePromise).resolves.toBe(201);
+    } finally {
+      releaseResponse();
+      if (!responseSettled) await new Promise((resolve) => setTimeout(resolve, 25));
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("waits for a committed hold and releases it", async () => {
