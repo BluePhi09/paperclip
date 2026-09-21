@@ -66,7 +66,10 @@ if (contextCommentGate) {
   const end = ServerResponse.prototype.end;
   ServerResponse.prototype.end = function (this: ServerResponse, ...args: any[]) {
     const body = args[0];
-    const issueId = this.req.method === "PUT" ? canonicalDocumentIssueId(this.req.url, body) : undefined;
+    const request = this.req as typeof this.req & { originalUrl?: string };
+    const issueId = this.req.method === "PUT"
+      ? canonicalDocumentIssueId(request.url, body, request.originalUrl)
+      : undefined;
     if (issueId && this.statusCode >= 200 && this.statusCode < 300) {
       void holdFirstDocument(decodeURIComponent(issueId)).then(
         () => Reflect.apply(end, this, args),

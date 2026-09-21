@@ -5,8 +5,8 @@ const GATE_DIR = "context-comment-gates";
 const HELD_FILE = "held";
 const RELEASE_FILE = "release";
 
-export function canonicalDocumentIssueId(url: string | undefined, body: unknown): string | undefined {
-  const documentIssueId = url?.match(/\/api\/issues\/([^/]+)\/documents\/[^/?]+(?:\?|$)/)?.[1];
+export function canonicalDocumentIssueId(url: string | undefined, body: unknown, originalUrl?: string): string | undefined {
+  const documentIssueId = (originalUrl ?? url)?.match(/\/api\/issues\/([^/]+)\/documents\/[^/?]+(?:\?|$)/)?.[1];
   if (!documentIssueId) return undefined;
   let parsed: any;
   if (typeof body === "string" || Buffer.isBuffer(body)) {
