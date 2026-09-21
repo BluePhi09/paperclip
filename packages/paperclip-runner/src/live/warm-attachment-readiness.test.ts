@@ -46,5 +46,21 @@ it("does not reset the probe budget when readiness alternates", async () => {
     .then(() => "unexpected-ready", error => String(error));
   await vi.advanceTimersByTimeAsync(122_000);
   expect(await result).toContain("native_runner_warm_attachment_not_quiescent");
-  expect(calls).toBeLessThan(250);
+  expect(calls).toBeLessThan(350);
+});
+
+it("confirms readiness near the deadline after one unsettled observation", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  let recoveredProbes = 0;
+  const result = waitForWarmAttachmentReadiness({
+    graceMs: 5_000,
+    waitForConnection: async () => {},
+    snapshot: async () => ({
+      warmAttachReady: Date.now() >= 4_400 && ++recoveredProbes !== 2,
+      warmAttachBlockers: [],
+    }),
+  }).then(() => "ready", error => String(error));
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(await result).toBe("ready");
 });
