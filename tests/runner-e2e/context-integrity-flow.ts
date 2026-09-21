@@ -78,6 +78,9 @@ export async function runContextIntegrityFlow(input: {
   if (scenario.id === "assigned-skill-explicit-invocation") {
     await api.patch("/api/instance/settings/experimental", { enableBetaSkills: true });
     const markdown = `---\nname: ${scenario.skillKey}\ndescription: Context integrity output procedure.\n---\n\n# Context integrity output procedure\n\nWrite exactly one task document whose body contains the marker ${scenario.marker}. Finish the task after saving that document.`;
+    if (!markdown.startsWith(`---\nname: ${scenario.skillKey}\ndescription:`) || markdown.includes("\\n")) {
+      throw new Error("Context-integrity skill payload must contain real frontmatter newlines");
+    }
     const skill = await api.post<Row>(`${companyPath}/skills`, {
       name: scenario.skillName,
       slug: scenario.skillKey,

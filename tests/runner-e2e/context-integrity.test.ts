@@ -57,7 +57,7 @@ describe("context integrity Product E2E contract", () => {
   it("ignores run-authored comments and rejects duplicate durable comment identities", () => {
     const { scenario, checkpoints } = recording("ordered-comment-continuation");
     const forged = structuredClone(checkpoints);
-    forged[2].comments.unshift({ body: scenario.comments[2], authorType: "user", authorUserId: "human", createdByRunId: "run-1", id: "run-comment" });
+    (forged[2].comments as Array<Record<string, unknown>>).unshift({ body: scenario.comments[2], authorType: "user", authorUserId: "human", createdByRunId: "run-1", id: "run-comment" });
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: forged }).every((check) => check.passed)).toBe(true);
     const duplicate = structuredClone(checkpoints);
     (duplicate[2].comments[1] as { id: string }).id = "comment-0";
