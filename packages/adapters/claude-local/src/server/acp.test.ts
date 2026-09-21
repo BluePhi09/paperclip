@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionContext, AdapterInvocationMeta } from "@paperclipai/adapter-utils";
 import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
+import { buildPaperclipTaskMarkdown } from "../../../../../server/src/services/heartbeat.js";
 
 // Wrap the shared staging seam in a call-recording spy that still delegates to
 // the real implementation (a runner-backed sandbox test exercises it end to
@@ -1216,6 +1217,69 @@ describe("claude_local ACP lane", () => {
       explicit: false,
       unavailableReason: expect.stringContaining("bidirectional remote process"),
     });
+  });
+
+  it("sends assignment-owned markdown and ordered distinct wake comments at the ACP boundary", async () => {
+    const root = await makeTempRoot("paperclip-claude-acp-context-owner-");
+    const runtimes: FakeRuntime[] = [];
+    const execute = createClaudeAcpExecutor({
+      createRuntime: (options: FakeRuntimeOptions) => {
+        const runtime = new FakeRuntime(options);
+        runtimes.push(runtime);
+        return runtime as never;
+      },
+    });
+    const issue = {
+      id: "issue-1",
+      identifier: "PAP-902",
+      title: "Repeat phrase Repeat phrase",
+      description: "Repeat phrase Repeat phrase",
+    };
+    const comments = [
+      { id: "comment-a", body: "Same event body." },
+      { id: "comment-b", body: "Same event body." },
+    ];
+    const assignmentMarkdown = buildPaperclipTaskMarkdown({
+      issue,
+      wakeComments: comments,
+      includeWakeComments: false,
+    });
+    const historicalMarkdown = buildPaperclipTaskMarkdown({ issue, wakeComments: comments });
+    const result = await execute(buildContext(root, {
+      context: {
+        issueId: issue.id,
+        paperclipTaskMarkdown: historicalMarkdown,
+        paperclipTaskMarkdownAssignment: assignmentMarkdown,
+        paperclipWake: {
+          reason: "issue_commented",
+          issue: { ...issue, status: "in_progress" },
+          comments: comments.map((comment, index) => ({
+            ...comment,
+            issueId: issue.id,
+            createdAt: `2026-09-21T00:0${index}:00.000Z`,
+          })),
+          commentWindow: { requestedCount: 2, includedCount: 2, missingCount: 0 },
+          fallbackFetchNeeded: false,
+        },
+        paperclipTurnContext: {
+          version: 1,
+          assignment: { owner: "task_markdown" },
+          events: {
+            owner: "wake_prompt",
+            comments: [
+              { id: "comment-a", revision: "a" },
+              { id: "comment-b", revision: "b" },
+            ],
+          },
+        },
+        paperclipWorkspace: { cwd: root, source: "project_workspace", workspaceId: "workspace-1" },
+      },
+    }));
+    expect(result.exitCode).toBe(0);
+    const prompt = String(runtimes[0]?.startInputs[0]?.text ?? "");
+    expect(prompt.split("Same event body.")).toHaveLength(3);
+    expect(prompt.indexOf("comment comment-a")).toBeLessThan(prompt.indexOf("comment comment-b"));
+    expect(prompt).toContain("Repeat phrase Repeat phrase");
   });
 
   it("delivers the issue description exactly once per prompt and compacts non-assignment resume deltas", async () => {
