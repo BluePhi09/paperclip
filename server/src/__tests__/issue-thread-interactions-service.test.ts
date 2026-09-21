@@ -409,6 +409,12 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     }
     await commentPromise;
 
+    const [comment] = await db
+      .select({ createdAt: issueComments.createdAt, updatedAt: issueComments.updatedAt })
+      .from(issueComments)
+      .where(eq(issueComments.issueId, fixture.issueId));
+    expect(comment?.updatedAt.toISOString()).toBe(comment?.createdAt.toISOString());
+
     await expect(interactionsSvc.getById(created.id)).resolves.toMatchObject({
       status: "expired",
       result: { expirationReason: "superseded_by_comment" },
