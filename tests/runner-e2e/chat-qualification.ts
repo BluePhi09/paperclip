@@ -27,7 +27,7 @@ export function assertWorkerIdentity(run: Row, command: string, environment: str
 
 export function assertActiveHandoff(e: {
   before: Row; after: Row; oldRun: ChatRun; boundary: ChatRun; runs: ChatRun[];
-  successorId: string; planBefore: Row; planAfter: Row; draft: Row; draftAfter: Row; output: Row;
+  successorId: string; planBefore: Row; planAfter: Row; draft: Row; draftAfter: Row; draftRevisions: Row[]; output: Row;
   reference: string; audit: Row[]; taskIds: string[];
 }) {
   expect(e.boundary).toMatchObject({ id: e.oldRun.id, status: "running", agentId: e.before.assigneeAgentId });
@@ -43,9 +43,12 @@ export function assertActiveHandoff(e: {
   expect(Date.parse(successor.startedAt!)).toBeGreaterThanOrEqual(oldEnd);
   expect(e.planAfter).toEqual(e.planBefore);
   expect(e.draft.body).toContain(e.reference);
-  expect(e.draftAfter).toEqual(e.draft);
+  expect(e.draftAfter.id).toBe(e.draft.id);
+  // Continuing a draft may create a new revision. Preservation means its exact
+  // saved revision remains retrievable, not that useful progress is forbidden.
+  expect(e.draftRevisions.find(r => r.id === e.draft.latestRevisionId)?.body).toBe(e.draft.body);
   expect(e.output.body).toContain(e.reference);
-  expect(e.output.createdByAgentId).toBe(e.successorId);
+  expect(e.output.updatedByAgentId ?? e.output.createdByAgentId).toBe(e.successorId);
   expect(e.audit.filter(a => a.action === "issue.reassigned")).toHaveLength(1);
   expect(e.audit.find(a => a.action === "issue.reassigned")?.details).toMatchObject({ source: "paperclip_runner_protocol" });
 }
@@ -115,6 +118,7 @@ export async function runActiveReassignment(context: Context) {
     const e = { before: task, after: await api.get<Row>(`/api/issues/${task.id}`), boundary,
       oldRun: await api.get<ChatRun>(`/api/heartbeat-runs/${boundary.id}`), runs: await context.allRuns(), successorId: second.id,
       planBefore, planAfter: await api.get<Row>(`/api/issues/${task.id}/documents/plan`), draft,
+      draftRevisions: await api.get<Row[]>(`/api/issues/${task.id}/documents/${encodeURIComponent(draft.key)}/revisions`),
       draftAfter: await api.get<Row>(`/api/issues/${task.id}/documents/${encodeURIComponent(draft.key)}`),
       output: await readChatOutputDocument(api, task.id, marker), reference,
       audit: await api.get<Row[]>(`/api/issues/${task.id}/activity`), taskIds: (await api.get<Row[]>(`${company}/issues`)).map(t => t.id) };
