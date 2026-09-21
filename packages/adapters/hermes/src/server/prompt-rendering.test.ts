@@ -87,6 +87,38 @@ test("renders standard assignment wake with task authority and no backlog discov
   expect(prompt).not.toContain("status=backlog");
 });
 
+test("keeps current wake comments in the wake owner and preserves assignment markdown inputs", () => {
+  const commentBody = "Please preserve the exact current comment once.";
+  const prompt = buildPrompt(baseContext({
+    paperclipWake: {
+      reason: "issue_commented",
+      issue: {
+        id: "issue-1",
+        identifier: "PAP-11751",
+        title: "Keep the current comment once",
+        status: "in_progress",
+        priority: "medium",
+        workMode: "standard",
+      },
+      commentWindow: { requestedCount: 1, includedCount: 1, missingCount: 0 },
+      comments: [{ id: "comment-1", body: commentBody }],
+      fallbackFetchNeeded: false,
+    },
+    paperclipTaskMarkdown: [
+      "Paperclip task context:",
+      '- Issue: "PAP-11751"',
+    ].join("\n"),
+    paperclipTurnContext: {
+      version: 1,
+      assignment: { owner: "task_markdown" },
+      events: { owner: "wake_prompt", comments: [{ id: "comment-1", revision: "rev-1" }] },
+    },
+  }), {});
+
+  expect(prompt.split(commentBody)).toHaveLength(2);
+  expect(prompt).toContain('Paperclip task context:\n- Issue: "PAP-11751"');
+});
+
 test("renders scoped planning wake authority before the Hermes default workflow", () => {
   const prompt = buildPrompt(baseContext(), {
     paperclipApiUrl: "http://127.0.0.1:3101/api",
