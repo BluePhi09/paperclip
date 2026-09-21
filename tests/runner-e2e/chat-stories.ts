@@ -95,6 +95,14 @@ export async function runChatInterruption(context: Context & { refreshIssue(): P
   } finally {
     // Always release a provider that is still waiting, including failed UI runs.
     await writeFile(gate, reference, "utf8");
+    const chatPath = `/api/companies/${input.fixtures.company.id}/chats/${input.fixtures.agent.id}`;
+    const current = await input.api.get<ChatIssue | null>(chatPath).catch(() => null);
+    await input.evidence("chat-interruption-state.json", {
+      issue: current,
+      runs: await allRuns().catch(error => ({ readError: String(error) })),
+      comments: current ? await input.api.get(`/api/issues/${current.id}/comments?order=asc`).catch(error => ({ readError: String(error) })) : [],
+      plan: current && revise ? await input.api.get(`/api/issues/${current.id}/documents/plan`).catch(error => ({ readError: String(error) })) : null,
+    });
   }
 }
 

@@ -307,6 +307,7 @@ export async function runChatFlow(input: ChatFlowInput) {
   const draftMarker = chatMarker("DRAFT", nonce);
   const caseId = execution.task.id;
   const stopCase = ["stop-new-resume", "stop-startup-new-resume"].includes(caseId);
+  const interruptionCase = ["followup-while-running", "revise-while-running"].includes(caseId);
   let issue: ChatIssue;
   let runs: ChatRun[] = [];
   const settings = await api.get<Record<string, unknown>>(
@@ -384,7 +385,7 @@ export async function runChatFlow(input: ChatFlowInput) {
 
     if (caseId === "enable-disable-resume") {
       await runChatSettingsLifecycle({ input, marker, issue: () => issue!, idle, allRuns, comments });
-    } else if (["followup-while-running", "revise-while-running"].includes(caseId)) {
+    } else if (interruptionCase) {
       await runChatInterruption({ input, marker, issue: () => issue!, idle, allRuns, comments,
         refreshIssue: async () => { issue = await api.get<ChatIssue>(chatPath); input.observe(issue, await allRuns()); } });
     } else if (
@@ -918,10 +919,12 @@ export async function runChatFlow(input: ChatFlowInput) {
         projects,
       });
     }
-    await idle(execution.task.expectedRunCount);
-    expect(runs.filter((run) => !isResetRun(run))).toHaveLength(
-      execution.task.expectedRunCount,
-    );
+    await idle(interruptionCase ? 1 : execution.task.expectedRunCount);
+    // The interruption oracle already proves delivery and bounds one steered
+    // run or two sequential runs. Other stories keep their exact run counts.
+    if (!interruptionCase) expect(runs.filter((run) => !isResetRun(run))).toHaveLength(
+        execution.task.expectedRunCount,
+      );
     for (const run of runs.filter((run) => !isResetRun(run))) {
       expect(run.runtimeMode).toBe(execution.profile.expectedRuntimeMode);
       expect(run.status).toBe(
