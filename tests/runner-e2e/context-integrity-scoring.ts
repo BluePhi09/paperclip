@@ -49,10 +49,14 @@ export function gradeContextIntegrity(input: {
   const finalComments = final ? userComments(final) : [];
   if (input.id === "ordered-comment-continuation") {
     const queued = input.checkpoints.find((checkpoint) => checkpoint.phase === "comment-3")?.queuedComments;
-    const queuedBodies = Array.isArray(queued?.entries) ? queued.entries.map((entry) => String(((entry as Record<string, unknown>).comment as Record<string, unknown> | undefined)?.body ?? "")) : [];
-    check("comments-queued-as-batch", queuedBodies.length >= input.comments.length && input.comments.every((body, index) => queuedBodies[index] === body), "Paused-agent comments must remain queued as one ordered public batch before resume.");
-    const initialBody = String(initial?.documents[0]?.body ?? "");
-    check("initial-scope-recorded", initialBody.includes("passport") && initialBody.includes("charger") && initial?.issue.status !== "done", "The initial packing scope must be saved while the task remains available for continuation.");
+    const queuedEntries = Array.isArray(queued?.entries) ? queued.entries : [];
+    const queuedRows = queuedEntries.map((entry) => {
+      const comment = (entry as Record<string, unknown>).comment as Record<string, unknown> | undefined;
+      return { id: String(comment?.id ?? ""), body: String(comment?.body ?? "") };
+    });
+    check("comments-queued-as-batch", queuedRows.length >= input.comments.length && input.comments.every((body, index) => queuedRows[index]?.body === body) && queuedRows.slice(0, input.comments.length).every((row) => Boolean(row.id)) && new Set(queuedRows.slice(0, input.comments.length).map((row) => row.id)).size === input.comments.length, "The three public comments must be present in one ordered deferred queue with distinct durable IDs before the initial run closes.");
+    const initialUserComments = (initial?.comments ?? []).filter((comment) => !comment.createdByRunId && (comment.authorType === "user" || comment.authorUserId));
+    check("initial-run-started", initial?.runs.some((run) => run.status === "running") === true && initialUserComments.length === 0, "The initial public run must be running before follow-up comments are submitted, with no follow-up user comments in the initial checkpoint.");
     check(
       "ordered-comments",
       input.comments.every((body, index) => finalComments[index] === body) && finalComments.length >= input.comments.length,
@@ -81,9 +85,11 @@ export function gradeContextIntegrity(input: {
     });
     check(
       "packing-report-order",
-      ordered,
+      body.includes("passport") && body.includes("charger") && ordered,
       "The durable packing report must retain both initial items and each verbatim request in order, including the repeated request and final scope.",
     );
+    const succeededRunIds = (final?.runs ?? []).filter((run) => run.status === "succeeded").map((run) => String(run.id ?? "")).filter(Boolean);
+    check("continuation-run-count", new Set(succeededRunIds).size >= 2, "The initial run and one distinct successful deferred continuation run must both be recorded.");
   }
   if (input.id === "assigned-skill-explicit-invocation") {
     check("assigned-skill-present", Boolean(initial?.assignedSkill?.key && initial.assignedSkill.versionId), "The task run must receive one pinned skill version through the public assignment state.");

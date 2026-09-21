@@ -7,10 +7,10 @@ function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit
   const scenario = contextIntegrityScenario(id, "nonce");
   const initial = {
     phase: "initial" as const,
-    issue: { id: "issue", status: "in_review" },
+    issue: { id: "issue", status: "in_progress" },
     comments: [],
     documents: id === "ordered-comment-continuation" ? [{ key: "packing-report", body: "passport\ncharger" }] : [],
-    runs: [{ id: "run-1", status: "succeeded" }],
+    runs: [{ id: "run-1", status: "running" }],
     ...(id === "assigned-skill-explicit-invocation" ? {
       assignedSkill: { key: scenario.skillKey, runtimeName: scenario.skillKey, versionId: "version-1", markdown: `write ${scenario.marker}` },
       skillInvocationEvidence: valid,
@@ -22,7 +22,7 @@ function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit
     issue: { id: "issue", status: "done" },
     comments: scenario.comments.map((body, index) => ({ body, authorType: "user", id: `comment-${index}` })),
     documents: [{ key: "output", body: id === "ordered-comment-continuation" ? `passport\ncharger\n${scenario.comments.join("\n")}\n${scenario.marker}` : `Final ${scenario.marker}` }],
-    runs: [{ id: "run-1", status: "succeeded" }],
+    runs: [{ id: "run-1", status: "succeeded" }, { id: "run-2", status: "succeeded" }],
   };
   const queued = {
     ...initial,
@@ -52,6 +52,15 @@ describe("context integrity Product E2E contract", () => {
     const echoed = structuredClone(checkpoints);
     (echoed[2].documents[0] as { body: string }).body = `passport\ncharger\n${scenario.comments[2]}\n${scenario.comments[0]}\n${scenario.comments[1]}`;
     expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: echoed })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "packing-report-order", passed: false })]));
+    const missingQueue = structuredClone(checkpoints);
+    missingQueue[1].queuedComments = { entries: (missingQueue[1].queuedComments?.entries as Array<unknown>).slice(0, 2) };
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingQueue })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "comments-queued-as-batch", passed: false })]));
+    const missingInitialItem = structuredClone(checkpoints);
+    (missingInitialItem[2].documents[0] as { body: string }).body = `passport\n${scenario.comments.join("\n")}`;
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingInitialItem })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "packing-report-order", passed: false })]));
+    const missingSecondRun = structuredClone(checkpoints);
+    missingSecondRun[2].runs = [{ id: "run-1", status: "succeeded" }];
+    expect(gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints: missingSecondRun })).toEqual(expect.arrayContaining([expect.objectContaining({ id: "continuation-run-count", passed: false })]));
   });
 
   it("ignores run-authored comments and rejects duplicate durable comment identities", () => {

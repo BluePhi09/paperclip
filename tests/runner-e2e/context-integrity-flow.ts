@@ -150,17 +150,23 @@ export async function runContextIntegrityFlow(input: {
     await createTaskThroughUi({ page, issuePrefix: fixtures.company.issuePrefix!, agentName: fixtures.agent.name, title: execution.task.buildTitle(nonce), prompt: taskPrompt, workMode: "standard" });
     issue = await pollUntil({ label: "context-integrity task created", deadlineAt: input.deadlineAt, load: async () => (await api.get<Row[]>(`${companyPath}/issues?limit=100`)).find((row) => row.title === execution.task.buildTitle(nonce)), accept: Boolean });
     if (!issue) throw new Error("Missing context-integrity task");
-    await settle(new Set());
-    await snapshot("initial");
     if (scenario.id === "ordered-comment-continuation") {
-      await api.post(`/api/agents/${fixtures.agent.id}/pause`);
+      await pollUntil({
+        label: "context-integrity initial run started",
+        deadlineAt: input.deadlineAt,
+        load: async () => { await refresh(); return runs; },
+        accept: (currentRuns) => currentRuns.some((run) => run.status === "running" && (run.issueId === issue!.id || run.nativeIssueId === issue!.id || run.contextSnapshot?.issueId === issue!.id || run.contextSnapshot?.taskId === issue!.id)),
+      });
+      await snapshot("initial");
       for (let index = 0; index < scenario.comments.length; index += 1) {
         await api.post(`/api/issues/${issue.id}/comments`, { body: scenario.comments[index], clientRequestId: randomUUID() });
       }
       await snapshot("comment-3");
       const before = new Set(runs.map((run) => run.id));
-      await api.post(`/api/agents/${fixtures.agent.id}/resume`);
       await settle(before);
+    } else {
+      await settle(new Set());
+      await snapshot("initial");
     }
     await snapshot("final");
     const checks = gradeContextIntegrity({ id: scenario.id, marker: scenario.marker, comments: scenario.comments, checkpoints });
