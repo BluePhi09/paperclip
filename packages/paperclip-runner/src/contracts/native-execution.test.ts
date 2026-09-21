@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { buildNativeModelEnvelope, parseNativeExecutionInput, type NativeExecutionInputV1 } from "./native-execution.js";
+import { buildNativeModelEnvelope, parseNativeExecutionInput, NATIVE_EXECUTION_INPUT_SCHEMA, type NativeExecutionInputV1 } from "./native-execution.js";
 import {
   NATIVE_RUNTIME_ASSET_SCHEMA,
   PAPERCLIP_EXECUTION_PROMPT,
@@ -429,5 +430,69 @@ describe("NativeExecutionInputV2 ask mode", () => {
         reviewContext: {},
       },
     })).toThrow("plan execution mode requires planning work mode");
+  });
+});
+
+
+describe("native task context ownership", () => {
+  function currentInput() {
+    const digest = "0".repeat(64);
+    const context = {
+      prompt: { revision: PAPERCLIP_EXECUTION_PROMPT_REVISION, text: PAPERCLIP_EXECUTION_PROMPT, digest: nativeRuntimePromptDigest() },
+      instructions: { entryPath: "AGENTS.md", bundle: { schema: NATIVE_RUNTIME_ASSET_SCHEMA, digest, manifestDigest: digest, rootPath: "/runtime/instructions", fileCount: 1, totalBytes: 1 } },
+      skills: [],
+      mcp: { assignmentSetId: "none", digest, bindingId: null },
+    } as const;
+    return parseNativeExecutionInput({
+      ...input,
+      schema: NATIVE_EXECUTION_INPUT_SCHEMA,
+      task: { ...input.task, description: "Use $assigned-skill. Repeat this. Repeat this.", prompt: "# PAP-1\n\nIssue description:\nUse $assigned-skill. Repeat this. Repeat this." },
+      provider: { kind: "codex", model: null, approvalPolicy: "never" },
+      executionMode: "default",
+      planningContext: null,
+      runtimeContext: { ...context, aggregateDigest: canonicalNativeRuntimeContextDigest(context) },
+    });
+  }
+
+  it("selects model fields without losing the internal skill-selection description", () => {
+    const execution = currentInput();
+    const envelope = buildNativeModelEnvelope(execution);
+    expect(envelope.task).toEqual({
+      identifier: execution.task.identifier,
+      title: execution.task.title,
+      prompt: execution.task.prompt,
+      workMode: execution.task.workMode,
+    });
+    expect(execution.task.description).toBe("Use $assigned-skill. Repeat this. Repeat this.");
+    expect(envelope.task.prompt).toContain("Repeat this. Repeat this.");
+    expect(envelope.completionContract).toEqual(execution.completionContract.contract);
+  });
+
+  it("references only verified criterion sources and preserves independent requirements", () => {
+    const execution = currentInput();
+    const source = { kind: "description", id: execution.binding.issueId, revision: createHash("sha256").update(execution.task.description!).digest("hex") };
+    const contract = { ...execution.completionContract.contract, criteria: [
+      { id: "objective", requirement: execution.task.description! },
+      { id: "independent", requirement: "Also report a measured result." },
+    ] };
+    const completeInput = parseNativeExecutionInput({
+      ...execution,
+      completionContract: { ...execution.completionContract, contract },
+      completionSources: { promptSha256: createHash("sha256").update(execution.task.prompt).digest("hex"), contractRevision: contract.revision, criteria: [{ id: "objective", source }] },
+    });
+    const before = structuredClone(completeInput.completionContract);
+    const envelope = buildNativeModelEnvelope(completeInput);
+    expect(envelope.completionContract.criteria).toEqual([
+      { id: "objective", source: { ...source, location: "task.prompt" } },
+      { id: "independent", requirement: "Also report a measured result." },
+    ]);
+    expect(completeInput.completionContract).toEqual(before);
+    // A different prompt or contract revision invalidates the projection, never the saved contract.
+    for (const stale of [
+      { ...completeInput, task: { ...completeInput.task, prompt: "Recovery without the original brief" } },
+      { ...completeInput, completionContract: { ...completeInput.completionContract, contract: { ...contract, revision: "new" } } },
+    ]) {
+      expect(buildNativeModelEnvelope(stale).completionContract).toEqual(stale.completionContract.contract);
+    }
   });
 });
