@@ -50,7 +50,7 @@ describe("context integrity final evidence contract", () => {
     const uploadDir = `${privateDir}-upload`;
     try {
       await writeFile(path.join(privateDir, "context-integrity-final.png"), "png\n");
-      await writeFile(path.join(privateDir, "context-integrity.json"), "{}\n");
+      await writeFile(path.join(privateDir, "snapshots", "context-integrity.json"), "{}\n");
       const packaged = await packageEvidence({ privateDir, uploadDir, secrets: [], expectPassScreenshot: true });
       expect(packaged.missing).toContain("final-state.png");
       expect(packaged.missing).toContain(path.join("snapshots", "api-state.json"));
