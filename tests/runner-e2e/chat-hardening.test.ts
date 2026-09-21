@@ -29,6 +29,7 @@ describe("agent chat hardening oracles", () => {
     const valid = { reply: "RUN-2 is blocked on VENUE123.", expectedIssueIdentifier: "RUN-2", blocker: "VENUE123", staleBlocker: "BUDGET123",
       before, after: before, taskIdsBefore: ["task"], taskIdsAfter: ["task"], taskRuns: [] };
     expect(() => assertGroundedChatStatus(valid)).not.toThrow();
+    expect(() => assertGroundedChatStatus({ ...valid, reply: "RUN-2 is blocked on VENUE123. BUDGET123 was resolved." })).not.toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, reply: "RUN-2 is blocked on BUDGET123." })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, after: task })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, taskRuns: [run] })).toThrow();

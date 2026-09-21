@@ -219,7 +219,10 @@ function detachActiveNativeSessionForRestart(active: ActiveNativeSession) {
   return active.restartDetach;
 }
 
-async function waitForNativeSessionStartup(runId: string, failureCode = "native_restart_startup_not_ready") {
+async function waitForNativeSessionStartup(
+  runId: string,
+  timeoutError: () => Error = () => new Error("native_restart_startup_not_ready"),
+) {
   const startup = nativeSessionStartups.get(runId);
   if (!startup) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -227,7 +230,7 @@ async function waitForNativeSessionStartup(runId: string, failureCode = "native_
     return await Promise.race([
       startup.promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(failureCode)), 30_000);
+        timer = setTimeout(() => reject(timeoutError()), 30_000);
       }),
     ]);
   } finally {
@@ -6577,7 +6580,7 @@ export async function cancelNativeSession(
   }
   try {
     const active = activeNativeSessions.get(runId) ??
-      (startup ? await waitForNativeSessionStartup(runId, "native_cancellation_startup_not_ready") : null);
+      (startup ? await waitForNativeSessionStartup(runId, () => new NativeCancellationPendingRecoveryError()) : null);
     let dispatched = false;
     if (active) {
       dispatched = true;

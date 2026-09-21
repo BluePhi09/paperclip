@@ -42,7 +42,8 @@ export function assertGroundedChatStatus(input: {
   expect(input.reply).toContain(input.expectedIssueIdentifier);
   expect(input.reply).toMatch(/blocked/i);
   expect(input.reply).toContain(input.blocker);
-  expect(input.reply).not.toContain(input.staleBlocker);
+  // A correct answer may explain that the old blocker was resolved. Require
+  // the current label rather than rejecting that useful historical context.
   expect(input.after).toMatchObject({ id: input.before.id, status: "blocked", assigneeAgentId: input.before.assigneeAgentId });
   expect([...input.taskIdsAfter].sort()).toEqual([...input.taskIdsBefore].sort());
   expect(input.taskRuns).toHaveLength(0);

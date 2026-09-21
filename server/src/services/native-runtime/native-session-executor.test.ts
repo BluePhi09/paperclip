@@ -4984,7 +4984,7 @@ describe("native session cancellation", () => {
       // Let the durable intent commit before advancing the startup deadline.
       await new Promise(resolve => setImmediate(resolve));
       await vi.advanceTimersByTimeAsync(30_000);
-      expect(await stopping).toMatchObject({ message: "native_cancellation_startup_not_ready" });
+      expect(await stopping).toMatchObject({ name: "NativeCancellationPendingRecoveryError" });
       expect(persistence.getResultJson().nativeCancellation).toMatchObject({ dispatchState: "pending" });
       vi.useRealTimers();
       open(); await outcome;
