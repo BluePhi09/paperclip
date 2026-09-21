@@ -27,7 +27,7 @@ export function assertWorkerIdentity(run: Row, command: string, environment: str
 
 export function assertActiveHandoff(e: {
   before: Row; after: Row; oldRun: ChatRun; boundary: ChatRun; runs: ChatRun[];
-  successorId: string; planBefore: Row; planAfter: Row; draft: Row; output: Row;
+  successorId: string; planBefore: Row; planAfter: Row; draft: Row; draftAfter: Row; output: Row;
   reference: string; audit: Row[]; taskIds: string[];
 }) {
   expect(e.boundary).toMatchObject({ id: e.oldRun.id, status: "running", agentId: e.before.assigneeAgentId });
@@ -43,6 +43,7 @@ export function assertActiveHandoff(e: {
   expect(Date.parse(successor.startedAt!)).toBeGreaterThanOrEqual(oldEnd);
   expect(e.planAfter).toEqual(e.planBefore);
   expect(e.draft.body).toContain(e.reference);
+  expect(e.draftAfter).toEqual(e.draft);
   expect(e.output.body).toContain(e.reference);
   expect(e.output.createdByAgentId).toBe(e.successorId);
   expect(e.audit.filter(a => a.action === "issue.reassigned")).toHaveLength(1);
@@ -56,9 +57,9 @@ export function assertCrashRecovered(e: {
   expect(e.boundary.status).toBe("running");
   expect(e.failed).toMatchObject({ id: e.boundary.id, status: "failed", runtimeMode: "native" });
   expect(e.runs).toHaveLength(2);
-  expect(e.runs.map(r => r.id)).toContain(e.failed.id);
+  expect(e.runs.find(r => r.id === e.failed.id)).toMatchObject({ status: "failed", contextSnapshot: { issueId: e.issueId } });
   const retry = e.runs.find(r => r.id !== e.failed.id)!;
-  expect(retry).toMatchObject({ status: "succeeded", runtimeMode: "native", contextSnapshot: { issueId: e.issueId } });
+  expect(retry).toMatchObject({ agentId: e.failed.agentId, status: "succeeded", runtimeMode: "native", contextSnapshot: { issueId: e.issueId } });
   expect(e.comments.filter(c => !c.authorAgentId && c.body === e.prompt)).toHaveLength(1);
   const replies = e.comments.filter(c => c.authorAgentId && c.body.includes(e.marker));
   expect(replies).toHaveLength(1);
@@ -93,7 +94,12 @@ export async function runActiveReassignment(context: Context) {
   const second = await api.post<Row>(`${company}/agents`, { ...config, name: "Morgan Successor", role: "engineer", reportsTo: f.agent.id });
   const wait = await brief(input, first.id);
   const reference = `REFERENCE${randomUUID().replaceAll("-", "")}`;
-  await api.patch(`/api/agents/${first.id}`, { instructionsBundle: { entryFile: "AGENTS.md", files: { "AGENTS.md": `First save a draft Paperclip document on the assigned task containing the reference from its plan. Then run node ${wait.scriptPath} and wait for the brief before finishing. Do not finish before the command returns.` } } });
+  const workerInstructions = `First save a draft Paperclip document on the assigned task containing the reference from its plan. Then run node ${wait.scriptPath} and wait for the brief before finishing. Do not finish before the command returns.`;
+  const savedInstructions = await api.request.put(`/api/agents/${first.id}/instructions-bundle/file`, {
+    data: { path: "AGENTS.md", content: workerInstructions },
+  });
+  expect(savedInstructions.ok()).toBe(true);
+  expect(await api.get(`/api/agents/${first.id}/instructions-bundle/file?path=AGENTS.md`)).toMatchObject({ content: workerInstructions });
   const task = await api.post<Row>(`${company}/issues`, { title: `Launch checklist ${input.nonce}`, status: "todo", assigneeAgentId: first.id,
     description: `Write a short launch checklist as a Paperclip document on this existing task. Use the saved plan and preserve any draft. Include its reference and ${marker} in the final checklist, then complete this task.`,
     initialPlan: `Welcome beginners on Friday at a free meetup. Reference: ${reference}` });
@@ -101,6 +107,7 @@ export async function runActiveReassignment(context: Context) {
     const boundary = await activeAtGate(context, wait.ready, first.id);
     const planBefore = await api.get<Row>(`/api/issues/${task.id}/documents/plan`);
     const draft = await readChatOutputDocument(api, task.id, reference);
+    await input.evidence("chat-active-reassignment-boundary.json", { task, boundary, planBefore, draft, successorId: second.id });
     // Only this positively observed run may be cancelled. Every other failure remains fatal.
     context.expectedStops.set(boundary.id, "cancelled");
     await sendChatMessage(input.page, `Reassign the currently running task ${task.identifier} from Riley Original to Morgan Successor now. Stop Riley's active execution as part of the handoff. Preserve the task, its description, saved plan, and draft; Morgan should complete the checklist on the same task. Do not create replacement work. Explain the handoff here.`);
@@ -108,6 +115,7 @@ export async function runActiveReassignment(context: Context) {
     const e = { before: task, after: await api.get<Row>(`/api/issues/${task.id}`), boundary,
       oldRun: await api.get<ChatRun>(`/api/heartbeat-runs/${boundary.id}`), runs: await context.allRuns(), successorId: second.id,
       planBefore, planAfter: await api.get<Row>(`/api/issues/${task.id}/documents/plan`), draft,
+      draftAfter: await api.get<Row>(`/api/issues/${task.id}/documents/${encodeURIComponent(draft.key)}`),
       output: await readChatOutputDocument(api, task.id, marker), reference,
       audit: await api.get<Row[]>(`/api/issues/${task.id}/activity`), taskIds: (await api.get<Row[]>(`${company}/issues`)).map(t => t.id) };
     await input.evidence("chat-active-reassignment.json", e);
@@ -128,10 +136,15 @@ export async function runWorkerCrash(context: Context) {
     const boundary = await activeAtGate(context, wait.ready, input.fixtures.agent.id) as ChatRun & Row;
     await context.refreshIssue();
     const planBefore = await input.api.get<Row>(`/api/issues/${context.issue().id}/documents/plan`);
+    if (process.platform !== "linux") throw new Error("Worker-crash qualification requires Linux pidfd support");
+    const faultHelper = path.join(import.meta.dirname, "worker-fault.py");
+    const processIdentity = JSON.parse(execFileSync("python3", [faultHelper, "inspect", String(boundary.processPid), boundary.id], { encoding: "utf8" }));
     const command = execFileSync("ps", ["-p", String(boundary.processPid), "-o", "command="], { encoding: "utf8" });
     assertWorkerIdentity(boundary, command, input.execution.environment.id);
-    await input.evidence("chat-worker-fault.json", { boundary, planBefore, fault: "SIGKILL exact public run processPid", recovery: "visible Retry button" });
-    process.kill(boundary.processPid, "SIGKILL");
+    await input.evidence("chat-worker-fault.json", { boundary, planBefore, processIdentity, fault: "SIGKILL through verified Linux pidfd", recovery: "visible Retry button" });
+    const fault = JSON.parse(execFileSync("python3", [faultHelper, "kill", String(boundary.processPid), boundary.id, processIdentity.startTicks], { encoding: "utf8" }));
+    expect(fault.signalled).toBe(true);
+    await input.evidence("chat-worker-fault-delivered.json", fault);
     context.expectedStops.set(boundary.id, "failed");
     await expect.poll(async () => (await input.api.get<ChatRun>(`/api/heartbeat-runs/${boundary.id}`)).status, { timeout: 120_000 }).toBe("failed");
     const failed = await input.api.get<Row>(`/api/heartbeat-runs/${boundary.id}`);
@@ -149,7 +162,7 @@ export async function runWorkerCrash(context: Context) {
     expect(await input.api.get(`/api/companies/${input.fixtures.company.id}/issues`)).toEqual([]);
   } finally {
     await writeFile(wait.gate, reference);
-    await input.evidence("chat-worker-final.json", { runs: await context.allRuns(), comments: await context.comments() });
+    await input.evidence("chat-worker-final.json", { runs: await context.allRuns(), comments: await context.comments().catch(error => ({ readError: String(error) })) });
   }
 }
 

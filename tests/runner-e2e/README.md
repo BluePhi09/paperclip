@@ -900,9 +900,10 @@ requires cancellation with `issue_reassigned`, no overlap with the successor,
 one successor run, unchanged scope and plan, retained draft, and a completed
 successor-owned document. It budgets three provider runs.
 
-Worker recovery kills only the exact running native worker PID from the public
-run record, after verifying its command-line run ID and the isolated local
-workspace. The real UI must show one Retry button. Clicking it must produce one
+Worker recovery requires Linux with Python pidfd support (as on the CI workers).
+It kills only the exact running native worker PID from the public
+run record, after verifying its command-line run ID, process start identity, and isolated
+local workspace. The signal uses an owned pidfd so PID reuse cannot retarget it. The real UI must show one Retry button. Clicking it must produce one
 successful attempt, consume the original message once, preserve the saved plan,
 and return a reference that was supplied only after the crash. This qualifies
 **user-initiated Retry after worker process loss**, not automatic recovery of

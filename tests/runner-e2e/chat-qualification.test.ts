@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { assertActiveHandoff, assertAnswerFacts, assertCrashRecovered, assertWorkerIdentity } from "./chat-qualification.js";
 import { runnerMatrix } from "./catalog.js";
@@ -7,10 +9,13 @@ const run = { id: "old", agentId: "original", companyId: "company", runtimeMode:
 const successor = { ...run, id: "next", agentId: "successor", status: "succeeded", startedAt: "2026-09-21T00:01:01Z" };
 const before = { id: "task", assigneeAgentId: "original", description: "Preserve scope", projectId: null };
 const plan = { body: "Friday REFERENCE", latestRevisionId: "revision" };
-const handoff = { before, after: { ...before, status: "done", assigneeAgentId: "successor" }, oldRun: run, boundary: { ...run, status: "running" }, runs: [run, successor], successorId: "successor", planBefore: plan, planAfter: plan, draft: { body: "REFERENCE" }, output: { body: "REFERENCE", createdByAgentId: "successor" }, reference: "REFERENCE", audit: [{ action: "issue.reassigned", details: { source: "paperclip_runner_protocol" } }], taskIds: ["task"] };
-const recovery = { boundary: { ...run, status: "running" }, failed: { ...run, status: "failed" }, runs: [{ ...run, status: "failed" }, successor], issueId: "task", prompt: "Read my brief", comments: [{ body: "Read my brief" }, { body: "REFERENCE MARKER", authorAgentId: "original", createdByRunId: "next" }], reference: "REFERENCE", marker: "MARKER", planBefore: { body: "plan MARKER", latestRevisionId: "v1" }, planAfter: { body: "plan MARKER", latestRevisionId: "v1" } };
+const handoff = { before, after: { ...before, status: "done", assigneeAgentId: "successor" }, oldRun: run, boundary: { ...run, status: "running" }, runs: [run, successor], successorId: "successor", planBefore: plan, planAfter: plan, draft: { body: "REFERENCE" }, draftAfter: { body: "REFERENCE" }, output: { body: "REFERENCE", createdByAgentId: "successor" }, reference: "REFERENCE", audit: [{ action: "issue.reassigned", details: { source: "paperclip_runner_protocol" } }], taskIds: ["task"] };
+const recovery = { boundary: { ...run, status: "running" }, failed: { ...run, status: "failed" }, runs: [{ ...run, status: "failed" }, { ...successor, agentId: "original" }], issueId: "task", prompt: "Read my brief", comments: [{ body: "Read my brief" }, { body: "REFERENCE MARKER", authorAgentId: "original", createdByRunId: "next" }], reference: "REFERENCE", marker: "MARKER", planBefore: { body: "plan MARKER", latestRevisionId: "v1" }, planAfter: { body: "plan MARKER", latestRevisionId: "v1" } };
 
 describe("remaining native chat qualification", () => {
+  it("calibrates the pidfd helper against reuse and wrong-identity faults", () => {
+    execFileSync("python3", [path.join(import.meta.dirname, "worker-fault.test.py")], { stdio: "pipe" });
+  });
   it("requires a stopped original worker before exactly one successor executes", () => {
     expect(() => assertActiveHandoff(handoff)).not.toThrow();
     for (const change of [
@@ -23,6 +28,7 @@ describe("remaining native chat qualification", () => {
       { taskIds: ["replacement"] },
       { planAfter: { ...plan, body: "rewritten" } },
       { draft: { body: "no saved progress" } },
+      { draftAfter: { body: "deleted progress" } },
       { output: { body: "REFERENCE", createdByAgentId: "original" } },
       { audit: [] },
     ]) expect(() => assertActiveHandoff({ ...handoff, ...change })).toThrow();
