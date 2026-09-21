@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { updateIssueSchema } from "../../packages/shared/src/validators/issue.js";
 import type { RunnerApi } from "./api.js";
 import { readChatOutputDocument, sendChatMessage, type ChatFlowInput, type ChatIssue, type ChatRun } from "./chat-flow.js";
 import { dropChatSendAcknowledgement } from "./lost-send.js";
@@ -9,6 +10,16 @@ type Agent = {
 };
 type Comment = { id: string; body: string; authorAgentId?: string; clientRequestId?: string };
 type Document = { id: string; body: string; latestRevisionId: string; createdByAgentId?: string };
+
+function mutableIssueSnapshot(issue: ChatIssue) {
+  // Follow the public mutation contract as it grows. Include relationships and
+  // fields governed by dedicated endpoints; omit derived read projections such
+  // as inbound references, which a legitimate status reply can add to the chat.
+  const keys = new Set([...Object.keys(updateIssueSchema.shape),
+    "id", "companyId", "responsibleUserId", "labels", "blockedBy", "blocks", "watchdog", "sourceTrust"]);
+  const record = issue as unknown as Record<string, unknown>;
+  return Object.fromEntries([...keys].map(key => [key, record[key]]));
+}
 
 export function assertChatHire(input: {
   agents: Agent[]; leadId: string; hireName: string; hiredId?: string;
@@ -47,9 +58,8 @@ export function assertGroundedChatStatus(input: {
     issueIdentifier: input.expectedIssueIdentifier, status: "blocked",
     currentBlockerLabel: input.blocker, activeRunCount: 0,
   });
-  for (const field of ["id", "title", "status", "assigneeAgentId", "parentId", "projectId"] as const) {
-    expect(input.after[field], `Status reporting must preserve ${field}`).toEqual(input.before[field]);
-  }
+  expect(mutableIssueSnapshot(input.after), "Status reporting must preserve mutable issue state")
+    .toStrictEqual(mutableIssueSnapshot(input.before));
   expect([...input.taskIdsAfter].sort()).toEqual([...input.taskIdsBefore].sort());
   expect(input.taskRuns).toHaveLength(0);
 }
@@ -152,9 +162,12 @@ export async function runChatHardeningFlow(context: {
     const sourceBrief = await api.get<Document>(`/api/issues/${source.id}/documents/brief`);
     await api.post(`/api/issues/${source.id}/comments`, { body: `Earlier blocker: ${staleBlocker}. Waiting for the budget.` });
     await api.post(`/api/issues/${source.id}/comments`, { body: `Budget is resolved. Current blocker: ${blocker}. Waiting for the venue confirmation. Keep this task blocked; no execution is active.` });
+    const sourceBeforeStatus = await api.get<ChatIssue>(`/api/issues/${source.id}`);
+    await input.evidence("chat-status-review.json", { source: sourceBeforeStatus, sourcePlan, sourceBrief });
     await turn(`What is the actual current status of ${source.identifier}? Read its latest recorded blocker and execution state. Reply with only JSON containing issueIdentifier, status, currentBlockerLabel, and activeRunCount. You may include an explanation field. Just report; do not change it or create work.`, 1);
+    const sourceAfterStatus = await api.get<ChatIssue>(`/api/issues/${source.id}`);
     assertGroundedChatStatus({ reply: await latestReply(), expectedIssueIdentifier: source.identifier!, blocker,
-      before: source, after: await api.get(`/api/issues/${source.id}`), taskIdsBefore: [source.id],
+      before: sourceBeforeStatus, after: sourceAfterStatus, taskIdsBefore: [source.id],
       taskIdsAfter: (await tasks()).map(task => task.id), taskRuns: (await allRuns()).filter(run => run.contextSnapshot?.issueId === source.id) });
     const config = execution.profile.buildAgent({ environmentId: f.environment.id, environmentFixtureId: execution.environment.id,
       workspacePath: input.workspacePath, secretRefs: f.secretRefs, executionId: nonce });
@@ -175,7 +188,7 @@ export async function runChatHardeningFlow(context: {
     expect(await api.get(`/api/issues/${source.id}/documents/plan`)).toEqual(sourcePlan);
     expect(await api.get(`/api/issues/${source.id}/documents/brief`)).toEqual(sourceBrief);
     expect(await api.get(`/api/issues/${source.id}`)).toMatchObject({ status: "blocked" });
-    await input.evidence("chat-status-review.json", { source, sourcePlan, sourceBrief, review, document, reviewRuns, reply });
+    await input.evidence("chat-status-review.json", { source: sourceBeforeStatus, sourceAfterStatus, sourcePlan, sourceBrief, review, document, reviewRuns, reply });
   } else if (execution.task.id === "committed-send-retry") {
     const interception = await dropChatSendAcknowledgement(page, marker);
     try {

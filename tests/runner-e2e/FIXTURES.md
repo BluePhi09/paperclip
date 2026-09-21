@@ -180,6 +180,9 @@ blocker, preserved task identities, worker-authored output, and real executions.
 The status request asks for JSON so the grader can distinguish the current
 blocker from a historical mention and compare active-run count separately from
 task status. The request must not reveal those expected values.
+Capture the source after seeding and compare every field in the public issue
+update contract, plus labels, dependencies, and dedicated-endpoint settings.
+Derived inbound references may change when the chat legitimately cites a task.
 The lost-acknowledgement probe may interrupt only the fixture browser's own
 comment request after the real server has committed it. Retain its request ID
 and replay that same request through the public API after restarting the server.

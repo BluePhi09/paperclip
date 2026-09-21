@@ -35,6 +35,8 @@ describe("agent chat hardening oracles", () => {
     const valid = { reply: JSON.stringify(status), expectedIssueIdentifier: "RUN-2", blocker: "VENUE123",
       before, after: before, taskIdsBefore: ["task"], taskIdsAfter: ["task"], taskRuns: [] };
     expect(() => assertGroundedChatStatus(valid)).not.toThrow();
+    const cited = { ...before, relatedWork: { inbound: [{ sourceIssueId: "chat" }] } };
+    expect(() => assertGroundedChatStatus({ ...valid, after: cited })).not.toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, reply: JSON.stringify({ ...status, explanation: "BUDGET123 was resolved." }) })).not.toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, reply: JSON.stringify({ ...status, currentBlockerLabel: "BUDGET123", explanation: "VENUE123 was resolved." }) })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, reply: JSON.stringify({ ...status, activeRunCount: 1 }) })).toThrow();
@@ -44,6 +46,14 @@ describe("agent chat hardening oracles", () => {
     expect(() => assertGroundedChatStatus({ ...valid, after: task })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, after: { ...before, title: "Changed" } })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, after: { ...before, projectId: "different" } })).toThrow();
+    for (const mutation of [
+      { description: "Changed the brief" }, { priority: "high" },
+      { labelIds: ["new-label"] }, { labels: [{ id: "label", name: "Changed" }] },
+      { blockedBy: [{ id: "new-blocker" }] }, { blocks: [{ id: "new-dependent" }] },
+      { unblockDescriptor: { owner: "board", action: "Different action" } },
+      { executionWorkspaceSettings: { mode: "isolated" } },
+      { reviewPolicy: { kind: "none" } }, { watchdog: { agentId: "different" } },
+    ]) expect(() => assertGroundedChatStatus({ ...valid, after: { ...before, ...mutation } })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, taskRuns: [run] })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, taskIdsAfter: ["task", "replacement"] })).toThrow();
   });
