@@ -37,15 +37,19 @@ export function assertChatHire(input: {
 }
 
 export function assertGroundedChatStatus(input: {
-  reply: string; expectedIssueIdentifier: string; blocker: string; staleBlocker: string;
+  reply: string; expectedIssueIdentifier: string; blocker: string;
   before: ChatIssue; after: ChatIssue; taskIdsBefore: string[]; taskIdsAfter: string[]; taskRuns: ChatRun[];
 }) {
-  expect(input.reply).toContain(input.expectedIssueIdentifier);
-  expect(input.reply).toMatch(/blocked/i);
-  expect(input.reply).toContain(input.blocker);
-  // A correct answer may explain that the old blocker was resolved. Require
-  // the current label rather than rejecting that useful historical context.
-  expect(input.after).toMatchObject({ id: input.before.id, status: "blocked", assigneeAgentId: input.before.assigneeAgentId });
+  // Mentioning a correct label is insufficient: the answer could falsely call
+  // it resolved, or confuse a blocked task with an actively running provider.
+  const json = input.reply.trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+  expect(JSON.parse(json)).toMatchObject({
+    issueIdentifier: input.expectedIssueIdentifier, status: "blocked",
+    currentBlockerLabel: input.blocker, activeRunCount: 0,
+  });
+  for (const field of ["id", "title", "status", "assigneeAgentId", "parentId", "projectId"] as const) {
+    expect(input.after[field], `Status reporting must preserve ${field}`).toEqual(input.before[field]);
+  }
   expect([...input.taskIdsAfter].sort()).toEqual([...input.taskIdsBefore].sort());
   expect(input.taskRuns).toHaveLength(0);
 }
@@ -148,8 +152,8 @@ export async function runChatHardeningFlow(context: {
     const sourceBrief = await api.get<Document>(`/api/issues/${source.id}/documents/brief`);
     await api.post(`/api/issues/${source.id}/comments`, { body: `Earlier blocker: ${staleBlocker}. Waiting for the budget.` });
     await api.post(`/api/issues/${source.id}/comments`, { body: `Budget is resolved. Current blocker: ${blocker}. Waiting for the venue confirmation. Keep this task blocked; no execution is active.` });
-    await turn(`What is the actual current blocker on ${source.identifier}? Read the latest recorded explanation, include its exact blocker label, and distinguish task status from active execution. Just report; do not change it or create work.`, 1);
-    assertGroundedChatStatus({ reply: await latestReply(), expectedIssueIdentifier: source.identifier!, blocker, staleBlocker,
+    await turn(`What is the actual current status of ${source.identifier}? Read its latest recorded blocker and execution state. Reply with only JSON containing issueIdentifier, status, currentBlockerLabel, and activeRunCount. You may include an explanation field. Just report; do not change it or create work.`, 1);
+    assertGroundedChatStatus({ reply: await latestReply(), expectedIssueIdentifier: source.identifier!, blocker,
       before: source, after: await api.get(`/api/issues/${source.id}`), taskIdsBefore: [source.id],
       taskIdsAfter: (await tasks()).map(task => task.id), taskRuns: (await allRuns()).filter(run => run.contextSnapshot?.issueId === source.id) });
     const config = execution.profile.buildAgent({ environmentId: f.environment.id, environmentFixtureId: execution.environment.id,

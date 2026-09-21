@@ -31,12 +31,19 @@ describe("agent chat hardening oracles", () => {
 
   it("requires the current recorded blocker without silently starting or changing work", () => {
     const before = { ...task, status: "blocked" };
-    const valid = { reply: "RUN-2 is blocked on VENUE123.", expectedIssueIdentifier: "RUN-2", blocker: "VENUE123", staleBlocker: "BUDGET123",
+    const status = { issueIdentifier: "RUN-2", status: "blocked", currentBlockerLabel: "VENUE123", activeRunCount: 0 };
+    const valid = { reply: JSON.stringify(status), expectedIssueIdentifier: "RUN-2", blocker: "VENUE123",
       before, after: before, taskIdsBefore: ["task"], taskIdsAfter: ["task"], taskRuns: [] };
     expect(() => assertGroundedChatStatus(valid)).not.toThrow();
-    expect(() => assertGroundedChatStatus({ ...valid, reply: "RUN-2 is blocked on VENUE123. BUDGET123 was resolved." })).not.toThrow();
+    expect(() => assertGroundedChatStatus({ ...valid, reply: JSON.stringify({ ...status, explanation: "BUDGET123 was resolved." }) })).not.toThrow();
+    expect(() => assertGroundedChatStatus({ ...valid, reply: JSON.stringify({ ...status, currentBlockerLabel: "BUDGET123", explanation: "VENUE123 was resolved." }) })).toThrow();
+    expect(() => assertGroundedChatStatus({ ...valid, reply: JSON.stringify({ ...status, activeRunCount: 1 }) })).toThrow();
+    expect(() => assertGroundedChatStatus({ ...valid, reply: JSON.stringify({ ...status, status: "in_progress", explanation: "Previously blocked." }) })).toThrow();
+    expect(() => assertGroundedChatStatus({ ...valid, reply: JSON.stringify({ ...status, activeRunCount: undefined }) })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, reply: "RUN-2 is blocked on BUDGET123." })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, after: task })).toThrow();
+    expect(() => assertGroundedChatStatus({ ...valid, after: { ...before, title: "Changed" } })).toThrow();
+    expect(() => assertGroundedChatStatus({ ...valid, after: { ...before, projectId: "different" } })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, taskRuns: [run] })).toThrow();
     expect(() => assertGroundedChatStatus({ ...valid, taskIdsAfter: ["task", "replacement"] })).toThrow();
   });

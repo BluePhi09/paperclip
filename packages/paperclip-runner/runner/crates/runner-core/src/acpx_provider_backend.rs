@@ -2127,7 +2127,9 @@ mod tests {
         assert_eq!(ready["warmAttachReady"], true);
         assert_eq!(ready["warmAttachBlockers"], json!([]));
         let blocked_states: [(&str, fn(&mut AcpxDurableState)); 4] = [
-            ("durable_closed", |state| state.lifecycle = "closed".to_owned()),
+            ("durable_closed", |state| {
+                state.lifecycle = "closed".to_owned()
+            }),
             ("provider_exit_unconfirmed", |state| {
                 state.lifecycle = "prepared".to_owned();
                 state.provider_exit_unconfirmed = true;

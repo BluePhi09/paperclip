@@ -959,7 +959,7 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     environments: [localEnvironment, daytonaWarmEnvironment], tasks: chatHardeningTasks, expectedMatrixSize: 18,
     excludedExecutionIds: ["runner-codex", "runner-acpx-claude"].flatMap(profile =>
       ["stop-startup-new-resume", "hire-delegate-reuse", "blocked-status-review"].map(task => `agent-chat-hardening.${profile}.daytona.${task}`)),
-    definitionMetadata: { version: 2, permissions: "production-defaults", instructions: "production", grading: "durable-state-and-source-evidence", scheduling: "explicit-only", restartMemory: "required-after-restart" },
+    definitionMetadata: { version: 3, permissions: "production-defaults", instructions: "production", grading: "durable-state-and-source-evidence", scheduling: "explicit-only", restartMemory: "required-after-restart", statusEvidence: "structured-current-blocker-and-active-run-count" },
   },
   ...(process.env.PAPERCLIP_RUNNER_E2E_CONNECTION_REVIEWS === "1" ? [connectionReviewSuite] : []),
   {

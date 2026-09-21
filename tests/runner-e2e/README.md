@@ -172,6 +172,10 @@ Restart continuity requires the agent to recall a phrase after the server
 restarts. The final prompt does not reveal that phrase. A generic successful
 reply after restart cannot pass this check.
 
+The blocker query requests a JSON status snapshot. It must name the current
+recorded blocker and report zero active runs independently of the task's blocked
+status. Mentioning the right blocker only as resolved history cannot pass.
+
 The committed-send case drops the browser's acknowledgement after the server
 saves its comment. It waits for the agent to save one backlog task, restarts
 Paperclip, and replays the exact public request with the original client request ID. It
