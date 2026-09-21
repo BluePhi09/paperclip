@@ -176,6 +176,9 @@ fails the case instead of silently testing another phase.
 Restart continuity requires the agent to recall a phrase after the server
 restarts. The final prompt does not reveal that phrase. A generic successful
 reply after restart cannot pass this check.
+The browser leaves the old development client before the server stops, then
+opens the canonical chat route and waits for the composer. This avoids racing
+Vite's automatic reconnect navigation against the test's explicit navigation.
 
 The blocker query requests a JSON status snapshot. It must name the current
 recorded blocker and report zero active runs independently of the task's blocked
