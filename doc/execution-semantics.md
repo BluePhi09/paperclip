@@ -1093,6 +1093,15 @@ controller lease in the same transaction that creates the native coordinator.
 The native executor rechecks cancellation and terminal status when claiming the
 coordinator, before starting or attaching a provider.
 
+Run-only Stop also covers the interval after the coordinator claim and before
+the provider session publishes its handle. Stop retains its pending audited
+intent and waits up to 30 seconds for that startup to settle. A published
+session receives cancellation before prompt submission; only real dispatch
+sets `dispatched: true`. A deadline leaves the intent pending and the late
+session remains fenced and is closed. Stop acknowledgement alone does not
+certify cleanup: the existing process and environment receipts still govern
+admission of the next message.
+
 A cancelled startup can continue from a newer authenticated user message after
 cleanup. The server requires either its explicit before-selection fence or an
 unclaimed native coordinator (zero attempts and controller generations, no
