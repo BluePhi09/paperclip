@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionContext, AdapterInvocationMeta } from "@paperclipai/adapter-utils";
 import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
-import { buildPaperclipTaskMarkdown } from "../../../../../server/src/services/heartbeat.js";
 
 // Wrap the shared staging seam in a call-recording spy that still delegates to
 // the real implementation (a runner-backed sandbox test exercises it end to
@@ -1239,12 +1238,18 @@ describe("claude_local ACP lane", () => {
       { id: "comment-a", body: "Same event body." },
       { id: "comment-b", body: "Same event body." },
     ];
-    const assignmentMarkdown = buildPaperclipTaskMarkdown({
-      issue,
-      wakeComments: comments,
-      includeWakeComments: false,
-    });
-    const historicalMarkdown = buildPaperclipTaskMarkdown({ issue, wakeComments: comments });
+    // The adapter receives server-rendered fields. Keep the server builder's
+    // own tests in the server package; adapter packages compile independently.
+    const assignmentMarkdown = [
+      "Paperclip task context:",
+      `- Issue: ${JSON.stringify(issue.identifier)}`,
+      `- Title: ${JSON.stringify(issue.title)}`,
+      "", "Issue description:", "```text", issue.description, "```",
+    ].join("\n");
+    const historicalMarkdown = [
+      assignmentMarkdown,
+      ...comments.map((comment) => `${comment.id}: ${comment.body}`),
+    ].join("\n");
     const result = await execute(buildContext(root, {
       context: {
         issueId: issue.id,
