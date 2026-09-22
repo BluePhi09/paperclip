@@ -85,8 +85,7 @@ export function slackToolRoutes(db: Db, publicBaseUrl?: string) {
       ))
     );
   }
-  const searchPath = "/companies/:companyId/slack/endpoints/:endpointId/search";
-  router.get(searchPath, async (req, res) => {
+  router.get("/companies/:companyId/slack/endpoints/:endpointId/search", async (req, res) => {
     const userId = user(req);
     const companyId = String(req.params.companyId);
     assertCompanyAccess(req, companyId);
@@ -95,7 +94,7 @@ export function slackToolRoutes(db: Db, publicBaseUrl?: string) {
       canConfigure: await canConfigure(req, companyId, userId),
     });
   });
-  router.put(searchPath, async (req, res) => {
+  router.put("/companies/:companyId/slack/endpoints/:endpointId/search", async (req, res) => {
     const userId = user(req);
     const companyId = String(req.params.companyId);
     assertCompanyAccess(req, companyId);
@@ -119,7 +118,7 @@ export function slackToolRoutes(db: Db, publicBaseUrl?: string) {
       ),
     );
   });
-  router.post(`${searchPath}/connect`, async (req, res) => {
+  router.post("/companies/:companyId/slack/endpoints/:endpointId/search/connect", async (req, res) => {
     const userId = user(req);
     const companyId = String(req.params.companyId);
     assertCompanyAccess(req, companyId);
@@ -129,7 +128,7 @@ export function slackToolRoutes(db: Db, publicBaseUrl?: string) {
         await oauth.start(companyId, String(req.params.endpointId), userId),
       );
   });
-  router.delete(searchPath, async (req, res) => {
+  router.delete("/companies/:companyId/slack/endpoints/:endpointId/search", async (req, res) => {
     const userId = user(req);
     const companyId = String(req.params.companyId);
     assertCompanyAccess(req, companyId);

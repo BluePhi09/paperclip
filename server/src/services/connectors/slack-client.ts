@@ -39,9 +39,14 @@ export function slackClient(token: string, fetchImpl = fetch) {
         signal: AbortSignal.timeout(20_000),
         headers: {
           authorization: `Bearer ${token}`,
-          "content-type": "application/json; charset=utf-8",
+          "content-type": "application/x-www-form-urlencoded; charset=utf-8",
         },
-        body: JSON.stringify(args),
+        // Match Slack's official WebClient encoding, including nested JSON
+        // arguments. Some Web API methods reject a JSON request body.
+        body: new URLSearchParams(Object.entries(args)
+          .filter(([, value]) => value !== undefined && value !== null)
+          .map(([key, value]) => [key, typeof value === "object"
+            ? JSON.stringify(value) : String(value)])).toString(),
       });
     } catch {
       throw unprocessable(
@@ -104,7 +109,7 @@ export function slackClient(token: string, fetchImpl = fetch) {
           ? result.needed
           : undefined;
       throw unprocessable(
-        `Slack could not perform this operation: ${code}${scopes ? `. Reinstall the app with ${scopes}.` : ". Check app permissions and Slack feature availability."}`,
+        `Slack could not perform this operation: ${code}${scopes ? `. Reinstall the app with ${scopes}.` : code === "invalid_arguments" ? ". Check the tool arguments; installing another connector will not fix this request." : ". Check app permissions and Slack feature availability."}`,
         { code: `slack_${code}`, missingScopes: scopes },
       );
     }

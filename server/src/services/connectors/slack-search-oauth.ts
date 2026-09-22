@@ -1,3 +1,4 @@
+import { slackSearchConfigSchema } from "@paperclipai/shared";
 import { SLACK_NATIVE_SEARCH_LIMITATION } from "./slack-native-search.js";
 import { syncConnectionCredentialBindings } from "../connection-credential-bindings.js";
 import { randomBytes } from "node:crypto";
@@ -29,12 +30,6 @@ export const SLACK_SEARCH_USER_SCOPES = [
   "search:read.private",
   "search:read.files",
 ];
-export const slackSearchConfigSchema = z
-  .object({
-    clientId: z.string().regex(/^\d+\.\d+$/),
-    clientSecret: z.string().min(10).max(512),
-  })
-  .strict();
 const configSchema = z.object({
   clientId: z.string(),
   clientSecretId: z.string().uuid(),

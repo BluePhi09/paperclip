@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-const channel = z.string().regex(/^[CGD][A-Z0-9]+$/);
+export const slackSearchConfigSchema = z
+  .object({
+    clientId: z.string().regex(/^\d+\.\d+$/),
+    clientSecret: z.string().min(10).max(512),
+  })
+  .strict();
+
+const channel = z.string().regex(/^[CGD][A-Z0-9]+$/).describe("Slack channel ID (for example C012AB3CD), not a channel name or URL. Use the assigned source channel or slack_channels results.");
 const user = z.string().regex(/^[UW][A-Z0-9]+$/);
 const timestamp = z.string().regex(/^\d+\.\d+$/);
 const text = z.string().min(1).max(12000);

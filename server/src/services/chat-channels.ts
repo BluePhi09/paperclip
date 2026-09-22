@@ -38168,6 +38168,14 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       )).limit(1);
       if (!action || action.payload.requestedByActorType !== "user" || action.payload.requestedByActorId !== run.responsibleUserId)
         throw forbidden("Slack tools require a verified linked Slack request");
+      // This standalone resolver does not own the scheduler's issue lock. Use
+      // the ingress lock order (endpoint, then issue) so a normal webhook or
+      // endpoint update cannot turn tool setup into a NOWAIT failure. The
+      // scheduler retains its nonblocking check when it owns the issue first.
+      await tx.select({ id: chatEndpoints.id }).from(chatEndpoints).where(and(
+        eq(chatEndpoints.companyId, binding.companyId),
+        eq(chatEndpoints.id, action.endpointId),
+      )).for("no key update");
       const source = await authorizeInboundWakeup(tx, action);
       if (source.endpoint.provider !== "slack") throw forbidden("This is not a Slack task");
       const [principal] = await tx.select().from(chatExternalPrincipals).where(and(

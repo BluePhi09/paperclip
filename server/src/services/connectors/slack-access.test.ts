@@ -171,6 +171,18 @@ describe("Slack contracts and transport", () => {
     ).rejects.toThrow("Unsupported");
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it("encodes Slack arguments like the official SDK, with nested values as JSON fields", async () => {
+    const fetcher = vi.fn().mockImplementation(async () => Response.json({ ok: true }));
+    await slackClient("bot-secret", fetcher)("conversations.list", {
+      types: "public_channel,private_channel,mpim,im", limit: 50, exclude_archived: true, cursor: undefined,
+    });
+    expect(fetcher.mock.calls[0][1].headers["content-type"]).toContain("application/x-www-form-urlencoded");
+    expect(Object.fromEntries(new URLSearchParams(fetcher.mock.calls[0][1].body))).toEqual({
+      types: "public_channel,private_channel,mpim,im", limit: "50", exclude_archived: "true",
+    });
+    await slackClient("bot-secret", fetcher)("files.completeUploadExternal", { files: [{ id: "F123", title: "Test & review" }] });
+    expect(JSON.parse(new URLSearchParams(fetcher.mock.calls[1][1].body).get("files")!)).toEqual([{ id: "F123", title: "Test & review" }]);
+  });
   it("reports missing scopes without exposing raw provider errors or credentials", async () => {
     const fetcher = vi.fn().mockResolvedValue(
       new Response(

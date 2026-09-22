@@ -3937,7 +3937,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
   });
 
   it("binds Slack tools to the admitted linked request, recovers its provenance and revokes retained access", async () => {
-    const { resolveConnectorAssignments, executeConnectorTool } = await import("../services/connector-runtime.js");
+    const { resolveConnectorAssignments, executeConnectorTool, applyConnectorSkills, prepareConnectorSkillDelivery } = await import("../services/connector-runtime.js");
     const { executeSlackTool } = await import("../services/connectors/slack.js");
     const { resolveSlackTaskAuthority } = await import("../services/connectors/slack-authority.js");
     await instanceSettingsService(db).updateExperimental({ enableChatConnectors: true });
@@ -3955,16 +3955,44 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     await db.insert(heartbeatRuns).values({ id: runId, companyId: fixture.companyId, agentId: fixture.assignedAgentId, status: "running", invocationSource: "assignment", responsibleUserId: "owner-user", contextSnapshot: { issueId: conversation.issueId } });
     const origin = await initializeRunIdentity(db, { companyId: fixture.companyId, runId, issueId: conversation.issueId, responsibleUserId: "owner-user", messageIds: [String(action.payload.commentId)], cause: "instruction" });
     const binding = { companyId: fixture.companyId, agentId: fixture.assignedAgentId, runId, issueId: conversation.issueId };
+    // An ingress transaction may briefly own the endpoint while a retained
+    // run resolves its tools. Resolution waits, then rechecks authorization.
+    let unlockEndpoint!: () => void;
+    let lockedEndpoint!: () => void;
+    const endpointLocked = new Promise<void>(resolve => { lockedEndpoint = resolve; });
+    const endpointRelease = new Promise<void>(resolve => { unlockEndpoint = resolve; });
+    const ingressLock = db.transaction(async tx => {
+      await tx.select().from(chatEndpoints).where(eq(chatEndpoints.id, endpoint.id)).for("no key update");
+      lockedEndpoint();
+      await endpointRelease;
+    });
+    await endpointLocked;
+    const resolvingAuthority = resolveSlackTaskAuthority(db, binding);
+    // Attach the rejection handler before waiting so NOWAIT regressions fail
+    // as an assertion, not an unhandled rejection.
+    const resolvedAuthority = resolvingAuthority.then(value => ({ value }), error => ({ error }));
+    try {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } finally {
+      unlockEndpoint();
+      await ingressLock;
+    }
+    expect(await resolvedAuthority).toMatchObject({ value: { slackUserId: "UTOOLS" } });
     const assignments = await resolveConnectorAssignments(db, binding);
     expect(assignments.map(a => a.key)).toEqual(["slack"]);
     expect(assignments[0].resources[0].metadata?.channelId).toBe("CTOOLS");
+    const skillConfig = await applyConnectorSkills({}, [], assignments);
+    const runnerDelivery = await prepareConnectorSkillDelivery(skillConfig, "paperclip_runner");
+    expect(runnerDelivery.instructions).toContain('"channelId": "CTOOLS"');
+    expect(runnerDelivery.instructions).toContain("untrusted source material");
+    expect(runnerDelivery.instructions).not.toContain("xoxb-test-token");
     expect(JSON.stringify(assignments)).not.toContain("xoxb-test-token");
     await expect(resolveConnectorAssignments(db, { ...binding, agentId: fixture.replacementAgentId })).resolves.toEqual([]);
     await expect(resolveConnectorAssignments(db, { ...binding, issueId: randomUUID() })).resolves.toEqual([]);
     await expect(resolveConnectorAssignments(db, { ...binding, companyId: randomUUID() })).resolves.toEqual([]);
     const fetched = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const method = String(input).split("/").at(-1);
-      const args = JSON.parse(String(init?.body ?? "{}"));
+      const args = Object.fromEntries(new URLSearchParams(String(init?.body ?? "")));
       if (method === "users.info") return Response.json({ ok: true, user: { id: "UTOOLS", team_id: "T-PAPERCLIP" } });
       if (method === "conversations.info") return Response.json({ ok: true, channel: { id: args.channel, is_member: true, is_private: args.channel === "GPRIVATE" } });
       if (method === "conversations.members") return Response.json({ ok: true, members: ["UTOOLS"] });

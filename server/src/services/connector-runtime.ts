@@ -216,7 +216,17 @@ export async function prepareConnectorSkillDelivery(
     adapterType === "paperclip_runner" ||
     (config.engine === "cli" &&
       ["codex_local", "claude_local", "kimi_local"].includes(adapterType));
-  if (scopedFiles) return { config, instructions: "" };
+  if (scopedFiles) {
+    // Runner models with semantic tools cannot necessarily read staged skill
+    // files. Supply the Slack contract and verified source IDs in their input;
+    // keep the staged bundle for CLI-capable engines and compatibility hashing.
+    const slack = adapterType === "paperclip_runner"
+      ? config.paperclipRuntimeSkills.filter(entry => entry.key === "paperclipai/paperclip/slack")
+      : [];
+    const instructions = (await Promise.all(slack.map(entry =>
+      fs.readFile(path.join(entry.source, "SKILL.md"), "utf8")))).join("\n\n");
+    return { config, instructions };
+  }
   const assigned = config.paperclipRuntimeSkills.filter((entry) =>
     isConnectorSkill(entry.key),
   );
