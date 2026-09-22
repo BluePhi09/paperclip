@@ -1,14 +1,15 @@
 # Lifecycle behavior baseline
 
 This suite establishes a measurement before removing narrative/regex authority
-from lifecycle decisions. It changes no production policy. Assertions describe
-intended behavior; an observed failure is retained, not blessed as an expected
-outcome and not fixed by this change.
+from lifecycle decisions. The original baseline changes no production policy. Assertions describe
+intended behavior; observed failures are retained rather than blessed as expected
+outcomes. Subsequent fixes and fresh measurements are recorded separately.
 
 The [initial recorded baseline](BASELINE-2026-09-21.md) preserves passes,
 failures, representative observations and unmeasured coverage. The separate
 [live Actions baseline](LIVE-BASELINE-2026-09-21.md) records actual LLM/browser runs,
-assertion corrections and retained behavior failures.
+assertion corrections and retained behavior failures. The [fix report](LIVE-FIXES-2026-09-21.md)
+records the later cancellation fix, corrected fixtures and fresh campaigns.
 
 ## Run and inspect
 
