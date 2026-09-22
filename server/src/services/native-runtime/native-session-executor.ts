@@ -2399,39 +2399,76 @@ export async function verifyStoppedNativeSessionForContinuation(
         !["runnerInstanceId", "environmentLeaseId", "runId", "normalizedSessionId", "turnId", "itemId"].every(key =>
           typeof identity[key] === "string" && identity[key] && snapshot.runner[key] === identity[key]) ||
         !Array.isArray(snapshot.control.committedEvents)) return null;
-    const providerEvents = snapshot.control.committedEvents.map(entry => record(record(record(entry).envelope).payload))
-      .filter(event => ["session.started", "session.resumed"].includes(String(event.eventType)));
+    // An incomplete provider launch can own a process that never emitted its
+    // session identity. It cannot be certified from an earlier owner's receipt.
+    if (snapshot.control.schema !== "paperclip.runner.durable.control-plane-state.v1" ||
+        snapshot.runner.schema !== RUNNERD_STATE_SCHEMA ||
+        snapshot.provider.schema !== (execution.provider.kind === "codex" ? "paperclip.runner.codex-provider-state.v1" : ACPX_PROVIDER_STATE_SCHEMA) ||
+        !["turn_active", "prepared", "suspended"].includes(String(snapshot.provider.lifecycle)) ||
+        snapshot.provider.startupAttempt != null) return null;
+    const pending = JSON.stringify([snapshot.runner.outbox, snapshot.provider.pendingEvents, snapshot.provider.queuedEvents]);
+    if (/session\.(started|resumed|reconciled)/.test(pending)) return null;
+    const events = snapshot.control.committedEvents.map(entry => record(record(record(entry).envelope).payload));
+    const providerEvents = events.filter(event => ["session.started", "session.resumed", "session.reconciled"].includes(String(event.eventType)));
     if (!providerEvents.length) return null;
     const receipts = await db.select().from(heartbeatRunEvents).where(and(
       eq(heartbeatRunEvents.companyId, run.companyId), eq(heartbeatRunEvents.runId, run.id),
       eq(heartbeatRunEvents.sourceInstanceId, run.runnerInstanceId),
-      inArray(heartbeatRunEvents.eventType, ["session.started", "session.resumed"])));
+      inArray(heartbeatRunEvents.eventType, ["session.started", "session.resumed", "session.reconciled", "harness.diagnostic"])));
     const providerPids = new Set<number>();
     for (const event of providerEvents) {
       const provider = record(event.payload);
       if (!validatePrpEvent(event).ok || event.sourceKind !== "runner" || event.sourceInstanceId !== run.runnerInstanceId ||
           event.runId !== run.id || event.normalizedSessionId !== run.nativeSessionId ||
+          typeof provider.providerSessionId !== "string" || !provider.providerSessionId ||
           !cleanupProcessAbsent(provider.processId) || provider.processId === stopped.processPid) return null;
+      if (event.eventType === "session.reconciled" &&
+          (!providerPids.has(Number(provider.previousProcessId)) || !cleanupProcessAbsent(provider.previousProcessId))) return null;
       const receipt = receipts.find(row => row.sourceEventId === `${run.runnerInstanceId}:${run.id}:${event.sourceSeq}`);
       const durable = record(record(receipt?.payload).prpEvent);
       const durableProvider = record(durable.payload);
       if (!receipt || !validatePrpEvent(durable).ok || durable.sourceInstanceId !== event.sourceInstanceId ||
           durable.runId !== run.id || durable.normalizedSessionId !== run.nativeSessionId ||
+          durable.sourceSeq !== event.sourceSeq || durable.eventType !== event.eventType ||
+          durable.turnId !== event.turnId || durable.itemId !== event.itemId ||
           receipt.sourcePayloadSha256 !== nativeSha256(durable) ||
           (durableProvider.processId !== undefined && durableProvider.processId !== provider.processId) ||
           (durableProvider.driverSessionId ?? durableProvider.providerSessionId) !== provider.providerSessionId) return null;
       providerPids.add(provider.processId);
     }
-    if (receipts.length !== providerEvents.length) return null;
+    if (receipts.filter(row => record(record(row.payload).prpEvent).eventType !== "harness.diagnostic").length !== providerEvents.length) return null;
+    // ACPX's sidecar is not its agent process. Include separately recorded
+    // owners from both the durable journal and the independent DB/checkpoint.
+    // Extra evidence can only add a stop requirement, never waive one.
+    const owners: Record<string, unknown>[] = [record(record(run.runnerProfileJson?.sessionCheckpoint).process),
+      snapshot.provider, record(snapshot.provider.identity), record(snapshot.provider.descriptor)];
+    for (const event of [...events, ...receipts.map(row => record(record(row.payload).prpEvent))]) {
+      const payload = record(event.payload);
+      if (["session.started", "session.resumed", "session.reconciled"].includes(String(event.eventType))) {
+        owners.push(payload, record(payload.providerDescriptor), record(payload.providerIdentity), record(payload.runtimeIdentity));
+      } else if (event.eventType === "harness.diagnostic" && payload.providerMethod === "acpx/process") {
+        owners.push({ agentPid: payload.pid });
+      }
+    }
+    for (const owner of owners) for (const key of [
+      "processId", "process_id", "processGroupId", "providerPid", "codexPid", "sidecarPid", "agentPid", "agentProcessId",
+    ]) {
+      const pid = owner[key];
+      if (pid === null || pid === undefined) continue;
+      if (!cleanupProcessAbsent(pid)) return null;
+      providerPids.add(pid);
+    }
     const unchanged = () => idle() && cleanupProcessAbsent(stopped.processPid) &&
       [...providerPids].every(cleanupProcessAbsent) && cleanupStateSnapshot(root, providerFile).fingerprint === snapshot.fingerprint;
     return {
       evidence: { schema: "paperclip.stopped_native_conversation.v1", runId: run.id,
         nativeSessionId: run.nativeSessionId, runnerInstanceId: run.runnerInstanceId,
         processPid: stopped.processPid, providerPids: [...providerPids], stateFingerprint: snapshot.fingerprint },
-      retire: () => unchanged() && completeTerminatedLocalNativeSessionCleanup({
-        companyId: run.companyId, runId: run.id, runnerInstanceId: run.runnerInstanceId!,
-      }),
+      retire: () => {
+        try { return unchanged() && completeTerminatedLocalNativeSessionCleanup({
+          companyId: run.companyId, runId: run.id, runnerInstanceId: run.runnerInstanceId!,
+        }); } catch { return false; }
+      },
     };
   } catch { return null; }
 }
@@ -5983,7 +6020,7 @@ export function nativeSessionFailureSourceCode(
 }
 
 const NATIVE_CLEANUP_OPERATOR_RECOVERY_MESSAGE =
-  "Verify the prior session's retained process ownership and checkpoint before a controlled server restart and explicit task retry. Clearing a task session does not resolve this quarantine. Automatic retries are stopped.";
+  "Send a new message to continue after Paperclip verifies that the previous provider and its tools have stopped. If cleanup cannot be verified, inspect the run and its environment. Clearing a task session does not resolve this quarantine. Automatic retries are stopped.";
 
 const PROVIDER_DURABLE_EVENT_TYPES = new Set([
   "harness.ready",

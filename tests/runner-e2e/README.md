@@ -939,6 +939,6 @@ it does not certify a native option in the wizard, which is not offered yet.
 
 Current proof and remaining decisions are recorded in
 [the 21 September qualification report](QUALIFICATION-2026-09-21.md). In particular,
-the original worker-loss attempts quarantined both providers. The version 7 crash
+the original worker-loss attempts quarantined both providers. The version 8 crash
 eval requires a usable fresh conversation after verified cleanup. A passing
 quarantine guard alone is not a recovered workflow.

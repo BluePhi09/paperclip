@@ -159,10 +159,11 @@ export async function runWorkerCrash(context: Context) {
     let failed: Row = {};
     await expect.poll(async () => {
       failed = await input.api.get<Row>(`/api/heartbeat-runs/${boundary.id}`);
-      return ["failed", "recovery_needed"].includes(failed.execution?.phase);
+      return failed.status === "failed" && failed.finishedAt && failed.nativePhase === "terminal_failure" &&
+        ["failed", "recovery_needed"].includes(failed.execution?.phase);
     }, { timeout: 120_000 }).toBe(true);
     await input.evidence("chat-worker-settled-failure.json", failed);
-    await input.capture("worker-failed", "Worker loss before user Retry", "worker-failed.png");
+    await input.capture("worker-failed", "Worker loss before a fresh user turn", "worker-failed.png");
     await writeFile(wait.gate, reference);
     if (failed.errorCode === "native_session_cleanup_quarantined") {
       // Preserve the red qualification result, but verify the stop is honest:
