@@ -2429,8 +2429,9 @@ export async function verifyStoppedNativeSessionForContinuation(
       const durableProvider = record(durable.payload);
       if (!receipt || !validatePrpEvent(durable).ok || durable.sourceInstanceId !== event.sourceInstanceId ||
           durable.runId !== run.id || durable.normalizedSessionId !== run.nativeSessionId ||
+          // Normalized session-open receipts omit turn/item IDs. Those belong
+          // to the durable runner identity checked above, not the open event.
           durable.sourceSeq !== event.sourceSeq || durable.eventType !== event.eventType ||
-          durable.turnId !== event.turnId || durable.itemId !== event.itemId ||
           receipt.sourcePayloadSha256 !== nativeSha256(durable) ||
           (durableProvider.processId !== undefined && durableProvider.processId !== provider.processId) ||
           (durableProvider.driverSessionId ?? durableProvider.providerSessionId) !== provider.providerSessionId) return null;

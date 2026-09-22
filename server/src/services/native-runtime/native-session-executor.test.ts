@@ -3858,7 +3858,7 @@ describe("retained native cleanup activation", () => {
 describe("stopped native conversation physical cleanup", () => {
   it.each(["codex", "acpx"].flatMap(provider => [
     "stopped", "provider_alive", "worker_alive", "missing_receipt", "wrong_receipt", "new_launch",
-    "foreign_run", "foreign_company", "foreign_runner", "remote", "unreleased", "changed_state", "changed_pid", "symlink", "startup_intent", "pending_identity", "wrong_schema", "replacement", "replacement_alive", "agent_alive", "checkpoint_owner_alive", "diagnostic_owner_alive",
+    "foreign_run", "foreign_company", "foreign_runner", "remote", "unreleased", "changed_state", "changed_pid", "symlink", "startup_intent", "pending_identity", "wrong_schema", "replacement", "replacement_alive", "agent_alive", "checkpoint_owner_alive", "diagnostic_owner_alive", "normalized_session_receipt",
   ].map(mode => ({ provider, mode }))))("$provider $mode", async ({ provider, mode }) => {
     const base = await mkdtemp(join(tmpdir(), "native-conversation-cleanup-"));
     const previous = process.env.PAPERCLIP_RUNNER_STATE_DIR;
@@ -3894,8 +3894,9 @@ describe("stopped native conversation physical cleanup", () => {
       ...(mode === "startup_intent" ? { startupAttempt: { phase: "intent" } } : {}),
       ...(mode === "pending_identity" ? { pendingEvents: [{ eventType: "session.started" }] } : {}),
     };
+    const normalizedEvent = mode === "normalized_session_receipt" ? { ...event, turnId: undefined, itemId: undefined } : event;
     const receipt = { sourceEventId: `${identity.runnerInstanceId}:${identity.runId}:1`,
-      sourcePayloadSha256: mode === "wrong_receipt" ? "wrong" : hash(event), payload: { prpEvent: event } };
+      sourcePayloadSha256: mode === "wrong_receipt" ? "wrong" : hash(normalizedEvent), payload: { prpEvent: normalizedEvent } };
     const stop = { eventType: mode === "new_launch" ? "native.process_start_requested" : "native.local_process_stopped",
       payload: { processPid: mode === "worker_alive" ? process.pid : 99_999_999, processGroupId: mode === "worker_alive" ? process.pid : 99_999_999 } };
     let queryIndex = 0;
@@ -3919,11 +3920,11 @@ describe("stopped native conversation physical cleanup", () => {
       await writeFile(join(root, `runner/${provider}-provider-state.json`), JSON.stringify(providerState));
       if (mode === "symlink") { await rename(runnerPath, join(base, "external")); await symlink(join(base, "external"), runnerPath); }
       const proof = await verifyStoppedNativeSessionForContinuation(db, run);
-      if (["stopped", "changed_state", "changed_pid", "replacement"].includes(mode)) {
+      if (["stopped", "changed_state", "changed_pid", "replacement", "normalized_session_receipt"].includes(mode)) {
         expect(proof).not.toBeNull();
         if (mode === "changed_state") await writeFile(runnerPath, "{}");
         const kill = mode === "changed_pid" ? vi.spyOn(process, "kill").mockReturnValue(true) : null;
-        try { expect(proof!.retire()).toBe(mode === "stopped" || mode === "replacement"); } finally { kill?.mockRestore(); }
+        try { expect(proof!.retire()).toBe(["stopped", "replacement", "normalized_session_receipt"].includes(mode)); } finally { kill?.mockRestore(); }
         expect(await readFile(join(root, `runner/${provider}-provider-state.json`), "utf8")).toBe(JSON.stringify(providerState));
       } else expect(proof).toBeNull();
     } finally {
