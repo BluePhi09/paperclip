@@ -927,7 +927,7 @@ export function buildHostServices(
    * cards never produce. Failure-tolerant: a wake failure is logged, never
    * thrown back to the plugin (the decision itself already applied).
    */
-  const queuePluginInteractionContinuationWakeup = (args: {
+  const queuePluginInteractionContinuationWakeup = async (args: {
     issue: { id: string; assigneeAgentId: string | null; status: string };
     interaction: {
       id: string;
@@ -941,7 +941,7 @@ export function buildHostServices(
     };
     actorUserId: string;
     source: string;
-  }): void => {
+  }): Promise<void> => {
     const { interaction, issue } = args;
     if (
       interaction.continuationPolicy !== "wake_assignee"
@@ -975,7 +975,7 @@ export function buildHostServices(
     }
     const secretProposal = readSecretProposalContinuationContext(interaction);
 
-    void heartbeat.wakeup(issue.assigneeAgentId, {
+    await heartbeat.wakeup(issue.assigneeAgentId, {
       source: "automation",
       triggerDetail: "system",
       reason: "issue_commented",
@@ -990,6 +990,7 @@ export function buildHostServices(
         ...(secretProposal ? { secretProposal } : {}),
         mutation: "interaction",
       },
+      ...(secretProposal ? { idempotencyKey: `interaction:${interaction.id}:${interaction.status}` } : {}),
       requestedByActorType: "user",
       requestedByActorId: args.actorUserId,
       contextSnapshot: {
@@ -2572,13 +2573,15 @@ export function buildHostServices(
                   executionDisposition: replay.disposition,
                 },
               });
-              queuePluginInteractionContinuationWakeup({
-                issue,
-                interaction: replay.interaction as typeof current,
-                actorUserId: params.actorUserId,
-                source: `plugin:${pluginKey}:interaction.accept.reconcile`,
-              });
             }
+            // A terminal receipt does not prove its continuation was queued.
+            // Use the same durable interaction key as REST for safe replay.
+            await queuePluginInteractionContinuationWakeup({
+              issue,
+              interaction: replay.interaction as typeof current,
+              actorUserId: params.actorUserId,
+              source: `plugin:${pluginKey}:interaction.accept.reconcile`,
+            });
             return { interaction: replay.interaction as any, applied: false };
           }
           return { interaction: current as any, applied: false };
@@ -2649,7 +2652,7 @@ export function buildHostServices(
           },
         });
 
-        queuePluginInteractionContinuationWakeup({
+        await queuePluginInteractionContinuationWakeup({
           issue: continuationTarget,
           interaction: resolved,
           actorUserId: params.actorUserId,

@@ -15991,15 +15991,18 @@ export function issueRoutes(
               executionDisposition: replay.disposition,
             },
           });
-          await queueResolvedInteractionContinuationWakeup({
-            db,
-            heartbeat,
-            issue,
-            interaction: replay.interaction,
-            actor,
-            source: "issue.interaction.accept.reconcile",
-          });
         }
+        // Receipt persistence can precede a crash before the wake is queued.
+        // Reconcile delivery even for terminal receipts; the stable interaction
+        // idempotency key deduplicates a continuation that already exists.
+        await queueResolvedInteractionContinuationWakeup({
+          db,
+          heartbeat,
+          issue,
+          interaction: replay.interaction,
+          actor,
+          source: "issue.interaction.accept.reconcile",
+        });
         res.json(replay.interaction);
         return;
       }

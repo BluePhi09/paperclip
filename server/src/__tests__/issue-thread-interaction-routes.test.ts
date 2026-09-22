@@ -1543,6 +1543,54 @@ describe.sequential("issue thread interaction routes", () => {
     );
   });
 
+  it.each(["executed", "failed"] as const)("restores the continuation for a persisted %s receipt without executing the binding again", async (executionStatus) => {
+    const proposalId = "66666666-6666-4666-8666-666666666666";
+    const acceptedWithoutReceipt = {
+      id: "interaction-secret-proposal-replay",
+      companyId: "company-1",
+      issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      kind: "request_confirmation",
+      status: "accepted",
+      continuationPolicy: "wake_assignee",
+      requestedResolverPolicy: "human_only",
+      effectiveResolverPolicy: "human_only",
+      resolverPolicyProvenance: "explicit",
+      effectiveResolverPolicySource: "governed_action",
+      payload: {
+        version: 1,
+        prompt: "Create the binding?",
+        secretProposal: {
+          version: 1,
+          proposalId,
+          configPath: "access.NEW_ALIAS",
+        },
+      },
+      result: { version: 1, outcome: "accepted", secretProposal: { status: executionStatus } },
+    };
+    mockInteractionService.getForIssue.mockResolvedValueOnce(acceptedWithoutReceipt);
+    const approveSecretProposal = vi.fn().mockResolvedValue({ status: "approved" });
+    const app = await createApp(undefined, { approveSecretProposal });
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions/interaction-secret-proposal-replay/accept")
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(mockInteractionService.acceptInteraction).not.toHaveBeenCalled();
+    expect(approveSecretProposal).not.toHaveBeenCalled();
+    expect(mockInteractionService.recordSecretProposalExecutionResult).not.toHaveBeenCalled();
+    expect(res.body.result.secretProposal).toMatchObject({ status: executionStatus });
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      ASSIGNEE_AGENT_ID,
+      expect.objectContaining({
+        idempotencyKey: "interaction:interaction-secret-proposal-replay:accepted",
+        payload: expect.objectContaining({
+          secretProposal: expect.objectContaining({ proposalId, executionStatus }),
+        }),
+      }),
+    );
+  });
+
   it("records a failed secret-proposal execution and posts a thread comment", async () => {
     const proposalId = "55555555-5555-4555-8555-555555555555";
     const approveSecretProposal = vi.fn().mockRejectedValue(new Error("binding failed"));

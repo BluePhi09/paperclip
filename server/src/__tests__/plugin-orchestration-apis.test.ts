@@ -1332,6 +1332,45 @@ describeEmbeddedPostgres("plugin orchestration APIs", () => {
       .resolves.toMatchObject({ contextSnapshot: expect.objectContaining({ secretProposal: expect.objectContaining({ executionStatus: "failed" }) }) });
   });
 
+  it.each([false, true])("respondInteraction restores a terminal receipt's missing wake exactly once (failed=%s)", async (conflictingConfig) => {
+    const fixture = await seedGovernedSecretBinding({ conflictingConfig });
+    const services = buildHostServices(db, "plugin-record-id", "paperclip.gateway", createEventBusStub(), undefined, { heartbeatRuntimeEnv: {} });
+    const params = {
+      issueId: fixture.issueId,
+      interactionId: fixture.interactionId,
+      companyId: fixture.companyId,
+      action: "accept" as const,
+      actorUserId: fixture.actorUserId,
+    };
+    // Produce a real terminal execution receipt without its continuation,
+    // matching the persisted state after a crash between receipt and wake.
+    await db.update(issueThreadInteractions).set({ continuationPolicy: "none" })
+      .where(eq(issueThreadInteractions.id, fixture.interactionId));
+    const first = await services.issues.respondInteraction(params);
+    const executionStatus = conflictingConfig ? "failed" : "executed";
+    expect(first.interaction.result).toMatchObject({ secretProposal: { status: executionStatus } });
+    const proposalsBeforeReplay = await db.select().from(companySecretProposals);
+    const bindingsBeforeReplay = await db.select().from(companySecretBindings);
+    const wakeKey = `interaction:${fixture.interactionId}:accepted`;
+    expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.idempotencyKey, wakeKey))).toHaveLength(0);
+    await db.update(issueThreadInteractions).set({ continuationPolicy: "wake_assignee" })
+      .where(eq(issueThreadInteractions.id, fixture.interactionId));
+
+    const replay = await services.issues.respondInteraction(params);
+    await services.issues.respondInteraction(params);
+
+    expect(replay).toMatchObject({ applied: false, interaction: { result: { secretProposal: { status: executionStatus } } } });
+    await waitForSecretProposalWake(fixture.companyId, fixture.agentId, executionStatus);
+    const wakes = await db.select().from(agentWakeupRequests).where(and(
+      eq(agentWakeupRequests.companyId, fixture.companyId),
+      eq(agentWakeupRequests.idempotencyKey, wakeKey),
+    ));
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]?.payload).toMatchObject({ secretProposal: { executionStatus } });
+    expect(await db.select().from(companySecretProposals)).toEqual(proposalsBeforeReplay);
+    expect(await db.select().from(companySecretBindings)).toEqual(bindingsBeforeReplay);
+  });
+
   it("respondInteraction idempotently repairs an accepted card that has no execution receipt", async () => {
     const fixture = await seedGovernedSecretBinding({ acceptedWithoutReceipt: true });
     const services = buildHostServices(
