@@ -2349,11 +2349,13 @@ for (const execution of executions) {
       // The fixture owns the expected disposition; blocked workflows must prove
       // their Blocked UI rather than inheriting the completion-only Done check.
       const expectedStatus = execution.task.expectedTerminalState.issue;
-      const expectedStatusLabel = expectedStatus.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+      const expectedStatusLabel = expectedStatus.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
       await expect(
         page.getByTestId("issue-detail-header").getByRole("button", {
-          name: `Change status (current: ${expectedStatusLabel})`,
-          exact: true,
+          // Blocked includes the live blocker-attention explanation in its
+          // accessible name. The exact persisted status is asserted separately.
+          name: `Change status (current: ${expectedStatusLabel}${expectedStatus === "blocked" ? "" : ")"}`,
+          exact: expectedStatus !== "blocked",
         }),
       ).toBeVisible({ timeout: 30_000 });
       if (execution.task.flow === "warm_three_turn") {
