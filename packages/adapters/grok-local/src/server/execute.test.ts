@@ -878,5 +878,35 @@ describe("grok_local execute", () => {
       );
       expect(deliveredPrompt).toContain("Change the final scope to the launch checklist.");
     });
+
+    it("retries a stale session with the full assignment and wake context", async () => {
+      const root = await makeTempRoot();
+      const fixture = createPromptContextFixture();
+      const prompts: string[] = [];
+      runProcessMock.mockImplementation(async (_runId, _target, _command, args) => {
+        prompts.push(String(args.at(-1) ?? ""));
+        if (prompts.length === 1) {
+          return { exitCode: 1, signal: null, timedOut: false, stdout: "", stderr: "unknown session sess-stale" };
+        }
+        return makeSuccessfulRunResult();
+      });
+
+      const ctx = await makeCtx("run-grok-recovery-context", root);
+      ctx.runtime = {
+        sessionId: "sess-stale",
+        sessionParams: { sessionId: "sess-stale", cwd: root },
+        sessionDisplayId: "sess-stale",
+        taskKey: null,
+      };
+      ctx.context = fixture;
+      const result = await execute(ctx);
+
+      expect(result.exitCode).toBe(0);
+      expect(prompts).toHaveLength(2);
+      expect(prompts[0]).toContain(fixture.paperclipTaskMarkdownAssignmentCompact);
+      expect(prompts[1]).toContain(fixture.paperclipTaskMarkdownAssignment);
+      expect(prompts[1]).toContain("comment-first");
+      expect(prompts[1]).toContain("comment-scope");
+    });
   });
 });

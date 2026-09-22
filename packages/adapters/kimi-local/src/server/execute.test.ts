@@ -266,6 +266,7 @@ describe("kimi_local execute", () => {
 
   it("retries fresh when the resume session is unrecoverable", async () => {
     const root = await makeTempRoot();
+    const fixture = createPromptContextFixture();
     const seenArgLists: string[][] = [];
     runProcessMock.mockImplementation(async (_runId, _target, _command, args) => {
       seenArgLists.push(args);
@@ -282,11 +283,16 @@ describe("kimi_local execute", () => {
         sessionDisplayId: "session_stale",
         taskKey: null,
       },
+      config: { cwd: root, bootstrapPromptTemplate: "BOOTSTRAP {{run.id}}" },
+      context: fixture,
     }));
 
     expect(runProcessMock).toHaveBeenCalledTimes(2);
     expect(seenArgLists[0]).toContain("-r");
     expect(seenArgLists[1]).not.toContain("-r");
+    expect(seenArgLists[1].at(-1)).toContain(fixture.paperclipTaskMarkdownAssignment);
+    expect(seenArgLists[1].at(-1)).toContain("BOOTSTRAP run-1");
+    expect(seenArgLists[1].at(-1)).toContain("comment-first");
     expect(result).toMatchObject({ exitCode: 0, sessionId: "session_abc-123" });
   });
 
