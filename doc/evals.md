@@ -232,3 +232,18 @@ records. See the [workflow and qualification limits](../tests/runner-e2e/README.
 The 26 native `first-task` cells exercise onboarding before native selection
 becomes the UI default. Live results and semantic answer reviews must accompany
 any qualification claim; catalog presence alone is not a pass.
+
+## Lifecycle behavior baseline
+
+The credential-free [lifecycle baseline](../tests/lifecycle-baseline/README.md)
+joins unit, scripted-runner, and database integration assertions to a scenario
+inventory before changing narrative-based lifecycle policy. Run
+`pnpm test:lifecycle-baseline` to retain current passes and failures. Its Product
+E2E matcher calibration is separate from live execution; unrun live coverage
+remains explicitly unmeasured.
+
+The separate [live lifecycle baseline](../tests/runner-e2e/LIFECYCLE-BASELINE.md)
+defines 40 real-provider Product E2E cells, including paired narrative probes and
+named existing controls on legacy and native Codex. Discover it with
+`pnpm test:e2e:runner -- --list --suite lifecycle-baseline`. Authoring validation
+has passed; live execution remains unmeasured.

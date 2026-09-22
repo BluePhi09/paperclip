@@ -123,6 +123,11 @@ Paid tests never silently skip a missing credential or unsupported artifact.
 
 ## New Paperclip object fixtures
 
+The explicit-only `lifecycle-baseline` suite reuses this registry and existing
+continuation, chat and governed-action flows. Its narrative pairs require actual
+agent/run-attributed comments or exact visible responses. See
+[the live baseline contract](LIFECYCLE-BASELINE.md) for selectors and proof boundaries.
+
 Register new objects in `live-fixtures.ts` with explicit dependencies in
 `FixtureRegistry`. Setup must use a public API. Teardown runs in reverse order
 and is invoked after partial setup failures. Direct database writes and private
