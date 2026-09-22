@@ -84,7 +84,7 @@ pnpm test:e2e:runner -- --all
 ```
 
 The catalog contains twelve suites, including the explicit-only everyday and
-[lifecycle baseline](LIFECYCLE-BASELINE.md) suites. The latter adds 40 real-provider
+[lifecycle baseline](LIFECYCLE-BASELINE.md) suites. The latter adds 42 real-provider
 cells pairing narrative variants and exercising durable lifecycle boundaries;
 it is excluded from `--all`. `core-compatibility` (**Core Runner
 Compatibility**) is seven major runner profiles × local/Daytona × three

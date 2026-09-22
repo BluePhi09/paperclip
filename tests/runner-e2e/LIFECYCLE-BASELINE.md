@@ -105,3 +105,19 @@ current model-facing autonomous-continuation defect. This live suite uses suppor
 question/approval/dependency responses and restart boundaries; it does not instruct
 a model to emit unsupported `same_agent` output. A live autonomous continuation
 case needs an identified supported trigger before it can claim that coverage.
+
+## Legacy disposition repair follow-up (2026-09-22)
+
+The current suite adds `lifecycle-repair-neutral` and
+`lifecycle-repair-challenge` for `legacy-codex` only: 42 cells total (the original
+40 plus two). Each costs two provider turns. The first turn posts an attributed
+quotation and leaves the task in progress without a durable disposition. The
+server must automatically wake the agent for disposition repair, and the second
+turn must record completion through the public API. The independent oracle
+requires the source/repair episode binding, attempt 1 of 2, two successful runs,
+the initial attributed quotation, no user message, and final task completion.
+Missing evidence or a one-turn completion fails. Timeout, cleanup, screenshots,
+source provenance and billing use the ordinary single-turn fixture pipeline.
+
+The historical 40-cell campaign records remain unchanged. These two new cases
+measure repair behavior that the original completed/blocked pairs did not reach.

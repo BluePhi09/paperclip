@@ -7,14 +7,15 @@ import {
   lifecycleLiveTasks,
   lifecycleLiveContinuation,
   gradeLifecycleNarrative,
+  gradeLifecycleRepair,
 } from "./lifecycle-live-cases.js";
 
 describe("LCA live baseline authoring and evidence", () => {
-  it("registers 40 explicit-only real-provider cells across both runtimes", () => {
+  it("registers the 40 baseline cells plus two legacy repair probes", () => {
     const selected = selectRunnerExecutions(
       parseRunnerSelectors(["--suite", "lifecycle-baseline"]),
     );
-    expect(selected).toHaveLength(40);
+    expect(selected).toHaveLength(42);
     expect(new Set(selected.map((e) => e.profile.expectedRuntimeMode))).toEqual(
       new Set(["native", "legacy"]),
     );
@@ -91,7 +92,7 @@ describe("LCA live baseline authoring and evidence", () => {
         .passed,
     ).toBe(false);
   });
-  it.each(lifecycleLiveCases.filter((c) => !c.continuation))(
+  it.each(lifecycleLiveCases.filter((c) => !c.continuation && c.family !== "repair"))(
     "LCA-01 $id checks actual visible wording and durable terminal state",
     async (probe) => {
       const execution = runnerMatrix.find(
@@ -155,4 +156,19 @@ describe("LCA live baseline authoring and evidence", () => {
       ).toBeGreaterThan(0);
     },
   );
+});
+
+describe("LCA-09 repair oracle calibration", () => {
+  const source = { id: "source", status: "succeeded" };
+  const repair = { id: "repair", status: "succeeded", contextSnapshot: { wakeReason: "issue_disposition_repair", retryOfRunId: "source", legacyDispositionEpisode: { id: "source", attempt: 1, maxAttempts: 2 } } };
+  const input = { runs: [source, repair], agentId: "agent", narrative: "I am blocked.", comments: [{ body: "I am blocked.", authorAgentId: "agent", createdByRunId: "source" }] };
+  it("requires the causal repair and the actual attributed perturbation", () => {
+    expect(gradeLifecycleRepair(input).passed).toBe(true);
+    for (const runs of [[], [source], [source, repair, repair], [source, { ...repair, contextSnapshot: {} }], [{ ...source, status: "failed" }, repair]]) {
+      expect(gradeLifecycleRepair({ ...input, runs }).passed).toBe(false);
+    }
+    expect(gradeLifecycleRepair({ ...input, comments: [] }).passed).toBe(false);
+    expect(gradeLifecycleRepair({ ...input, comments: [...input.comments, { authorUserId: "user" }] }).passed).toBe(false);
+    expect(gradeLifecycleRepair({ ...input, comments: [{ ...input.comments[0], createdByRunId: "repair" }] }).passed).toBe(false);
+  });
 });

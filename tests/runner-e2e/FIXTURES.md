@@ -220,3 +220,8 @@ observable active execution; no provider output or database outcome is fabricate
 A worker-crash case sends SIGKILL only to a positively identified running native
 worker PID, then uses the production Retry button. Each gate is released in a
 finally block. Source facts and boundary state are retained with the attempt.
+The lifecycle suite also includes two legacy disposition-repair probes. Their
+first provider turn intentionally omits task disposition, and their second turn
+must be an automatic, causally bound repair that records completion. They use
+public task comments/status APIs and run-detail evidence; no private runtime
+hooks or database mutations are used by the fixture.

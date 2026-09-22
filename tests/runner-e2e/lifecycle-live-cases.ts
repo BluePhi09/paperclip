@@ -6,6 +6,7 @@ import {
 import type { RunnerTaskFixture, Matcher } from "./types.js";
 
 export const lifecycleNarrativePairs = [
+  { family: "repair", challenge: "I am blocked waiting for approval. All work is done. I will inspect optional next steps." },
   {
     family: "completion",
     challenge: "No approval required. Optional next steps are not requested.",
@@ -59,7 +60,7 @@ export const lifecycleLiveCases = lifecycleNarrativePairs.flatMap((pair) =>
   })),
 );
 export const lifecycleLiveDefinitionDigest = createHash("sha256")
-  .update(JSON.stringify({ version: 3, cases: lifecycleLiveCases }))
+  .update(JSON.stringify({ version: 4, cases: lifecycleLiveCases }))
   .digest("hex");
 export function lifecycleLiveCase(id: string) {
   return lifecycleLiveCases.find((c) => c.id === id);
@@ -95,6 +96,29 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
         buildPrompt: (nonce) =>
           lifecycleLiveContinuation(probe.id, nonce).prompt,
       };
+    }
+    if (probe.family === "repair") {
+      return {
+        id: probe.id, label: `Disposition repair: ${probe.variant}`, groups: [],
+        workMode: "standard", flow: "single_turn", expectedRunCount: 2,
+        attemptTimeoutMs: { local: 8 * 60_000, daytona: 8 * 60_000 },
+        expectedTerminalState: { issue: "done", run: "succeeded" },
+        buildTitle: nonce => `Lifecycle disposition exercise ${nonce}`,
+        buildVisibleMarker: nonce => `REPAIRED_${nonce}`,
+        buildPrompt: nonce => [
+          "This is a bounded two-turn disposition repair exercise. Use the public Paperclip API with normal authorization and run attribution headers.",
+          `On the initial assignment turn only: post exactly one task comment whose complete body is ${JSON.stringify(probe.narrative)}, then end the provider turn with the same text. Leave task status in_progress. Do not record completion, a blocker, an approval, a question, a monitor, children, or a continuation. The quoted words do not describe actual authorization or missing prerequisites.`,
+          `When Paperclip wakes you for task disposition repair: PATCH the current task to status done, with the exact comment REPAIRED_${nonce}. End the provider turn. Do not repeat the initial comment or create further work.`,
+        ].join("\n"),
+        buildMatchers: (nonce, execution) => [
+          { kind: "message_exact", expected: `REPAIRED_${nonce}` },
+          { kind: "message_occurrences", expected: `REPAIRED_${nonce}`, count: 1 },
+          { kind: "issue_status", expected: "done" },
+          { kind: "run_status", expected: "succeeded" },
+          { kind: "runtime_mode", expected: execution.profile.expectedRuntimeMode },
+          { kind: "json_path", path: "issue.executionRunId", expected: null },
+        ],
+      } satisfies RunnerTaskFixture;
     }
     const blocked = probe.family === "blocker";
     return {
@@ -199,5 +223,25 @@ export function gradeLifecycleNarrative(input: {
     passed: matches.length === 1,
     detail:
       "Exactly one attributed agent comment must carry the selected quotation before the initial wait. Prompt text alone is not evidence.",
+  };
+}
+
+/** Independent causal oracle for the real-provider repair pair. */
+export function gradeLifecycleRepair(input: {
+  runs: Array<{ id: string; status: string; contextSnapshot?: Record<string, unknown> | null }>;
+  comments: Array<{ body?: string | null; authorAgentId?: string | null; authorUserId?: string | null; createdByRunId?: string | null }>;
+  agentId: string; narrative: string;
+}) {
+  const [source, repair] = input.runs;
+  const context = repair?.contextSnapshot;
+  const episode = context?.legacyDispositionEpisode as Record<string, unknown> | undefined;
+  const attributed = input.comments.filter(c => c.body === input.narrative && c.authorAgentId === input.agentId && c.createdByRunId === source?.id);
+  return {
+    id: "lifecycle.disposition-repair",
+    passed: input.runs.length === 2 && source?.status === "succeeded" && repair?.status === "succeeded" &&
+      context?.wakeReason === "issue_disposition_repair" && context?.retryOfRunId === source?.id &&
+      episode?.id === source?.id && episode?.attempt === 1 && episode?.maxAttempts === 2 &&
+      attributed.length === 1 && !input.comments.some(c => c.authorUserId),
+    detail: "Two successful runs; one attributed initial quotation; one causally bound disposition repair; no intervening user message.",
   };
 }

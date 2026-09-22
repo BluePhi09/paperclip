@@ -1,6 +1,6 @@
 import { observeBrowserBootstrap } from "./browser-bootstrap-diagnostics.js";
 import type { Issue } from "../../packages/shared/src/types/issue.js";
-import { lifecycleLiveCase } from "./lifecycle-live-cases.js";
+import { lifecycleLiveCase, gradeLifecycleRepair } from "./lifecycle-live-cases.js";
 import { runContinuationFlow } from "./continuation-flow.js";
 import { runEverydayFlow } from "./everyday-flow.js";
 import { createTaskThroughUi, submitTaskReply } from "./user-actions.js";
@@ -62,6 +62,8 @@ interface IssueRecord {
   executionWorkspaceId?: string | null;
   executionRunId?: string | null;
   checkoutRunId?: string | null;
+  scheduledRetry?: unknown;
+  monitorNextCheckAt?: string | null;
 }
 
 interface CommentRecord {
@@ -69,6 +71,7 @@ interface CommentRecord {
   body?: string | null;
   authorType?: string | null;
   authorAgentId?: string | null;
+  authorUserId?: string | null;
   createdByRunId?: string | null;
   createdAt?: string;
 }
@@ -1643,6 +1646,17 @@ for (const execution of executions) {
         ),
       );
       selectedRuns = sortRunsChronologically(selectedRuns);
+      const lifecycleProbe = execution.suite.id === "lifecycle-baseline" ? lifecycleLiveCase(execution.task.id) : undefined;
+      if (lifecycleProbe?.family === "repair") {
+        const grade = gradeLifecycleRepair({ runs: selectedRuns, comments: terminal.comments,
+          agentId: fixtures.agent.id, narrative: lifecycleProbe.narrative });
+        await writeSanitizedJson(snapshotsDir, "lifecycle-repair.json", { grade, runs: selectedRuns, comments: terminal.comments }, secrets);
+        expect(grade.passed, grade.detail).toBe(true);
+        expect(terminal.currentIssue.scheduledRetry).toBeNull();
+        expect(terminal.currentIssue.monitorNextCheckAt).toBeNull();
+        expect(terminal.interactions.filter(i => i.status === "pending")).toHaveLength(0);
+      }
+
       if (execution.task.flow === "warm_three_turn") {
         turnTimings = selectedRuns.map((candidate, index) => {
           const submittedAtMs = turnSubmissionTimesMs[index]!;

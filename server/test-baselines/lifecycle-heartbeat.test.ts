@@ -353,7 +353,9 @@ describe("LCA full heartbeat observation", () => {
       "No approval required. I will inspect the repository and run tests.",
       false,
     );
-    expect(misleading.providerTurns).toBe(neutral.providerTurns);
+    expect(neutral.providerTurns).toBe(2);
+    expect(neutral.issue).toEqual({ status: "done", locked: false });
+    expect(misleading.providerTurns).toBe(2);
     expect(misleading.wakes).toEqual(neutral.wakes);
     expect(misleading.issue).toEqual(neutral.issue);
   });
