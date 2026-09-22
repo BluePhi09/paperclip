@@ -12,6 +12,7 @@ export const GROK_AUTH_REFRESH_FILE = "auth-refresh.json";
 export async function stageManagedGrokCredential(input: {
   agentHomeDirectory: string;
   environment?: NodeJS.ProcessEnv;
+  retainRefresh?: () => boolean;
 }): Promise<AcpxProviderLifetimeLease> {
   const source = input.environment ?? {};
   const inline = source.PAPERCLIP_ACPX_GROK_AUTH_JSON_SECRET;
@@ -51,7 +52,7 @@ export async function stageManagedGrokCredential(input: {
       // The runtime host calls close only after verified provider exit. Retain
       // a private refresh handoff for the controller's existing Grok merge
       // predicate, then scrub auth.json before releasing the process fence.
-      if (inline) {
+      if (inline && (input.retainRefresh?.() ?? true)) {
         const auth = await open(join(input.agentHomeDirectory, "auth.json"), constants.O_RDONLY | constants.O_NOFOLLOW).catch((error) => {
           if (error.code === "ENOENT") return null;
           throw error;

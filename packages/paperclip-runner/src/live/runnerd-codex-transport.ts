@@ -3254,7 +3254,7 @@ export function createRunnerdCodexAppServerArgs(input: {
   );
 }
 
-function unwrapToolResponse(response: Record<string, unknown>): {
+export function unwrapToolResponse(response: Record<string, unknown>, preserveEnvelope = false): {
   readonly __paperclipSemanticToolOutcome: true;
   readonly result: unknown;
   readonly isError: boolean;
@@ -3265,7 +3265,7 @@ function unwrapToolResponse(response: Record<string, unknown>): {
   const value = record(items[0]).text;
   let result: unknown = response;
   try {
-    if (typeof value === "string") result = JSON.parse(value);
+    if (!preserveEnvelope && typeof value === "string") result = JSON.parse(value);
   } catch {
     result = response;
   }
@@ -5461,6 +5461,8 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
             }
           : {}),
       }),
+      this.options.provider === "acpx" &&
+        (call.operationId === "paperclip_finish" || call.operationId === "paperclip_block"),
     );
     if (call.operationId === "call_api") {
       const result = record(outcome.result);

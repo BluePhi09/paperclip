@@ -338,6 +338,7 @@ export class AcpxRuntimeHost {
     if (installation.commandDigest !== profile.commandDigest) {
       throw new Error("Verified ACPX installation does not match its profile");
     }
+    let admissionSucceeded = false;
     let command: VerifiedAcpxCommandLease | null = null;
     let credential: AcpxProviderLifetimeLease | null = null;
     let toolBridge: RunnerToolBridge | null = null;
@@ -408,7 +409,7 @@ export class AcpxRuntimeHost {
       } else if (options.agent === "grok") {
         credential = await acquireAbortableAdmissionResource({
           signal: options.signal,
-          acquire: () => stageManagedGrokCredential({ agentHomeDirectory: sandbox.agentHomeDirectory, environment: options.environment }),
+          acquire: () => stageManagedGrokCredential({ agentHomeDirectory: sandbox.agentHomeDirectory, environment: options.environment, retainRefresh: () => admissionSucceeded }),
           resource: "credential", releaseLate: (lease) => lease.close(),
           reportFailure: (failure) => dependencies.reportRetainedCleanupFailure(failure),
         });
@@ -550,6 +551,7 @@ export class AcpxRuntimeHost {
         verifyExpectedAcpxIdentity(options.expectedIdentity, binding, identity);
       }
       options.signal?.throwIfAborted();
+      admissionSucceeded = true;
       return new AcpxRuntimeHost({
         runtime,
         binding,
