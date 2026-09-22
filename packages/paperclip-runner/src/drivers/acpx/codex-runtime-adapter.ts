@@ -1230,7 +1230,15 @@ function runtimePort(
       }
       const guarded = turnWithVerifiedLifetimeOwnership(turn, finishOwnershipAdmission);
       const result = guarded.result.then(
-        (value) => { approval.signal.throwIfAborted(); return value; },
+        (value) => {
+          approval.signal.throwIfAborted();
+          // ACPX may resolve its own permission policy before invoking the
+          // host callback. Keep that typed denial on the same runner outcome.
+          if (value.status === "failed" && value.error?.code === "PERMISSION_PROMPT_UNAVAILABLE") {
+            throw new AcpxApprovalRequiredError();
+          }
+          return value;
+        },
         (error: unknown) => { approval.signal.throwIfAborted(); throw error; },
       ).finally(() => {
         if (permissionBoundary.active === approval) permissionBoundary.active = null;

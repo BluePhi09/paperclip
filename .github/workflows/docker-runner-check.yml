@@ -3,6 +3,10 @@ name: Docker Runner check
 on:
   workflow_dispatch:
     inputs:
+      target_branch:
+        description: "Branch in this repository to build; resolved to one immutable commit before checkout"
+        type: string
+        required: false
       publish_eval_image:
         description: "Publish an immutable Daytona qualification image on the EC2 fleet (no provider credentials)"
         type: boolean
@@ -58,8 +62,11 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 5
+    outputs:
+      target_sha: ${{ steps.authorize.outputs.target_sha }}
     steps:
       - name: Authorize an explicit maintainer image build
+        id: authorize
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -67,6 +74,7 @@ jobs:
           ACTOR_ID: ${{ github.actor_id }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           ALLOWED_IDS: ${{ vars.AWS_CI_TRUSTED_USER_IDS }}
+          TARGET_BRANCH: ${{ inputs.target_branch || github.ref_name }}
         run: |
           set -euo pipefail
           test "$REPOSITORY" = paperclipai/paperclip
@@ -76,6 +84,9 @@ jobs:
           for id in "$ACTOR_ID" "$triggering_id"; do
             jq -e --argjson id "$id" 'index($id) != null' <<< "$ALLOWED_IDS" >/dev/null
           done
+          target_sha="$(gh api "repos/$REPOSITORY/git/ref/heads/$TARGET_BRANCH" --jq '.object.sha')"
+          [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
 
   manual_image:
     name: Build and verify on EC2
@@ -105,6 +116,7 @@ jobs:
           done
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ needs.authorize_manual.outputs.target_sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
@@ -129,7 +141,7 @@ jobs:
       - name: Build checksum-verified Grok provider image
         if: inputs.publish_eval_image
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ needs.authorize_manual.outputs.target_sha }}
         run: |
           set -euo pipefail
           image="ghcr.io/paperclipai/paperclip-daytona-runner:qualification-${SOURCE_SHA}-${GITHUB_RUN_ID}"
