@@ -72,5 +72,8 @@ export async function getExternalChannelBindingSummary(
     conversationId: row.conversation.id,
     publicationState: row.publicationState ?? null,
     assignedAgentLocked: true,
+    ...(row.endpoint.provider === "slack" && row.endpoint.status === "active" && row.conversation.isDirectMessage &&
+      (row.endpoint.setup as { slackPermissionProfile?: string }).slackPermissionProfile === "ceo-dm-v1"
+      ? { slackReplyAvailable: true } : {}),
   };
 }

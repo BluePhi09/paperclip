@@ -5,6 +5,16 @@ import { persistActivity, publishActivity, type ActivityPublication } from "./ac
 /** Both run finalization and provider publication can arrive first. Re-read
  * durable evidence under the task lock; never infer completion from prose. */
 export async function settleSlackConversation(db: Db, companyId: string, issueId: string): Promise<boolean> {
+  return assessSlackConversation(db, companyId, issueId);
+}
+
+/** A completed answer owns its delivery/recovery lane even before the provider
+ * acknowledges it. Never ask the model to recreate a pending/failed delivery. */
+export async function hasSlackConversationAnswer(db: Db, companyId: string, issueId: string, runId: string): Promise<boolean> {
+  return assessSlackConversation(db, companyId, issueId, runId);
+}
+
+async function assessSlackConversation(db: Db, companyId: string, issueId: string, inspectRunId?: string): Promise<boolean> {
   let activity: ActivityPublication | null = null;
   const settled = await db.transaction(async (tx) => {
     // Match chat admission's endpoint -> task lock order. A closed/revoked
@@ -22,7 +32,7 @@ export async function settleSlackConversation(db: Db, companyId: string, issueId
       .where(and(eq(issues.companyId, companyId), eq(issues.id, issueId))).for("update");
     if (!issue || issue.originKind !== "chat_channel" || issue.conversationAgentId || issue.hiddenAt ||
       issue.assigneeUserId || issue.assigneeAgentId !== binding.endpoint.assignedAgentId ||
-      issue.status !== "in_progress" || issue.executionRunId || issue.monitorNextCheckAt ||
+      issue.status !== "in_progress" || (issue.executionRunId && issue.executionRunId !== inspectRunId) || issue.monitorNextCheckAt ||
       ["pending", "changes_requested"].includes(String(issue.executionState?.status))) return false;
     const monitor = issue.executionState?.monitor;
     if (monitor && typeof monitor === "object" && "status" in monitor &&
@@ -34,6 +44,7 @@ export async function settleSlackConversation(db: Db, companyId: string, issueId
     if (!run || run.status !== "succeeded" || run.agentId !== issue.assigneeAgentId ||
       !run.finishedAt ||
       run.scheduledRetryAt || ["plan_only", "empty_response"].includes(run.livenessState ?? "")) return false;
+    if (inspectRunId && run.id !== inspectRunId) return false;
     if (run.runtimeMode === "native" && run.resultJson?.finalizationReasonCode !== "external_chat_response_waiting") return false;
     // The published, server-selected response is the binding proof. Resolved
     // questions can use an interaction continuation source and a board comment
@@ -48,16 +59,34 @@ export async function settleSlackConversation(db: Db, companyId: string, issueId
       .where(and(eq(issueComments.companyId, companyId), eq(issueComments.issueId, issueId), inArray(issueComments.id, commentIds)))
       .orderBy(desc(issueComments.createdAt), desc(issueComments.id)).limit(1);
     if (!wake) return false;
+    // A successful internal board turn has no provider publication by design.
+    // Settle only its exact final presentation; never use this branch to hide
+    // failed external delivery, unfinished work, or an explicitly shared turn.
+    const internalBoardTurn = run.runtimeMode === "legacy" && context.source === "issue.comment" &&
+      wake.authorType === "user" && Boolean(wake.authorUserId) && !wake.authorAgentId &&
+      commentIds.length === 1 && commentIds[0] === wake.id;
     const [evidence] = await tx.execute<{ ready: boolean }>(sql`select
-      exists (select 1 from chat_publications p join issue_comments response
+      (exists (select 1 from chat_publications p join issue_comments response
         on response.id = p.comment_id and response.company_id = p.company_id and response.issue_id = p.issue_id
         where p.company_id = ${companyId} and p.issue_id = ${issueId} and p.conversation_id = ${binding.conversation.id}
-          and p.state = 'published' and p.provider_message_id is not null
+          and ((p.state = 'published' and p.provider_message_id is not null)
+            or (${Boolean(inspectRunId)} and p.state in ('pending','streaming','retry','delivery_unknown','failed','awaiting_consent')))
           and response.created_by_run_id = ${run.id} and response.author_agent_id = ${run.agentId}
           and response.deleted_at is null
           and response.created_at >= (select original.created_at from issue_comments original
             where original.company_id = ${companyId} and original.id = ${wake.id})
           and response.metadata->>'authorizationReason' = 'allow_chat_run_presentation')
+      or (${internalBoardTurn} and exists (select 1 from issue_comments response
+        where response.company_id = ${companyId} and response.issue_id = ${issueId}
+          and response.created_by_run_id = ${run.id} and response.author_agent_id = ${run.agentId}
+          and response.author_type = 'agent' and response.deleted_at is null
+          and response.metadata->>'authorizationReason' = 'internal_agent_write'
+          and response.created_at >= (select original.created_at from issue_comments original
+            where original.company_id = ${companyId} and original.id = ${wake.id}))
+        and not exists (select 1 from chat_message_links l where l.company_id = ${companyId}
+          and l.comment_id = ${wake.id} and l.direction = 'inbound')
+        and not exists (select 1 from chat_actions a where a.company_id = ${companyId}
+          and a.kind = 'slack_board_reply' and a.payload->>'commentId' = ${wake.id})))
       and (${run.runtimeMode} <> 'native' or exists (select 1 from native_run_finalizations f
         where f.company_id = ${companyId} and f.issue_id = ${issueId} and f.run_id = ${run.id} and f.phase = 'committed'))
       and not exists (select 1 from agent_task_sessions session where session.company_id = ${companyId}
@@ -75,15 +104,18 @@ export async function settleSlackConversation(db: Db, companyId: string, issueId
       and not exists (select 1 from agent_wakeup_requests w where w.company_id = ${companyId}
         and coalesce(w.payload->>'issueId', w.payload->>'taskId', w.payload->'_paperclipWakeContext'->>'issueId') = ${issueId}
         and w.status in ('queued', 'claimed', 'deferred_issue_execution') and w.run_id is distinct from ${run.id}::uuid)
+      and not exists (select 1 from chat_actions a where a.company_id = ${companyId}
+        and a.kind = 'slack_board_reply' and a.payload->>'issueId' = ${issueId} and a.status = 'queued')
       and not exists (select 1 from issue_thread_interactions i where i.company_id = ${companyId} and i.issue_id = ${issueId} and i.status = 'pending')
       and not exists (select 1 from issue_approvals ia join approvals a on a.id = ia.approval_id and a.company_id = ia.company_id
         where ia.company_id = ${companyId} and ia.issue_id = ${issueId} and a.status in ('pending', 'revision_requested'))
       and not exists (select 1 from issue_relations edge join issues blocker on blocker.id = edge.issue_id and blocker.company_id = edge.company_id
         where edge.company_id = ${companyId} and edge.related_issue_id = ${issueId} and edge.type = 'blocks' and blocker.status <> 'done')
-      and not exists (select 1 from chat_publications p where p.company_id = ${companyId} and p.conversation_id = ${binding.conversation.id}
-        and p.state in ('pending', 'streaming', 'retry', 'delivery_unknown', 'failed', 'awaiting_consent'))
+      and (${Boolean(inspectRunId)} or not exists (select 1 from chat_publications p where p.company_id = ${companyId} and p.conversation_id = ${binding.conversation.id}
+        and p.state in ('pending', 'streaming', 'retry', 'delivery_unknown', 'failed', 'awaiting_consent')))
       as ready`);
     if (!evidence?.ready) return false;
+    if (inspectRunId) return true;
     const changed = await tx.update(chatConversations).set({ state: "waiting", updatedAt: new Date() })
       .where(and(eq(chatConversations.id, binding.conversation.id), eq(chatConversations.companyId, companyId), eq(chatConversations.state, "active")))
       .returning({ id: chatConversations.id });

@@ -28,9 +28,12 @@ export function SlackIdentityStep({ endpointId, command, testStartedAt, onConnec
   const local = health.data?.deploymentMode === "local_trusted";
   const userId = local ? "local-board" : session.data?.user.id;
   const userLabel = local ? "Local Board" : session.data?.user.name || session.data?.user.email;
-  const candidates = (identities.data ?? []).filter((identity) => identity.lastConnectAt &&
-    (!testStartedAt || Date.parse(identity.lastConnectAt) >= Date.parse(testStartedAt)));
-  const linkedToMe = candidates.some((identity) => identity.status === "linked" && identity.paperclipUserId === userId);
+  // OAuth may have already linked this user without a slash command. Keep the
+  // freshness requirement for unlinked candidates, not for an authorized link.
+  const candidates = (identities.data ?? []).filter((identity) =>
+    (Boolean(userId) && identity.status === "linked" && identity.paperclipUserId === userId) ||
+    (identity.lastConnectAt && (!testStartedAt || Date.parse(identity.lastConnectAt) >= Date.parse(testStartedAt))));
+  const linkedToMe = Boolean(userId) && candidates.some((identity) => identity.status === "linked" && identity.paperclipUserId === userId);
   const connectCommand = `${command} connect`;
   const link = useMutation({
     mutationFn: async (principalId: string) => {
@@ -47,9 +50,11 @@ export function SlackIdentityStep({ endpointId, command, testStartedAt, onConnec
       <div>
         <h1 className="text-xl font-bold">Connect your Slack account</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Send this command in Slack so we can identify your account. It won&apos;t start agent work.
+          {linkedToMe ? "Your Slack account is already linked. Continue to the message test."
+            : <>Send this command in Slack so we can identify your account. It won&apos;t start agent work.</>}
         </p>
       </div>
+      {!linkedToMe && <>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
         <code className="text-sm">{connectCommand}</code>
         <Button variant="ghost" size="sm" onClick={() => {
@@ -60,6 +65,7 @@ export function SlackIdentityStep({ endpointId, command, testStartedAt, onConnec
       <p className="text-sm">
         <a href="https://app.slack.com/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Open Slack <ExternalLink className="inline size-3" /></a>, send the command in your workspace, then return here.
       </p>
+      </>}
       {identities.isError ? (
         <p role="alert" className="text-sm text-destructive">Couldn&apos;t check for your Slack account. We&apos;ll keep trying.</p>
       ) : candidates.length === 0 ? (
@@ -68,9 +74,11 @@ export function SlackIdentityStep({ endpointId, command, testStartedAt, onConnec
         <div className={`space-y-3 rounded-lg border p-4 ${linkedToMe
           ? "border-(--status-task-done)/30 bg-(--status-task-done)/10"
           : "border-(--status-task-todo)/30 bg-(--status-task-todo)/10"}`}>
-          <p className="text-sm">Choose your Slack account below to link it to <strong>{userLabel ?? "your Paperclip account"}</strong>. Only confirm an account that belongs to you. Future messages will use your Paperclip permissions.</p>
+          <p className="text-sm">{linkedToMe
+            ? <>Your Slack account is linked to <strong>{userLabel ?? "your Paperclip account"}</strong>.</>
+            : <>Choose your Slack account below to link it to <strong>{userLabel ?? "your Paperclip account"}</strong>. Only confirm an account that belongs to you.</>} Future messages will use your Paperclip permissions.</p>
           {candidates.map((identity) => {
-            const mine = identity.status === "linked" && identity.paperclipUserId === userId;
+            const mine = Boolean(userId) && identity.status === "linked" && identity.paperclipUserId === userId;
             return (
               <div key={identity.principalId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
                 <div className="min-w-0">

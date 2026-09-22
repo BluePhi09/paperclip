@@ -188,6 +188,8 @@ export interface SlackAppConfiguration {
 }
 
 export interface ChatEndpointSetupState {
+  /** Safe deployment readiness, never OAuth credentials or transaction state. */
+  slackOAuth?: { enabled: boolean; configured: boolean; callbackUrl: string | null; profile: "ceo-dm-v1"; missing: string[]; scopes: string[] };
   github?: {
     stage: "connect" | "install" | "repositories" | "verify" | "identity" | "behavior" | "test";
     appSlug?: string;
@@ -463,7 +465,15 @@ export interface ChatActivityItem {
   fileTransfer?: ChatFileTransferSummary;
 }
 
+export interface SlackReplyReceipt {
+  requestId: string;
+  commentId: string;
+  status: "queued" | "submitted" | "failed";
+}
+
 export interface ExternalChannelBindingSummary {
+  /** UI capability hint only; the reply API independently authorizes the signed-in person. */
+  slackReplyAvailable?: boolean;
   endpointId: string;
   provider: ChatProvider;
   botLabel?: string | null;

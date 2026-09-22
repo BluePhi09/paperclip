@@ -9,6 +9,7 @@ import type {
   ChatPublicationSummary,
   ChatActivityItem,
   ChatFileTransferResolutionPrecondition,
+  SlackReplyReceipt,
 } from "@paperclipai/shared";
 export type {
   ChatPublicationSummary,
@@ -69,6 +70,7 @@ export interface ChatConversation {
 }
 
 export interface ExternalChannelBindingSummary {
+  slackReplyAvailable?: boolean;
   endpointId: string;
   provider: ChatProvider;
   botLabel?: string | null;
@@ -123,6 +125,7 @@ export interface ChatEndpoint {
   conversations?: ChatConversation[];
   activity?: ChatActivityItem[];
   setup?: {
+    slackOAuth?: import("@paperclipai/shared").ChatEndpointSetupState["slackOAuth"];
     github?: import("@paperclipai/shared").ChatEndpointSetupState["github"];
     step: string;
     testStartedAt?: string | null;
@@ -214,6 +217,9 @@ export const chatEndpointsApi = {
   test: (endpointId: string) =>
     api.post<ChatEndpoint>(`/chat-endpoints/${endpointId}/test`, {}),
   finishSlackSetup: (endpointId: string) => api.post<ChatEndpoint>(`/chat-endpoints/${endpointId}/finish`, {}),
+  startSlackBotOAuth: (endpointId: string) => api.post<{ authorizationUrl: string; expiresAt: string }>(
+    `/chat-endpoints/${endpointId}/slack/oauth/start`, { permissionProfile: "ceo-dm-v1" },
+  ),
   setupTestStatus: (endpointId: string) => api.get<{ messageReceivedAt: string | null }>(`/chat-endpoints/${endpointId}/test-status`),
   requestIdentityAccess: (token: string) => api.post<{ status: "member" | "pending_approval" }>("/chat-identity-links/request-access", { token }),
   listResources: async (endpointId: string) =>
@@ -343,4 +349,7 @@ export const chatEndpointsApi = {
         ...(attachmentIds.length ? { attachmentIds } : {}),
       },
     ),
+  requestSlackReply: (endpointId: string, conversationId: string, body: string, clientRequestId: string) =>
+    api.post<SlackReplyReceipt>(
+      `/chat-endpoints/${endpointId}/conversations/${conversationId}/slack-replies`, { body, clientRequestId }),
 };

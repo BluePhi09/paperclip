@@ -1,5 +1,6 @@
 import { externalConversationStateSql, nonIdleSlackIssueCondition } from "./slack-conversation-state.js";
-import { settleSlackConversation } from "./slack-conversation-lifecycle.js";
+import { hasSlackConversationAnswer, settleSlackConversation } from "./slack-conversation-lifecycle.js";
+import { authorizeSlackBoardReplyWake } from "./slack-board-replies.js";
 import { publicChatTaskUrl } from "./chat-task-url.js";
 import { toolActionDeliveryService } from "./tool-action-delivery.js";
 import { githubBotConnectionIdsForRun } from "./chat-github-tools.js";
@@ -20149,6 +20150,8 @@ export function heartbeatService(
           }),
         );
       const isFailedChatRunRetry = await authorizeFailedChatRetryExecution();
+      await authorizeSlackBoardReplyWake(db, { companyId: run.companyId, agentId: run.agentId,
+        issueId: readNonEmptyString(context.issueId), wakeupRequestId: run.wakeupRequestId, contextSnapshot: context });
       // Never adopt a chat-execution attestation supplied in a wake payload.
       // Reviewed chat turns rebuild it from the current durable owner below.
       delete context[PAPERCLIP_EXTERNAL_CHAT_EXECUTION_BOUND_KEY];
@@ -25091,15 +25094,18 @@ export function heartbeatService(
             resolvedPresentationDecision,
           );
           const conversationSettled = await settleConversationTurn(db, livenessRun);
+          const slackAnswerReady = issueId && outcome === "succeeded"
+            ? await hasSlackConversationAnswer(db, livenessRun.companyId, issueId, livenessRun.id)
+            : false;
           await releaseIssueExecutionAndPromote(livenessRun, {
-            suppressImmediateRecovery: conversationSettled ||
+            suppressImmediateRecovery: conversationSettled || slackAnswerReady ||
               readNonEmptyString(
                 parseObject(livenessRun.contextSnapshot).goalControlRequestId,
               ) !== null ||
               parseObject(livenessRun.contextSnapshot)
                 .resumeSessionGoalHeartbeat === true,
           });
-          if (!conversationSettled) {
+          if (!conversationSettled && !slackAnswerReady) {
           await handleRunLivenessContinuation(livenessRun);
           await handleIssueReviewPathDisposition(livenessRun);
           await handleSuccessfulRunHandoff(

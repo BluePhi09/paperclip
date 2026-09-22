@@ -1,4 +1,8 @@
 import { buildChatCommunicationGuidance } from "./chat-communication-guidance.js";
+import { slackBoardRepliesService, slackBoardReplyBinding } from "./slack-board-replies.js";
+import { SLACK_ADAPTER_BOT_SCOPES, SLACK_CEO_DM_SCOPES, SLACK_CEO_DM_PROFILE, slackBotOAuthStatus, slackBotOAuthConfig, slackBotOAuthBinding, slackBotAuthorizationUrl, exchangeSlackBotCode, assertSlackBotOAuthActor, slackDmPilotRequestAllowed } from "./slack-bot-oauth.js";
+import { toolOauthStates } from "@paperclipai/db";
+import { instanceSettingsService } from "./instance-settings.js";
 function githubPolicyRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 import { githubChatManagementService } from "./chat-github-management.js";
 import { githubReviewCheckService } from "./chat-github-checks.js";
@@ -751,25 +755,7 @@ const REQUIRED_CREDENTIALS: Record<
   telegram: ["botToken"],
 };
 
-const REQUIRED_SLACK_BOT_SCOPES = [
-  "app_mentions:read",
-  "assistant:write",
-  "channels:history",
-  "channels:read",
-  "chat:write",
-  "commands",
-  "files:read",
-  "files:write",
-  "groups:history",
-  "groups:read",
-  "im:history",
-  "im:read",
-  "mpim:history",
-  "mpim:read",
-  "reactions:read",
-  "reactions:write",
-  "users:read",
-] as const;
+const REQUIRED_SLACK_BOT_SCOPES = SLACK_ADAPTER_BOT_SCOPES;
 
 const REQUIRED_GITHUB_EVENTS = [
   "issue_comment",
@@ -872,12 +858,26 @@ const INGRESS_REORDER_WINDOW_MS: Partial<Record<ChatProvider, number>> = {
 };
 
 type EndpointRow = typeof chatEndpoints.$inferSelect;
+
+function isSlackDmPilot(endpoint: EndpointRow) {
+  return endpoint.provider === "slack" && (endpoint.setup as InternalSetupState).slackPermissionProfile === SLACK_CEO_DM_PROFILE;
+}
 type ResourceRow = typeof chatEndpointResources.$inferSelect;
 type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type DbOrTransaction = Db | DbTransaction;
 type SlackCallbackSurface = keyof ChatEndpointCallbackSurfaces;
 type SlackCallbackObservation = { url: string; observedAt: string };
 type InternalSetupState = ChatEndpointSetupState & {
+  slackPermissionProfile?: typeof SLACK_CEO_DM_PROFILE;
+  slackBotOAuth?: {
+    version: 1;
+    stateDigest: string;
+    configurationDigest: string;
+    userId: string;
+    phase: "pending" | "installation_verified" | "credentials_saved";
+    installingUserId?: string;
+    grantedScopes?: string[];
+  };
   photonIntakeAfter?: string;
   runtimeGeneration?: number;
   slackCallbackSurfaces?: Partial<
@@ -5869,6 +5869,9 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           getWebhookPublicBaseUrl(),
           row.assignedAgentName,
         ),
+        ...(isSlackDmPilot(endpoint)
+          ? { slackOAuth: slackBotOAuthStatus(getPublicBaseUrl(), endpoint.id) }
+          : {}),
         ...(endpoint.provider === "github"
           ? {
               webhookSecretConfigured: row.credentialSecretRefs.some(
@@ -5952,6 +5955,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       );
     }
 
+    const minimalSlack = input.provider === "slack" && process.env.PAPERCLIP_SLACK_CEO_POC_ENABLED === "true";
     const endpointId = randomUUID();
     const publicId = randomBytes(32).toString("base64url");
     const applicationId = input.applicationId ?? randomUUID();
@@ -6034,11 +6038,12 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         // destination toggle. Keep it closed until the operator explicitly
         // enables that surface, even when this process is running against a
         // database created before the column default was hardened.
-        allowGroupChats: input.provider !== "microsoft-teams",
+        allowGroupChats: !minimalSlack && input.provider !== "microsoft-teams",
         allowUnlinkedPeople: !["slack", "imessage-photon"].includes(input.provider),
-        capabilities: CAPABILITIES[input.provider],
+        capabilities: minimalSlack ? { ...CAPABILITIES.slack, nativeStreaming: false, reactions: false, files: false } : CAPABILITIES[input.provider],
         setup: {
           step: "provider_setup",
+          ...(minimalSlack ? { slackPermissionProfile: SLACK_CEO_DM_PROFILE } : {}),
           ...(input.provider === "slack"
             ? { command: slackCommandForAgent(agent.name, publicId) }
             : {}),
@@ -6077,6 +6082,9 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         // still begin or finish behind it.
         const existing = await endpointRecord(endpointId);
         if (!existing) throw notFound("Chat endpoint not found");
+        if (isSlackDmPilot(existing.endpoint) && (input.allowGroupChats || input.allowUnlinkedPeople)) {
+          throw forbidden("The Slack CEO pilot only accepts linked users in direct messages");
+        }
         const values: Partial<typeof chatEndpoints.$inferInsert> = {
           updatedAt: new Date(),
         };
@@ -6161,6 +6169,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
   async function verifyCredentials(
     provider: ChatProvider,
     credentials: Record<string, string>,
+    endpoint?: EndpointRow,
   ): Promise<VerifiedProviderIdentity> {
     if (provider === "imessage-photon") {
       const inspection = await inspectPhotonCredentials(credentials.projectId, credentials.projectSecret);
@@ -6201,7 +6210,8 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           .map((scope) => scope.trim())
           .filter(Boolean),
       );
-      const missingScopes = REQUIRED_SLACK_BOT_SCOPES.filter(
+      const requiredScopes = endpoint && isSlackDmPilot(endpoint) ? SLACK_CEO_DM_SCOPES : REQUIRED_SLACK_BOT_SCOPES;
+      const missingScopes = requiredScopes.filter(
         (scope) => !grantedScopes.has(scope),
       );
       if (missingScopes.length > 0) {
@@ -6213,6 +6223,9 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
             missingScopes,
           },
         );
+      }
+      if (endpoint && isSlackDmPilot(endpoint) && [...grantedScopes].some(scope => !(SLACK_CEO_DM_SCOPES as readonly string[]).includes(scope))) {
+        throw unprocessable("This DM-only pilot cannot use a bot token with broader permissions");
       }
       return {
         providerAccountId: result.team_id,
@@ -7504,6 +7517,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
   }> {
     try {
       if (endpoint.provider === "slack") {
+        if (isSlackDmPilot(endpoint)) return { credentials, inventory: null };
         return {
           credentials,
           inventory: await listSlackBotChannels({
@@ -7589,6 +7603,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       return {
         provider: "slack",
         userName,
+        nativeStreaming: endpoint.capabilities.nativeStreaming,
         credentials: {
           botToken: credentials.botToken,
           signingSecret: credentials.signingSecret,
@@ -9098,6 +9113,9 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     const record = await endpointRecord(endpointId);
     if (!record) throw notFound("Chat endpoint not found");
     if (record.endpoint.provider === "agentmail") throw badRequest("Use the email inbox API for AgentMail");
+    if (isSlackDmPilot(record.endpoint) && (input.action === "configure" || input.action === "reconnect")) {
+      throw forbidden("Use Connect Slack to authorize this DM-only pilot; manually supplied tokens cannot establish its user identity");
+    }
     if (input.photon && record.endpoint.provider !== "imessage-photon") throw badRequest("Photon configuration is only valid for iMessage Photon");
     const suppliedCredentialKeys = Object.keys(input.credentials ?? {});
     if (suppliedCredentialKeys.length > 0) {
@@ -9221,7 +9239,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           code: "chat_endpoint_credentials_missing",
         });
       });
-      const identity = await verifyCredentials(endpoint.provider, credentials);
+      const identity = await verifyCredentials(endpoint.provider, credentials, endpoint);
       const upgradingLegacyGitHubIdentity =
         endpoint.provider === "github" &&
         !endpoint.botExternalId &&
@@ -9626,7 +9644,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       if (endpoint.botExternalId && (configuration.projectId !== endpoint.providerAccountId || credentials.lineId && lineId !== credentials.lineId)) throw conflict("A different Photon identity requires a new channel");
       credentials = { ...credentials, ...configuration, lineId };
     }
-    const identity = await verifyCredentials(endpoint.provider, credentials);
+    const identity = await verifyCredentials(endpoint.provider, credentials, endpoint);
     // Once setup has claimed a provider bot identity, every credential repair
     // must prove that same identity before secrets can be replaced. A process
     // interruption can leave the endpoint in `attention` after the claim but
@@ -10276,6 +10294,11 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       )
       .then((rows) => rows[0] ?? null);
     if (link?.status === "linked" && link.userId) {
+      const pilot = (endpoint.setup as InternalSetupState).slackBotOAuth;
+      if (isSlackDmPilot(endpoint) && (!pilot || process.env.PAPERCLIP_SLACK_CEO_POC_ENABLED !== "true" ||
+          pilot.userId !== link.userId || pilot.installingUserId !== externalId)) {
+        return { principal, userId: null, linkedDenied: true };
+      }
       const membership = await db
         .select({
           status: companyMemberships.status,
@@ -10366,6 +10389,17 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       if (!link.userId) {
         return { allowed: false, linkedDenied: true, userId: null };
       }
+      const pilot = (endpoint.setup as InternalSetupState).slackBotOAuth;
+      if (isSlackDmPilot(endpoint) && !pilot) return { allowed: false, linkedDenied: true, userId: null };
+      if (pilot) {
+        const principal = await tx.select({ externalId: chatExternalPrincipals.externalId }).from(chatExternalPrincipals).where(and(
+          eq(chatExternalPrincipals.id, principalId), eq(chatExternalPrincipals.companyId, endpoint.companyId),
+          eq(chatExternalPrincipals.provider, "slack"), eq(chatExternalPrincipals.providerAccountId, endpoint.providerAccountId ?? ""),
+        )).then(rows => rows[0]);
+        if (process.env.PAPERCLIP_SLACK_CEO_POC_ENABLED !== "true" || pilot.userId !== link.userId || pilot.installingUserId !== principal?.externalId) {
+          return { allowed: false, linkedDenied: true, userId: null };
+        }
+      }
       const membership = await tx
         .select({
           status: companyMemberships.status,
@@ -10390,7 +10424,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         userId: allowed ? link.userId : null,
       };
     }
-    if (!endpoint.allowUnlinkedPeople) {
+    if (isSlackDmPilot(endpoint) || !endpoint.allowUnlinkedPeople) {
       return { allowed: false, linkedDenied: false, userId: null };
     }
     if (!endpoint.sponsorUserId) {
@@ -13689,8 +13723,19 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
             eq(chatActions.companyId, publication.companyId),
           ),
         );
+      if (action?.kind === "slack_board_reply" && run) {
+        // This opt-in shares a selected text answer, not intermediate notes,
+        // attachments, interaction cards, or progress publications.
+        const [answer] = publication.commentId ? await tx.select({ metadata: issueComments.metadata })
+          .from(issueComments).where(and(eq(issueComments.id, publication.commentId), eq(issueComments.companyId, publication.companyId))) : [];
+        if (answer?.metadata?.authorizationReason !== "allow_chat_run_presentation" ||
+            publication.idempotencyKey !== `comment:${publication.commentId}:${publication.endpointId}` ||
+            publication.payload.attachmentIds?.length) return false;
+        const binding = await slackBoardReplyBinding(tx as unknown as Db, publication.companyId, publication.issueId, run.id);
+        return binding?.endpointId === publication.endpointId && binding?.conversationId === publication.conversationId;
+      }
       if (action?.kind !== "failed_run_retry")
-        return !run?.contextSnapshot?.chatFailedRunRetry;
+        return !run?.contextSnapshot?.chatFailedRunRetry && run?.contextSnapshot?.source !== "slack.board_reply";
       const source = await authorizeFailedChatRunRetry(tx, {
         companyId: publication.companyId,
         issueId: publication.issueId,
@@ -14450,6 +14495,8 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     suppressSetupDestinationActivation = false,
     slackSlashControl = false,
   ) {
+    if (isSlackDmPilot(endpoint) && (!thread.isDM || process.env.PAPERCLIP_SLACK_CEO_POC_ENABLED !== "true")) return;
+    receiptReactionSupported = receiptReactionSupported && endpoint.capabilities.reactions;
     if (
       endpoint.provider === "telegram" &&
       (telegramZeroMessageId(message.id) ||
@@ -14534,7 +14581,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       Attachment,
       ReturnType<ChatSdkEndpointRuntime["attachmentRecoveryDescriptor"]>
     >();
-    const nativeInboundAttachments = teamsNonPersonal
+    const nativeInboundAttachments = isSlackDmPilot(endpoint) ? [] : teamsNonPersonal
       ? message.attachments.slice(0, 20).flatMap((attachment) => {
           const descriptor = endpointRuntime.attachmentRecoveryDescriptor(
             attachment,
@@ -26901,6 +26948,11 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           body,
           inspection.headers.get("content-type") ?? "",
         );
+        if (isSlackDmPilot(endpoint) && (process.env.PAPERCLIP_SLACK_CEO_POC_ENABLED !== "true" ||
+          !slackDmPilotRequestAllowed(body, inspection.headers.get("content-type") ?? "", process.env.PAPERCLIP_SLACK_CEO_POC_APP_ID,
+            (endpoint.setup as InternalSetupState).slackBotOAuth?.installingUserId))) {
+          return new Response("ignored", { status: 200 });
+        }
         if (
           incomingWorkspaceId &&
           incomingWorkspaceId !== endpoint.providerAccountId
@@ -27674,6 +27726,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     const actionRecovery = onlyDeliveryId
       ? null
       : Promise.allSettled([
+          slackBoardRepliesService(db, options.heartbeat).processPending(limit),
           processPendingGitHubWebhookIngress(limit),
           processPendingProviderEffects(limit),
           processPendingReceiptReactions(limit),
@@ -27843,6 +27896,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     const initial = await endpointRecord(endpointId);
     if (!initial) throw notFound("Chat endpoint not found");
     if (updates.length === 0) return listResources(endpointId);
+    if (isSlackDmPilot(initial.endpoint) && updates.some(entry => entry.enabled)) throw forbidden("This Slack pilot supports direct messages only");
     if (initial.endpoint.provider === "imessage-photon" && initial.endpoint.botExternalId?.startsWith("photon-project:") && updates.some((entry) => entry.enabled))
       throw unprocessable("Photon shared channels support direct messages only; groups cannot be enabled");
     await withCredentialMutationLease(
@@ -33076,7 +33130,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         }
       }
       const nativeFileSurface =
-        CAPABILITIES[input.endpoint.provider].files &&
+        input.endpoint.capabilities.files &&
         input.endpoint.provider !== "microsoft-teams";
       if (nativeFileSurface) {
         const uploads = await publicationFiles(
@@ -33469,7 +33523,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     if (
       !input.replaceProviderMessageId &&
       !input.payload.transportPart &&
-      CAPABILITIES[input.endpoint.provider].nativeStreaming &&
+      input.endpoint.capabilities.nativeStreaming &&
       (input.endpoint.provider !== "telegram" ||
         !input.conversation.isDirectMessage ||
         input.telegramDraftControl !== undefined) &&
@@ -38109,6 +38163,156 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     return get(endpointId);
   }
 
+  async function assertSlackPilot(endpoint: EndpointRow, userId: string) {
+    const config = slackBotOAuthConfig(getPublicBaseUrl(), endpoint.id);
+    if (!isSlackDmPilot(endpoint) || endpoint.companyId !== config.COMPANY_ID ||
+        endpoint.assignedAgentId !== config.AGENT_ID || userId !== config.USER_ID ||
+        endpoint.sponsorUserId !== userId) throw forbidden("This connection is outside the configured Slack pilot");
+    if (!(await instanceSettingsService(db).getExperimental()).enableChatConnectors) {
+      throw forbidden("Chat connectors are not enabled on this instance");
+    }
+    const membership = await db.select({ id: companyMemberships.id }).from(companyMemberships).where(and(
+      eq(companyMemberships.companyId, endpoint.companyId), eq(companyMemberships.principalType, "user"),
+      eq(companyMemberships.principalId, userId), eq(companyMemberships.status, "active"),
+      ne(companyMemberships.membershipRole, "viewer"),
+    )).then(rows => rows[0]);
+    if (!membership) throw forbidden("An active non-viewer company membership is required");
+    if (!["draft", "attention", "verifying", "revoked"].includes(endpoint.status)) {
+      throw conflict("Use this pilot's draft or unfinished connection; active and paused bots are not reinstalled");
+    }
+    return config;
+  }
+
+  async function startSlackBotOAuth(endpointId: string, actor: { userId: string; sessionId: string }) {
+    const record = await endpointRecord(endpointId);
+    if (!record) throw notFound("Chat endpoint not found");
+    const config = await assertSlackPilot(record.endpoint, actor.userId);
+    if (!actor.sessionId) throw forbidden("Sign in through a Paperclip browser session first");
+    const state = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 10 * 60_000);
+    await withCredentialMutationLease(record.endpoint, async lease => {
+      await db.transaction(async tx => {
+        await lease.assertOwned(tx);
+        const current = await tx.select().from(chatEndpoints).where(eq(chatEndpoints.id, endpointId)).for("update").then(rows => rows[0]);
+        if (!current || current.status !== record.endpoint.status) throw conflict("Connection changed; reload setup");
+        // One pending bot installation per endpoint. Personal read OAuth uses
+        // another connection and is never invalidated by this operation.
+        await tx.delete(toolOauthStates).where(and(eq(toolOauthStates.companyId, current.companyId), eq(toolOauthStates.connectionId, current.connectionId)));
+        await tx.insert(toolOauthStates).values({
+          state, companyId: current.companyId, connectionId: current.connectionId,
+          codeVerifier: randomBytes(32).toString("base64url"),
+          createdByActorType: "user", createdByActorId: actor.userId, createdBySessionId: actor.sessionId,
+          requestedScopes: [...SLACK_CEO_DM_SCOPES], expiresAt,
+        });
+        await tx.update(chatEndpoints).set({
+          allowDirectMessages: true, allowGroupChats: false, allowUnlinkedPeople: false,
+          setup: { ...current.setup, slackBotOAuth: {
+            version: 1, phase: "pending", stateDigest: createHash("sha256").update(state).digest("hex"),
+            configurationDigest: slackBotOAuthBinding(config), userId: actor.userId,
+          } } as InternalSetupState, updatedAt: new Date(),
+        }).where(eq(chatEndpoints.id, endpointId));
+        await logActivity(tx as unknown as Db, {
+          companyId: current.companyId, actorType: "user", actorId: actor.userId,
+          action: "chat_endpoint.oauth_started", entityType: "tool_connection", entityId: current.connectionId,
+          details: { endpointId, profile: SLACK_CEO_DM_PROFILE, scopeCount: SLACK_CEO_DM_SCOPES.length },
+        });
+      });
+    });
+    return { authorizationUrl: slackBotAuthorizationUrl(config, state), expiresAt: expiresAt.toISOString() };
+  }
+
+  async function completeSlackBotOAuth(endpointId: string, input: {
+    state: string; code?: string | null; error?: string | null; actor: { userId: string; sessionId: string };
+  }) {
+    const record = await endpointRecord(endpointId);
+    if (!record) throw notFound("Chat endpoint not found");
+    const config = await assertSlackPilot(record.endpoint, input.actor.userId);
+    await withCredentialMutationLease(record.endpoint, async lease => {
+      const bound = await db.transaction(async tx => {
+        await lease.assertOwned(tx);
+        const current = await tx.select().from(chatEndpoints).where(eq(chatEndpoints.id, endpointId)).for("update").then(rows => rows[0]);
+        const binding = (current?.setup as InternalSetupState | undefined)?.slackBotOAuth;
+        const state = await tx.select().from(toolOauthStates).where(and(
+          eq(toolOauthStates.state, input.state), eq(toolOauthStates.companyId, record.endpoint.companyId),
+          eq(toolOauthStates.connectionId, record.endpoint.connectionId),
+        )).for("update").then(rows => rows[0]);
+        if (!current || !state || state.expiresAt <= new Date() || !binding || binding.phase !== "pending" ||
+            binding.stateDigest !== createHash("sha256").update(input.state).digest("hex") ||
+            binding.configurationDigest !== slackBotOAuthBinding(config)) throw badRequest("Slack authorization expired or changed. Connect again.");
+        assertSlackBotOAuthActor(state, input.actor);
+        const membership = await tx.select({ id: companyMemberships.id }).from(companyMemberships).where(and(
+          eq(companyMemberships.companyId, current.companyId), eq(companyMemberships.principalType, "user"),
+          eq(companyMemberships.principalId, input.actor.userId), eq(companyMemberships.status, "active"),
+          ne(companyMemberships.membershipRole, "viewer"),
+        )).for("update").then(rows => rows[0]);
+        if (!membership || !["draft", "attention", "verifying", "revoked"].includes(current.status)) throw forbidden("This Slack connection is no longer authorized");
+        await tx.delete(toolOauthStates).where(eq(toolOauthStates.state, input.state));
+        return { endpoint: current, binding };
+      });
+      if (input.error) throw badRequest("Slack connection was not approved. You can connect again.");
+      if (!input.code) throw badRequest("Slack did not return an authorization code. Connect again.");
+      const installation = await exchangeSlackBotCode(config, input.code, fetchImpl);
+      await lease.assertOwned();
+      await assertSlackPilot(bound.endpoint, input.actor.userId);
+      const credentials = { botToken: installation.botToken, signingSecret: config.SIGNING_SECRET };
+      const identity = await verifyCredentials("slack", credentials, bound.endpoint);
+      if (identity.providerAccountId !== config.TEAM_ID || identity.botExternalId !== installation.botUserId) {
+        throw forbidden("Slack's verified bot identity did not match the installation");
+      }
+      // Retain the verified installer before vault persistence. If setup stops
+      // after saving credentials, the ordinary verify/identity screens can
+      // continue using those credentials without exchanging the spent code.
+      const verifiedBinding = { ...bound.binding, phase: "installation_verified" as const,
+        installingUserId: installation.installingUserId, grantedScopes: installation.scopes };
+      await db.transaction(async tx => {
+        await lease.assertOwned(tx);
+        await tx.update(chatEndpoints).set({ setup: sql`jsonb_set(${chatEndpoints.setup}, '{slackBotOAuth}', ${JSON.stringify(verifiedBinding)}::jsonb)`, updatedAt: new Date() })
+          .where(and(eq(chatEndpoints.id, endpointId), eq(chatEndpoints.companyId, config.COMPANY_ID)));
+      });
+      await configureWithCredentialLease(endpointId, {
+        action: bound.endpoint.botExternalId ? "reconnect" : "configure", credentials,
+      }, lease, input.actor.userId);
+      await lease.assertOwned();
+      await db.transaction(async tx => {
+        await lease.assertOwned(tx);
+        const [principal] = await tx.insert(chatExternalPrincipals).values({
+          companyId: config.COMPANY_ID, provider: "slack", providerAccountId: config.TEAM_ID,
+          externalId: installation.installingUserId, kind: "user", isBot: false,
+        }).onConflictDoUpdate({
+          target: [chatExternalPrincipals.companyId, chatExternalPrincipals.provider, chatExternalPrincipals.providerAccountId, chatExternalPrincipals.externalId],
+          set: { updatedAt: new Date() },
+        }).returning();
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`chat-identity:${config.COMPANY_ID}:${principal.id}`}, 0))`);
+        const [existingLink] = await tx.select().from(chatIdentityLinks).where(and(
+          eq(chatIdentityLinks.companyId, config.COMPANY_ID), eq(chatIdentityLinks.endpointId, endpointId), eq(chatIdentityLinks.principalId, principal.id),
+        )).for("update");
+        if (existingLink?.paperclipUserId && existingLink.paperclipUserId !== input.actor.userId) throw forbidden("This Slack identity is already linked to another Paperclip user");
+        const [membership] = await tx.select().from(companyMemberships).where(and(
+          eq(companyMemberships.companyId, config.COMPANY_ID), eq(companyMemberships.principalType, "user"),
+          eq(companyMemberships.principalId, input.actor.userId), eq(companyMemberships.status, "active"), ne(companyMemberships.membershipRole, "viewer"),
+        )).for("update");
+        if (!membership) throw forbidden("Company access changed during Slack authorization");
+        // This is provider identity proof bound to the same authenticated
+        // browser session, not an email, display-name, or claimed-user match.
+        const linked = { paperclipUserId: input.actor.userId, status: "linked" as const,
+          confirmedAt: new Date(), confirmationTokenHash: null, expiresAt: null, revokedAt: null, updatedAt: new Date() };
+        await tx.insert(chatIdentityLinks).values({ companyId: config.COMPANY_ID, endpointId, principalId: principal.id, ...linked })
+          .onConflictDoUpdate({ target: [chatIdentityLinks.endpointId, chatIdentityLinks.principalId], set: linked });
+        await tx.update(chatEndpoints).set({ setup: sql`jsonb_set(${chatEndpoints.setup}, '{slackBotOAuth}', ${JSON.stringify({
+          ...verifiedBinding, phase: "credentials_saved",
+        })}::jsonb)`, updatedAt: new Date() }).where(and(eq(chatEndpoints.id, endpointId), eq(chatEndpoints.companyId, config.COMPANY_ID)));
+        await logActivity(tx as unknown as Db, {
+          companyId: config.COMPANY_ID, actorType: "user", actorId: input.actor.userId,
+          action: "chat_endpoint.oauth_connected", entityType: "tool_connection", entityId: record.endpoint.connectionId,
+          details: { endpointId, profile: SLACK_CEO_DM_PROFILE, grantedScopes: installation.scopes, identityLinked: true },
+        });
+      });
+    });
+    // Installation is not a task. The existing private confirmation flow is
+    // still available if a crash interrupts identity finalization after saving.
+    return get(endpointId);
+  }
+
   const githubRegistration = githubChatRegistrationService(db, {
     publicOrigin: () => getPublicBaseUrl(), webhookOrigin: () => getWebhookPublicBaseUrl(), fetch: fetchImpl,
     storeApp: async (endpointId, userId, app) => { await storeGitHubApp(endpointId, userId, { appId: app.appId, privateKey: app.privateKey, webhookSecret: app.webhookSecret }); },
@@ -38131,6 +38335,8 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
   }
 
   return {
+    startSlackBotOAuth,
+    completeSlackBotOAuth,
     saveGitHubSetupProgress: async (endpointId: string, stage: NonNullable<ChatEndpointSetupState["github"]>["stage"]) => {
       const record = await endpointRecord(endpointId);
       if (!record || record.endpoint.provider !== "github") throw notFound("GitHub bot not found");

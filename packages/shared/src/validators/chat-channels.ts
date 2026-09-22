@@ -14,6 +14,11 @@ import {
 } from "../types/chat-channels.js";
 
 export const chatProviderSchema = z.enum(CHAT_PROVIDERS);
+export const requestSlackReplySchema = z.object({
+  body: z.string().trim().min(1).max(8000),
+  clientRequestId: z.string().uuid(),
+}).strict();
+export type RequestSlackReplyInput = z.infer<typeof requestSlackReplySchema>;
 export const chatEndpointStatusSchema = z.enum(CHAT_ENDPOINT_STATUSES);
 export const chatConcurrencyPolicySchema = z.enum(CHAT_CONCURRENCY_POLICIES);
 export const chatEventKindSchema = z.enum(CHAT_EVENT_KINDS);

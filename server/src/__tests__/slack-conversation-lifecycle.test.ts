@@ -5,13 +5,13 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  activityLog, agents, agentWakeupRequests, approvals, chatConversations, chatEndpoints,
+  activityLog, agents, agentWakeupRequests, approvals, chatActions, chatConversations, chatEndpoints,
   chatMessageLinks, chatPublications, companies, createDb, heartbeatRuns, issueApprovals,
   issueComments, issueRelations, issueThreadInteractions, issues, nativeRunFinalizations,
   toolApplications, toolConnections,
 } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
-import { settleSlackConversation } from "../services/slack-conversation-lifecycle.js";
+import { hasSlackConversationAnswer, settleSlackConversation } from "../services/slack-conversation-lifecycle.js";
 import { externalConversationStateSql } from "../services/slack-conversation-state.js";
 import { executionIssueCondition } from "../services/issue-visibility.js";
 import { dashboardService } from "../services/dashboard.js";
@@ -72,6 +72,63 @@ const support = await getEmbeddedPostgresTestSupport();
       .from(issues).where(eq(issues.id, f.issueId)))[0];
   }
   const settle = (f: Awaited<ReturnType<typeof fixture>>) => settleSlackConversation(db, f.companyId, f.issueId);
+
+  async function privateBoardFixture() {
+    const f = await fixture();
+    await db.delete(chatPublications).where(eq(chatPublications.id, f.publicationId));
+    await db.delete(chatMessageLinks).where(eq(chatMessageLinks.commentId, f.wakeId));
+    await db.update(heartbeatRuns).set({ contextSnapshot: { issueId: f.issueId, source: "issue.comment", wakeCommentId: f.wakeId } }).where(eq(heartbeatRuns.id, f.runId));
+    await db.update(issueComments).set({ metadata: { version: 1, authorizationReason: "internal_agent_write", sections: [] } }).where(eq(issueComments.id, f.responseId));
+    return f;
+  }
+
+  it("settles a private board answer without publication or a corrective model run", async () => {
+    const f = await privateBoardFixture();
+    const enqueueWakeup = vi.fn(async () => null);
+    const [issue] = await db.select().from(issues).where(eq(issues.id, f.issueId));
+    await recoveryService(db, { enqueueWakeup }).reconcileStrandedAssignedIssues({ issueCreatedAtGte: issue.createdAt });
+    expect(await state(f)).toEqual({ status: "in_review", externalConversationState: "waiting" });
+    expect(enqueueWakeup).not.toHaveBeenCalled();
+    expect(await db.select().from(chatPublications).where(eq(chatPublications.issueId, f.issueId))).toHaveLength(0);
+  });
+
+  it("does not mistake an incomplete or externally authorized answer for a private board completion", async () => {
+    const f = await privateBoardFixture();
+    await db.update(issueComments).set({ metadata: null }).where(eq(issueComments.id, f.responseId));
+    expect(await settle(f)).toBe(false);
+    await db.update(issueComments).set({ metadata: { version: 1, authorizationReason: "internal_agent_write", sections: [] } }).where(eq(issueComments.id, f.responseId));
+    await db.insert(chatActions).values({ companyId: f.companyId, endpointId: f.endpointId, conversationId: f.conversationId,
+      kind: "slack_board_reply", providerActionId: randomUUID(), status: "submitted", payload: { issueId: f.issueId, commentId: f.wakeId } });
+    expect(await settle(f)).toBe(false);
+  });
+
+  it("keeps pending approvals visible after a private answer", async () => {
+    const f = await privateBoardFixture();
+    await db.insert(issueThreadInteractions).values({ companyId: f.companyId, issueId: f.issueId, kind: "request_confirmation", payload: { version: 1, prompt: "Approve?" } });
+    expect(await settle(f)).toBe(false);
+  });
+
+  it.each(["pending", "published", "retry", "failed", "delivery_unknown"] as const)("keeps %s delivery out of generic model recovery before releasing execution", async (publicationState) => {
+    const f = await fixture();
+    await db.update(chatPublications).set({ state: publicationState }).where(eq(chatPublications.id, f.publicationId));
+    await db.update(issues).set({ executionRunId: f.runId }).where(eq(issues.id, f.issueId));
+    expect(await hasSlackConversationAnswer(db, f.companyId, f.issueId, f.runId)).toBe(true);
+    expect(await hasSlackConversationAnswer(db, f.companyId, f.issueId, randomUUID())).toBe(false);
+    expect(await settle(f)).toBe(false);
+    await db.update(issues).set({ executionRunId: null }).where(eq(issues.id, f.issueId));
+    const enqueueWakeup = vi.fn(async () => null);
+    const [issue] = await db.select().from(issues).where(eq(issues.id, f.issueId));
+    await recoveryService(db, { enqueueWakeup }).reconcileStrandedAssignedIssues({ issueCreatedAtGte: issue.createdAt });
+    expect(enqueueWakeup).not.toHaveBeenCalled();
+  });
+
+  it("recognizes a private answer before release without suppressing unfinished approvals", async () => {
+    const f = await privateBoardFixture();
+    await db.update(issues).set({ executionRunId: f.runId }).where(eq(issues.id, f.issueId));
+    expect(await hasSlackConversationAnswer(db, f.companyId, f.issueId, f.runId)).toBe(true);
+    await db.insert(issueThreadInteractions).values({ companyId: f.companyId, issueId: f.issueId, kind: "request_confirmation", payload: { version: 1, prompt: "Approve?" } });
+    expect(await hasSlackConversationAnswer(db, f.companyId, f.issueId, f.runId)).toBe(false);
+  });
 
   it.each([false, true])("settles a published answered turn once (native=%s)", async (native) => {
     const f = await fixture(native);

@@ -562,6 +562,47 @@ describe("chat setup and identity-link clipboard actions", () => {
     expect(mocks.createLinkIntent).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, "2026-09-17T20:00:00Z"])("recognizes an existing OAuth identity without a new connect command (%s)", async (lastConnectAt) => {
+    mocks.listPrincipals.mockResolvedValue([{ id: "link-a", principalId: "principal-a", externalLabel: "My OAuth identity", status: "linked", paperclipUserId: "owner-user", lastConnectAt }]);
+    await renderSlackIdentityStep();
+    expect(container.textContent).toContain("Linked to you");
+    expect(container.textContent).toContain("Your Slack account is already linked");
+    expect(container.textContent).not.toContain("Waiting for your connect command");
+    expect(container.textContent).not.toContain("Copy command");
+    expect(mocks.createLinkIntent).not.toHaveBeenCalled();
+    expect(mocks.confirmIdentityLink).not.toHaveBeenCalled();
+    await click("Continue to message test");
+    expect(container.querySelector('aside button[aria-current="step"]')?.textContent).toBe("7Try it");
+  });
+
+  it("does not treat another user's or revoked identity as an existing OAuth link", async () => {
+    mocks.listPrincipals.mockResolvedValue([
+      { id: "link-a", principalId: "principal-a", externalLabel: "Another user", status: "linked", paperclipUserId: "another-user" },
+      { id: "link-b", principalId: "principal-b", externalLabel: "Revoked identity", status: "revoked", paperclipUserId: "owner-user" },
+    ]);
+    await renderSlackIdentityStep();
+    expect(container.textContent).toContain("Waiting for your connect command");
+    expect(container.textContent).not.toContain("Continue to message test");
+    expect(container.textContent).not.toContain("Linked to you");
+    expect(mocks.createLinkIntent).not.toHaveBeenCalled();
+  });
+
+  it("guides the minimal Slack pilot through a harmless DM, not a channel mention", async () => {
+    mocks.listPrincipals.mockResolvedValue([{ id: "link-a", principalId: "principal-a", externalLabel: "My OAuth identity", status: "linked", paperclipUserId: "owner-user" }]);
+    const endpoint = await renderSlackIdentityStep();
+    const saved = client.getQueryData<ChatEndpoint>(["chat-endpoint-setup-resume", endpoint.id])!;
+    flushSync(() => client.setQueryData(["chat-endpoint-setup-resume", endpoint.id], {
+      ...saved, setup: { ...saved.setup, slackOAuth: { enabled: true, configured: true, profile: "ceo-dm-v1", missing: [], callbackUrl: null, scopes: [] } },
+    }));
+    await settle();
+    await click("Continue to message test");
+    expect(container.textContent).toContain("Open a direct message");
+    expect(container.textContent).not.toContain("Open a channel and invite");
+    expect(container.textContent).not.toContain("@mention suggestions");
+    await click("Copy message");
+    expect(copied).toContain('This is a connectivity test. Reply "CEO is online." Do not edit files, delegate work, or create additional tasks beyond the conversation task.');
+  });
+
   it("links the missing HTTPS warning to the setup guide", async () => {
     await render("slack", false, false);
     const warning = container.querySelector('[role="alert"]')!;

@@ -1,4 +1,5 @@
 import { defaultSlackAppName, slackBotNameForAgent } from "./slack-app-name";
+import { SlackOAuthConnectStep } from "./SlackOAuthConnectStep";
 import { GitHubChatSetup } from "./GitHubChatSetup";
 import { GitHubAgentTrustWarning } from "@/components/GitHubAgentTrustWarning";
 import { SetupWizardFooter } from "@/components/SetupWizard";
@@ -591,6 +592,7 @@ function ChatSdkEndpointSetup() {
         )}
         {endpoint && step === tryStep && (
           <TryStep
+            slackDmOnly={endpoint.setup?.slackOAuth?.profile === "ceo-dm-v1"}
             endpointId={endpoint.id}
             provider={provider}
             agentName={selectedAgent?.name ?? endpoint.assignedAgentName}
@@ -809,7 +811,37 @@ function ProviderConnectStep({
   const slackCommand = slackApp.command.trim();
   const slackWebhookUrl =
     endpoint.setup?.webhookUrl ?? "<paperclip-webhook-url>";
-  const slackManifest = `display_information:
+  const slackManifest = endpoint.setup?.slackOAuth?.profile === "ceo-dm-v1" ? `display_information:
+  name: ${JSON.stringify(slackAppName)}
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: ${JSON.stringify(slackBotName)}
+  slash_commands:
+    - command: ${JSON.stringify(slackCommand)}
+      description: "Connect to your Paperclip CEO"
+      usage_hint: "connect | status | new | close | <task>"
+      should_escape: false
+      url: ${JSON.stringify(slackWebhookUrl)}
+oauth_config:
+${endpoint.setup.slackOAuth.callbackUrl ? `  redirect_urls:\n    - ${JSON.stringify(endpoint.setup.slackOAuth.callbackUrl)}\n` : ""}  scopes:
+    bot:
+${endpoint.setup.slackOAuth.scopes.map(scope => `      - ${scope}`).join("\n")}
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  event_subscriptions:
+    request_url: ${JSON.stringify(slackWebhookUrl)}
+    bot_events:
+      - message.im
+      - app_uninstalled
+      - tokens_revoked
+  interactivity:
+    is_enabled: true
+    request_url: ${JSON.stringify(slackWebhookUrl)}` : `display_information:
   name: ${JSON.stringify(slackAppName)}
 features:
   app_home:
@@ -1527,6 +1559,9 @@ settings:
         </Button>
       </div>
     );
+  if (provider === "slack" && slackStage === "credentials" && endpoint.setup?.slackOAuth?.profile === "ceo-dm-v1") {
+    return <SlackOAuthConnectStep endpoint={endpoint} />;
+  }
   if (slackStage === "finish")
     return (
       <div className="space-y-5">
@@ -1797,6 +1832,7 @@ settings:
 
 function TryStep({
   endpointId,
+  slackDmOnly = false,
   provider,
   agentName,
   botLabel,
@@ -1810,6 +1846,7 @@ function TryStep({
   onSaveExit,
 }: {
   endpointId: string;
+  slackDmOnly?: boolean;
   provider: ChatProvider;
   agentName: string;
   botLabel?: string | null;
@@ -1897,7 +1934,9 @@ function TryStep({
   const botMention = normalizedBotUsername
     ? `@${normalizedBotUsername}`
     : (botLabel ?? agentName);
-  const slackTestMessage = `${botMention.startsWith("@") ? botMention : `@${botMention}`} you there?`;
+  const slackTestMessage = slackDmOnly
+    ? 'This is a connectivity test. Reply "CEO is online." Do not edit files, delegate work, or create additional tasks beyond the conversation task.'
+    : `${botMention.startsWith("@") ? botMention : `@${botMention}`} you there?`;
   const instructions =
     provider === "imessage-photon" ? [
       photonAllocation === "shared" ? "In your Photon project, enroll your sender in Users and find its assigned number in Get started. Send a fresh message to that number from Apple Messages." : `Open Apple Messages and send a fresh message to ${botUsername ?? botLabel ?? "the dedicated number"}.`,
@@ -1974,7 +2013,7 @@ function TryStep({
       {provider === "slack" ? (
         <>
           <ol className="list-decimal space-y-4 pl-5 text-sm">
-            <li>Open a channel and invite {botMention} if needed.</li>
+            <li>{slackDmOnly ? <>Open a direct message with {botMention} in Slack.</> : <>Open a channel and invite {botMention} if needed.</>}</li>
             <li>
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
                 <code>{slackTestMessage}</code>
@@ -1982,7 +2021,7 @@ function TryStep({
                   void copyTextToClipboard(slackTestMessage).then(() => { setCommandCopied(true); setCommandCopyError(false); }, () => setCommandCopyError(true));
                 }}><Copy className="size-4" />{commandCopied ? "Copied" : "Copy message"}</Button>
               </div>
-              <p className="mt-2 text-muted-foreground">Select the bot from Slack’s @mention suggestions.</p>
+              <p className="mt-2 text-muted-foreground">{slackDmOnly ? "Send this in the bot’s direct message. This pilot does not read channels or handle channel mentions." : "Select the bot from Slack’s @mention suggestions."}</p>
             </li>
             <li>Continue the conversation in the thread.</li>
           </ol>

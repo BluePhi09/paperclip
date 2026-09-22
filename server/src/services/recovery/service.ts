@@ -1,4 +1,4 @@
-import { settleSlackConversation } from "../slack-conversation-lifecycle.js";
+import { hasSlackConversationAnswer, settleSlackConversation } from "../slack-conversation-lifecycle.js";
 import { externalConversationStateSql } from "../slack-conversation-state.js";
 import { hasLiveLegacyController } from "../legacy-controller-lease.js";
 import { instanceSettingsService } from "../instance-settings.js";
@@ -4211,10 +4211,18 @@ export function recoveryService(
 
     for (const issue of candidates) {
       if (issue.originKind === "chat_channel") {
+        const [pendingReply] = await db.execute<{ pending: boolean }>(sql`select exists (
+          select 1 from chat_actions a where a.company_id = ${issue.companyId} and a.kind = 'slack_board_reply'
+          and a.payload->>'issueId' = ${issue.id} and a.status = 'queued') as pending`);
+        if (pendingReply?.pending) { result.skipped += 1; continue; }
         await settleSlackConversation(db, issue.companyId, issue.id);
         const [current] = await db.select({ externalConversationState: externalConversationStateSql() })
           .from(issues).where(and(eq(issues.companyId, issue.companyId), eq(issues.id, issue.id)));
         if (current?.externalConversationState === "waiting") { result.skipped += 1; continue; }
+        const answeredRun = await getLatestIssueRun(issue.companyId, issue.id);
+        if (answeredRun && await hasSlackConversationAnswer(db, issue.companyId, issue.id, answeredRun.id)) {
+          result.skipped += 1; continue;
+        }
       }
       if (issue.conversationAgentId) {
         const lastRun = await getLatestIssueRun(issue.companyId, issue.id);

@@ -6,6 +6,7 @@ import {
 import { Router } from "express";
 import { z } from "zod";
 import {
+  requestSlackReplySchema,
   createAiConnectionSchema,
   aiConnectionLoginIntentSchema,
   localAiConnectionSchema,
@@ -1045,6 +1046,7 @@ const externalChannelBindingResponseSchema = z
     conversationId: z.string().uuid(),
     publicationState: chatPublicationStateSchema.nullable(),
     assignedAgentLocked: z.literal(true),
+    slackReplyAvailable: z.boolean().optional(),
   })
   .strict();
 
@@ -1513,12 +1515,15 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "GET /api/chat-identity-links/preview",
   "POST /api/chat-identity-links/request-access",
   "GET /api/chat-endpoints/{endpointId}/conversations",
+  "POST /api/chat-endpoints/{endpointId}/slack/oauth/start",
+  "GET /api/chat-endpoints/{endpointId}/slack/oauth/callback",
   "GET /api/chat-endpoints/{endpointId}/activity",
   "POST /api/chat-endpoints/{endpointId}/deliveries/{deliveryId}/replay",
   "POST /api/chat-endpoints/{endpointId}/publications/{publicationId}/replay",
   "POST /api/chat-endpoints/{endpointId}/publications/{publicationId}/resolve",
   "POST /api/chat-endpoints/{endpointId}/actions/{actionId}/resolve",
   "POST /api/chat-endpoints/{endpointId}/conversations/{conversationId}/publications",
+  "POST /api/chat-endpoints/{endpointId}/conversations/{conversationId}/slack-replies",
   "GET /api/chat-endpoints/{endpointId}/conversations/{conversationId}/publications/{publicationId}/status",
   "GET /api/issues/{issueId}/chat-binding",
 ]);
@@ -2658,6 +2663,34 @@ registry.registerPath({
     409: r.conflict,
     422: r.unprocessable,
   },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/chat-endpoints/{endpointId}/conversations/{conversationId}/slack-replies",
+  tags: ["chat-channels"],
+  summary: "Ask the pilot agent to answer in the linked Slack DM",
+  description: "Explicit, signed-in board-user opt-in for one final text answer. Requires the active minimal-profile DM and its linked owner. Repeating the same clientRequestId and body reuses a durable receipt. A 202 acknowledges the saved request, not provider delivery. Ordinary comments remain internal.",
+  request: { params: z.object({ endpointId: z.string().uuid(), conversationId: z.string().uuid() }), body: jsonBody(requestSlackReplySchema) },
+  responses: {
+    202: r.ok(z.object({ requestId: z.string().uuid(), commentId: z.string().uuid(), status: z.enum(["queued", "submitted", "failed"]) })),
+    400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 409: r.conflict,
+  },
+});
+
+registry.registerPath({
+  method: "post", path: "/api/chat-endpoints/{endpointId}/slack/oauth/start", tags: ["chat-channels"],
+  summary: "Begin the minimal-profile Slack pilot installation",
+  description: "Requires endpoint-management permission and a real browser session. Returns a one-use, session-bound OAuth URL; never returns a provider credential.",
+  request: { params: z.object({ endpointId: z.string().uuid() }), body: jsonBody(z.object({ permissionProfile: z.literal("ceo-dm-v1") }).strict()) },
+  responses: { 200: r.ok(z.object({ authorizationUrl: z.string(), expiresAt: z.string() })), 400: r.badRequest, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
+});
+
+registry.registerPath({
+  method: "get", path: "/api/chat-endpoints/{endpointId}/slack/oauth/callback", tags: ["chat-channels"],
+  summary: "Complete a Slack pilot installation in the initiating browser session",
+  request: { params: z.object({ endpointId: z.string().uuid() }), query: z.object({ state: z.string(), code: z.string().optional(), error: z.string().optional() }) },
+  responses: { 303: { description: "Redirect to the company-scoped connection wizard; success or safe error, no secrets in the destination." }, 403: r.forbidden, 404: r.notFound },
 });
 
 registry.registerPath({

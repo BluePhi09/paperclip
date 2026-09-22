@@ -1,4 +1,6 @@
 import { GitHubPublicationLeaseLost, withGitHubPublicationLease } from "../services/chat-github-publication-lease.js";
+import { SLACK_CEO_DM_SCOPES } from "../services/slack-bot-oauth.js";
+import { toolOauthStates } from "@paperclipai/db";
 import { githubChatManagementService } from "../services/chat-github-management.js";
 import { githubChatReviewService } from "../services/chat-github-reviews.js";
 import { githubReviewCheckService } from "../services/chat-github-checks.js";
@@ -1230,6 +1232,101 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     fixtureServices.add(service);
     return { cancelRun, runtime, service, wakeup };
   }
+
+  async function slackCeoOAuthFixture() {
+    const fixture = await seedCompany();
+    await instanceSettingsService(db).updateExperimental({ enableChatConnectors: true });
+    const env = { ENABLED: "true", COMPANY_ID: fixture.companyId, USER_ID: "owner-user", AGENT_ID: fixture.assignedAgentId,
+      APP_ID: "ATEST", TEAM_ID: "TTEST", CLIENT_ID: "synthetic-client", CLIENT_SECRET: "synthetic-secret", SIGNING_SECRET: "test-signing-secret" };
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(`PAPERCLIP_SLACK_CEO_POC_${key}`, value);
+    onTestFinished(() => vi.unstubAllEnvs());
+    const botId = `U${randomUUID().replaceAll("-", "").toUpperCase()}`;
+    const token = { ok: true, app_id: "ATEST", team: { id: "TTEST" }, authed_user: { id: "UOWNER" }, access_token: "xoxb-synthetic-token", token_type: "bot", bot_user_id: botId, scope: SLACK_CEO_DM_SCOPES.join(",") };
+    const providerFetch = vi.fn<typeof fetch>(async input => {
+      if (String(input) === "https://slack.com/api/oauth.v2.access") return Response.json(token);
+      if (String(input) === "https://slack.com/api/auth.test") return Response.json({ ok: true, team_id: "TTEST", team: "Pilot", user_id: botId, user: `ceo-${botId}` }, { headers: { "x-oauth-scopes": SLACK_CEO_DM_SCOPES.join(",") } });
+      throw new Error(`Unexpected provider request: ${String(input)}`);
+    });
+    const services = createService(undefined, providerFetch);
+    const endpoint = await services.service.create(fixture.companyId, { provider: "slack", assignedAgentId: fixture.assignedAgentId }, "owner-user");
+    const actor = { userId: "owner-user", sessionId: "pilot-session" };
+    const begin = await services.service.startSlackBotOAuth(endpoint.id, actor);
+    const state = new URL(begin.authorizationUrl).searchParams.get("state")!;
+    return { ...fixture, ...services, endpoint, actor, begin, state, token, providerFetch };
+  }
+
+  describe("Slack CEO DM-only OAuth pilot", () => {
+    it("admits a linked DM once, and never requests optional files or receipt reactions", async () => {
+      const f = await slackCeoOAuthFixture();
+      await f.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor });
+      await f.service.handleWebhook(f.endpoint.publicId, "slack", signedSlackWebhookRequest({
+        url: `https://paperclip.example/api/chat-webhooks/${f.endpoint.publicId}/slack`, contentType: "application/json",
+        body: JSON.stringify({ type: "url_verification", challenge: "verified-challenge" }),
+      }));
+      await f.service.configure(f.endpoint.id, { action: "verify" }, "owner-user");
+      const callbacks = f.runtime.configurations.get(f.endpoint.id)!.callbacks;
+      const dm = makeThread({ channelId: "D123", id: "slack:D123", isDM: true, name: "CEO DM" });
+      const input = { callbacks, endpointId: f.endpoint.id, thread: dm.thread,
+        message: makeMessage({ id: "9000.1", userId: "UOWNER", text: "Hello CEO, what can you help me with?" }), trigger: "direct_message" as const };
+      await deliverMessage(input);
+      await deliverMessage(input);
+      const conversations = await f.service.listConversations(f.endpoint.id);
+      expect(conversations).toHaveLength(1);
+      expect(conversations[0].issueId).toBeTruthy();
+      expect(f.wakeup).toHaveBeenCalledTimes(1);
+      expect(await db.select().from(chatActions).where(and(eq(chatActions.endpointId, f.endpoint.id), eq(chatActions.kind, "receipt_reaction")))).toHaveLength(0);
+      await deliverMessage({ ...input, message: makeMessage({ id: "9001.1", userId: "UOTHER", text: "Do not admit this" }) });
+      expect(f.wakeup).toHaveBeenCalledTimes(1);
+      expect(await f.service.listConversations(f.endpoint.id)).toHaveLength(1);
+    });
+    it("survives service reconstruction, stores minimal credentials and consumes state once", async () => {
+      const f = await slackCeoOAuthFixture();
+      const restarted = createService(undefined, f.providerFetch);
+      const connected = await restarted.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor });
+      expect(connected.status).toBe("verifying");
+      expect(connected.capabilities).toMatchObject({ files: false, reactions: false, nativeStreaming: false });
+      expect(connected).toMatchObject({ allowGroupChats: false, allowUnlinkedPeople: false });
+      expect(JSON.stringify(connected)).not.toContain("xoxb-synthetic-token");
+      expect(JSON.stringify(connected)).not.toContain(f.state);
+      const links = await db.select().from(chatIdentityLinks).where(eq(chatIdentityLinks.endpointId, f.endpoint.id));
+      expect(links).toHaveLength(1);
+      expect(links[0]).toMatchObject({ companyId: f.companyId, status: "linked", paperclipUserId: "owner-user" });
+      expect(await db.select().from(toolOauthStates).where(eq(toolOauthStates.state, f.state))).toHaveLength(0);
+      await expect(restarted.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor })).rejects.toThrow(/expired or changed/);
+      expect(f.providerFetch.mock.calls.filter(([url]) => String(url).endsWith("oauth.v2.access"))).toHaveLength(1);
+      expect(f.wakeup).not.toHaveBeenCalled();
+    });
+    it("rejects wrong session and expired state before token exchange", async () => {
+      const f = await slackCeoOAuthFixture();
+      await expect(f.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: { ...f.actor, sessionId: "other" } })).rejects.toThrow(/same signed-in/);
+      expect(await db.select().from(toolOauthStates).where(eq(toolOauthStates.state, f.state))).toHaveLength(1);
+      await db.update(toolOauthStates).set({ expiresAt: new Date(0) }).where(eq(toolOauthStates.state, f.state));
+      await expect(f.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor })).rejects.toThrow(/expired or changed/);
+      expect(f.providerFetch).not.toHaveBeenCalled();
+    });
+    it("rejects wrong workspace without persisting credentials", async () => {
+      const f = await slackCeoOAuthFixture();
+      f.token.team.id = "TOTHER";
+      await expect(f.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor })).rejects.toThrow(/different app or workspace/);
+      expect(await db.select().from(companySecrets).where(eq(companySecrets.companyId, f.companyId))).toHaveLength(0);
+    });
+    it("does not let settings or pasted tokens broaden the pilot", async () => {
+      const f = await slackCeoOAuthFixture();
+      await expect(f.service.update(f.endpoint.id, { allowUnlinkedPeople: true }, "owner-user")).rejects.toThrow(/only accepts linked users/);
+      await expect(f.service.update(f.endpoint.id, { allowGroupChats: true }, "owner-user")).rejects.toThrow(/only accepts linked users/);
+      await expect(f.service.configure(f.endpoint.id, { action: "configure", credentials: { botToken: "xoxb-manual", signingSecret: "secret" } }, "owner-user")).rejects.toThrow(/Use Connect Slack/);
+      expect(f.providerFetch).not.toHaveBeenCalled();
+    });
+    it("rechecks membership, configured CEO and rollout before authorization", async () => {
+      const f = await slackCeoOAuthFixture();
+      vi.stubEnv("PAPERCLIP_SLACK_CEO_POC_AGENT_ID", f.replacementAgentId);
+      await expect(f.service.startSlackBotOAuth(f.endpoint.id, f.actor)).rejects.toThrow(/outside the configured/);
+      vi.stubEnv("PAPERCLIP_SLACK_CEO_POC_AGENT_ID", f.assignedAgentId);
+      await db.update(companyMemberships).set({ membershipRole: "viewer" }).where(eq(companyMemberships.companyId, f.companyId));
+      await expect(f.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor })).rejects.toThrow(/non-viewer/);
+      expect(f.providerFetch).not.toHaveBeenCalled();
+    });
+  });
 
   function createStorageService() {
     const objects = new Map<string, Buffer>();

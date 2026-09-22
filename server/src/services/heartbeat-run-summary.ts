@@ -191,6 +191,7 @@ export function isExternalChatPresentationContext(
     typeof context.source === "string" ? context.source.trim() : "";
   return (
     source.startsWith("chat:") ||
+    source === "slack.board_reply" ||
     context.externalChatContinuation === true ||
     wake.externalInteractionContinuation === true
   );

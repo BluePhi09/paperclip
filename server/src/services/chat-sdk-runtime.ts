@@ -146,6 +146,7 @@ interface ProviderConfigBase {
 
 export interface ResolvedSlackChatConfig extends ProviderConfigBase {
   provider: "slack";
+  nativeStreaming?: boolean;
   credentials: {
     apiUrl?: string;
     botToken: string;
@@ -1362,7 +1363,7 @@ function createProviderAdapter(
         ...config.credentials,
         logger: resolvedLogger,
         mode: "webhook",
-        nativeStreaming: true,
+        nativeStreaming: config.nativeStreaming ?? true,
         userName: config.userName,
         // Paperclip's durable publication outbox owns retry timing and
         // ambiguous-delivery handling. Slack's default client can otherwise

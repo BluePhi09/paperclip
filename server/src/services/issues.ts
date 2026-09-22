@@ -1,5 +1,6 @@
 import { externalConversationStateSql, nonIdleSlackIssueCondition, resumeSlackConversation } from "./slack-conversation-state.js";
 import { documentService } from "./documents.js";
+import { slackBoardReplyBinding } from "./slack-board-replies.js";
 import { parseTaskSearch, taskSearchCtes, taskSearchScore } from "./task-search.js";
 import { createdFromIssueCondition } from "./issue-creation-origin.js";
 import { executionProjectionsForRuns } from "./execution-projection.js";
@@ -1116,6 +1117,8 @@ export async function resolveChatOriginPublicationBindings(
   runId: string | null,
 ): Promise<ChatPublicationBinding[]> {
   if (!runId) return [];
+  const boardReply = await slackBoardReplyBinding(dbOrTx, companyId, issueId, runId);
+  if (boardReply) return [boardReply];
   const explicitEmail = await dbOrTx.select({ id: chatEndpoints.id }).from(chatEndpoints)
     .innerJoin(chatConversations, eq(chatConversations.endpointId, chatEndpoints.id))
     .where(and(eq(chatConversations.companyId, companyId), eq(chatConversations.issueId, issueId), eq(chatEndpoints.publicationMode, "explicit"))).limit(1);

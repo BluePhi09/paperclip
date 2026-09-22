@@ -6,7 +6,9 @@ import {
 import { z } from "zod";
 import { githubChatManagementService } from "../services/chat-github-management.js";
 import { updateGitHubChatConfigurationSchema } from "@paperclipai/shared";
-import type { Db } from "@paperclipai/db";
+import { companies, type Db } from "@paperclipai/db";
+import { eq } from "drizzle-orm";
+import { slackBoardRepliesService } from "../services/slack-board-replies.js";
 import {
   CHAT_PROVIDERS,
   configureChatEndpointSchema,
@@ -19,6 +21,7 @@ import {
   replaceChatEndpointResourcesSchema,
   resolveChatActionSchema,
   resolveChatPublicationSchema,
+  requestSlackReplySchema,
   updateChatEndpointSchema,
   type ChatProvider,
 } from "@paperclipai/shared";
@@ -45,6 +48,7 @@ import {
   badRequest,
   forbidden,
   HttpError,
+  notFound,
   tooManyRequests,
 } from "../errors.js";
 
@@ -158,6 +162,50 @@ export function chatChannelRoutes(db: Db, options: ChatChannelRouteOptions) {
   router.get("/chat-endpoints/:endpointId", async (req, res) => {
     if (!(await assertEndpointAccess(req, res, service))) return;
     res.json(await service.get(endpointId(req)));
+  });
+
+  function slackOAuthActor(req: ExpressRequest) {
+    assertBoard(req);
+    if (req.actor.source !== "session" || !req.actor.userId || !req.actor.sessionId) {
+      throw forbidden("Sign in through a Paperclip browser session to connect Slack");
+    }
+    return { userId: req.actor.userId, sessionId: req.actor.sessionId };
+  }
+
+  router.post("/chat-endpoints/:endpointId/slack/oauth/start", validate(z.object({
+    permissionProfile: z.literal("ceo-dm-v1"),
+  }).strict()), async (req, res) => {
+    const actor = slackOAuthActor(req);
+    if (!(await assertEndpointManagementAccess(req, res))) return;
+    res.set("Cache-Control", "no-store");
+    res.json(await service.startSlackBotOAuth(endpointId(req), actor));
+  });
+
+  router.get("/chat-endpoints/:endpointId/slack/oauth/callback", async (req, res) => {
+    const actor = slackOAuthActor(req);
+    if (!(await assertEndpointManagementAccess(req, res))) return;
+    res.set("Cache-Control", "no-store");
+    res.set("Referrer-Policy", "no-referrer");
+    // Resolve the company before consuming the code. UI app routes are company-scoped;
+    // neither a provider return URL nor a caller-supplied prefix is authoritative.
+    const endpoint = await service.get(endpointId(req));
+    const [company] = await db.select({ issuePrefix: companies.issuePrefix })
+      .from(companies).where(eq(companies.id, endpoint.companyId)).limit(1);
+    if (!company) throw notFound("Chat endpoint company not found");
+    const destination = `/${encodeURIComponent(company.issuePrefix)}/apps/chat/connect?provider=slack&purpose=chat&resume=${encodeURIComponent(endpointId(req))}&stage=credentials`;
+    try {
+      await service.completeSlackBotOAuth(endpointId(req), {
+        actor,
+        state: typeof req.query.state === "string" ? req.query.state : "",
+        code: typeof req.query.code === "string" ? req.query.code : null,
+        error: typeof req.query.error === "string" ? req.query.error : null,
+      });
+      res.redirect(303, destination);
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+      // Never reflect the provider's error_description or OAuth code in UI URLs.
+      res.redirect(303, `${destination}&slackOauth=failed`);
+    }
   });
 
   const githubUser = (req: ExpressRequest) => {
@@ -463,6 +511,19 @@ export function chatChannelRoutes(db: Db, options: ChatChannelRouteOptions) {
         );
     },
   );
+
+  router.post("/chat-endpoints/:endpointId/conversations/:conversationId/slack-replies",
+    validate(requestSlackReplySchema),
+    async (req, res) => {
+      const actor = slackOAuthActor(req);
+      if (!isUuidLike(req.params.conversationId as string)) throw badRequest("A valid conversation ID is required");
+      if (!(await assertEndpointAccess(req, res, service))) return;
+      const endpoint = await service.get(endpointId(req));
+      res.status(202).json(await slackBoardRepliesService(db, options.heartbeat).request({
+        companyId: endpoint.companyId, endpointId: endpoint.id,
+        conversationId: req.params.conversationId as string, userId: actor.userId,
+      }, req.body.body, req.body.clientRequestId));
+    });
 
   router.get(
     "/chat-endpoints/:endpointId/conversations/:conversationId/publications/:publicationId/status",

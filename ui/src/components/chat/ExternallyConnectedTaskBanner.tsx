@@ -20,6 +20,7 @@ import { Link } from "@/lib/router";
 import { queryKeys } from "@/lib/queryKeys";
 import { useChatConnectorsEnabled } from "@/hooks/useChatConnectorsEnabled";
 import { issuesApi } from "@/api/issues";
+import { SlackReplyComposer } from "./SlackReplyComposer";
 import {
   boardSendDraftKey,
   clearBoardSendDraft,
@@ -522,6 +523,8 @@ function ConnectedTaskComposer({
           </Button>
         </div>
       </div>
+      {binding.slackReplyAvailable && <SlackReplyComposer companyId={companyId} issueId={issueId} issueCacheRefs={issueCacheRefs}
+        endpointId={binding.endpointId} conversationId={binding.conversationId} />}
       {composing && (
         <div className="space-y-2 border-t border-border pt-3">
           <label
