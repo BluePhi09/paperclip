@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
+import { createPromptContextFixture } from "@paperclipai/adapter-utils/test-fixtures/prompt-context";
 import { execute, mapFinalResultForTest, parseSseFramesForTest, resolveSessionKey } from "./execute.js";
 import { testEnvironment } from "./test.js";
 
@@ -274,6 +275,42 @@ describe("execute", () => {
     // Stable-session resume: compact task markdown, no re-sent brief.
     expect(runBodies[1]!.input).toContain("Paperclip task context:");
     expect(runBodies[1]!.input).not.toContain(description);
+  });
+
+  it.each([false, true])("delivers the shared assignment and ordered comments at the HTTP boundary (resumed=%s)", async (resumed) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/v1/runs")) {
+        return new Response(JSON.stringify({ run_id: "run-hermes-1", status: "completed", output: "done" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ status: "completed", output: "done" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const ctx = makeCtx({
+      apiBaseUrl: "http://127.0.0.1:8642",
+      apiKey: "secret-key",
+      timeoutSec: 5,
+      payloadTemplate: { input: "Custom gateway instruction." },
+    });
+    ctx.context = { ...createPromptContextFixture(), conversationMode: true };
+    if (resumed) ctx.runtime.sessionId = "prior-session";
+
+    const result = await execute(ctx);
+
+    expect(result.exitCode).toBe(0);
+    const calls = fetchMock.mock.calls as Array<[RequestInfo | URL, RequestInit?]>;
+    const runCall = calls.find(([input]) => String(input).endsWith("/v1/runs"));
+    const input = JSON.parse(String(runCall?.[1]?.body)).input as string;
+    expect(input).toContain("Custom gateway instruction.");
+    expect(input.indexOf("Append the same ledger entry.")).toBeGreaterThanOrEqual(0);
+    expect(input.indexOf("Append the same ledger entry.")).toBeLessThan(input.indexOf("Change the final scope to the launch checklist."));
+    expect(input.split("Append the same ledger entry.")).toHaveLength(3);
+    expect(input).not.toContain("Structured wake payload JSON:");
+    if (resumed) {
+      expect(input).not.toContain("Keep this deliberate repetition. Keep this deliberate repetition.");
+    } else {
+      expect(input.split("Keep this deliberate repetition. Keep this deliberate repetition.")).toHaveLength(2);
+    }
   });
 
   it("routes a bare Hermes dashboard URL on port 9119 through the API prefix", async () => {

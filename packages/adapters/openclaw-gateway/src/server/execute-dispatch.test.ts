@@ -149,7 +149,11 @@ describe("openclaw_gateway execute dispatch boundary", () => {
     const result = await execute(ctx);
     expect(result.exitCode).toBe(0);
     expect(websocketState.messages).toHaveLength(1);
-    expect(websocketState.messages[0]).toContain("## Owned assignment");
+    const prompt = websocketState.messages[0]!;
+    expect(prompt).toContain("## Owned assignment");
+    expect(prompt.indexOf("Append the same ledger entry.")).toBeLessThan(prompt.indexOf("Change the final scope to the launch checklist."));
+    expect(prompt.split("Append the same ledger entry.")).toHaveLength(3);
+    expect(prompt).not.toContain("Structured wake payload JSON:");
   });
 
   it("reports dispatch after transport setup and before the remote agent request", async () => {

@@ -176,7 +176,10 @@ describe("cursor_cloud execute", () => {
     delete ctx.config.promptTemplate;
     const result = await execute(ctx);
     expect(result.exitCode).toBe(0);
-    expect(String(sdkAgent.send.mock.calls[0]?.[0])).toContain("## Owned assignment");
+    const prompt = String(sdkAgent.send.mock.calls[0]?.[0]);
+    expect(prompt).toContain("## Owned assignment");
+    expect(prompt.indexOf("Append the same ledger entry.")).toBeLessThan(prompt.indexOf("Change the final scope to the launch checklist."));
+    expect(prompt.split("Append the same ledger entry.")).toHaveLength(3);
   });
 
   it("creates a fresh Cursor agent and injects Paperclip env without CURSOR_API_KEY", async () => {
