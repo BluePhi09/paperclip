@@ -6,6 +6,7 @@ import type { AdapterExecutionTarget } from "@paperclipai/adapter-utils/executio
 import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
 import { SANDBOX_INSTALL_COMMAND } from "../index.js";
 import { execute } from "./execute.js";
+import { createPromptContextFixture } from "@paperclipai/adapter-utils/test-fixtures/prompt-context";
 
 type PrepareCursorSandboxCommandInput = {
   runId: string;
@@ -190,7 +191,7 @@ describe("cursor execute", () => {
           cwd: workspace,
           promptTemplate: "Follow the paperclip heartbeat.",
         },
-        context: {},
+        context: createPromptContextFixture(),
         authToken: "run-jwt-token",
         onLog: async () => {},
       });
@@ -205,6 +206,7 @@ describe("cursor execute", () => {
       expect(command).toBe(agentPath);
       expect(runtimePath.split(path.delimiter)).toContain(path.join(homeDir, ".local", "bin"));
       expect(prompt).toContain("Follow the paperclip heartbeat.");
+      expect(prompt).toContain("## Owned assignment");
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
