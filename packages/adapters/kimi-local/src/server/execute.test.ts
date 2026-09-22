@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
+import { createPromptContextFixture } from "@paperclipai/adapter-utils/test-fixtures/prompt-context";
 
 const ensureRuntimeInstalledMock = vi.hoisted(() => vi.fn(async () => {}));
 const ensureCommandMock = vi.hoisted(() => vi.fn(async () => {}));
@@ -127,6 +128,38 @@ describe("kimi_local execute", () => {
       sessionId: "session_abc-123",
       cwd: root,
     });
+  });
+
+  it("delivers the owned assignment and ordered wake comments through the CLI prompt", async () => {
+    const root = await makeTempRoot();
+    const fixture = createPromptContextFixture();
+    let deliveredPrompt = "";
+    runProcessMock.mockImplementation(async (_runId, _target, _command, args) => {
+      deliveredPrompt = String(args.at(-1) ?? "");
+      return {
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        stdout: KIMI_STDOUT,
+        stderr: "",
+      };
+    });
+
+    await execute(makeContext(root, {
+      context: fixture,
+    }));
+
+    expect(deliveredPrompt).toContain(fixture.paperclipTaskMarkdownAssignment);
+    expect(deliveredPrompt.indexOf("Append the same ledger entry.")).toBeLessThan(
+      deliveredPrompt.lastIndexOf("Append the same ledger entry."),
+    );
+    expect(deliveredPrompt.indexOf("comment-first")).toBeLessThan(
+      deliveredPrompt.indexOf("comment-second"),
+    );
+    expect(deliveredPrompt.indexOf("comment-second")).toBeLessThan(
+      deliveredPrompt.indexOf("comment-scope"),
+    );
+    expect(deliveredPrompt).toContain("Change the final scope to the launch checklist.");
   });
 
   it("forwards streamed stdout lines to onEvent as assistant + tool_call runtime events", async () => {

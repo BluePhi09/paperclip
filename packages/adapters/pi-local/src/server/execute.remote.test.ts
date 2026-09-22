@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createPromptContextFixture } from "@paperclipai/adapter-utils/test-fixtures/prompt-context";
 
 const {
   runChildProcess,
@@ -87,6 +88,16 @@ vi.mock("@paperclipai/adapter-utils/execution-target", async () => {
   return {
     ...actual,
     startAdapterExecutionTargetPaperclipBridge,
+  };
+});
+
+vi.mock("./models.js", async () => {
+  const actual = await vi.importActual<typeof import("./models.js")>("./models.js");
+  return {
+    ...actual,
+    ensurePiModelConfiguredAndAvailable: vi.fn(async () => [
+      { id: "openai/gpt-5.4-mini", label: "openai/gpt-5.4-mini" },
+    ]),
   };
 });
 
@@ -582,5 +593,42 @@ describe("pi remote execution", () => {
     expect(sessionIndex).toBeGreaterThanOrEqual(0);
     const usedSession = sessionIndex >= 0 ? call?.[2][sessionIndex + 1] : null;
     expect(usedSession).not.toBe("/remote/workspace/.paperclip-runtime/pi/sessions/session-123.jsonl");
+  });
+
+  it("delivers the owned assignment and ordered wake comments through Pi's prompt", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-pi-context-ownership-"));
+    cleanupDirs.push(rootDir);
+    await mkdir(rootDir, { recursive: true });
+    const fixture = createPromptContextFixture();
+    let deliveredPrompt = "";
+
+    await execute({
+      runId: "run-context-ownership",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Pi Builder",
+        adapterType: "pi_local",
+        adapterConfig: {},
+      },
+      runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null },
+      config: { command: "pi", model: "openai/gpt-5.4-mini", cwd: rootDir },
+      context: { ...fixture, paperclipWorkspace: { cwd: rootDir, source: "project_primary" } },
+      onLog: async () => {},
+    } as never);
+
+    const call = runChildProcess.mock.calls.at(-1) as unknown as [string, string, string[]] | undefined;
+    deliveredPrompt = String(call?.[2].at(-1) ?? "");
+    expect(deliveredPrompt).toContain(fixture.paperclipTaskMarkdownAssignment);
+    expect(deliveredPrompt.indexOf("Append the same ledger entry.")).toBeLessThan(
+      deliveredPrompt.lastIndexOf("Append the same ledger entry."),
+    );
+    expect(deliveredPrompt.indexOf("comment-first")).toBeLessThan(
+      deliveredPrompt.indexOf("comment-second"),
+    );
+    expect(deliveredPrompt.indexOf("comment-second")).toBeLessThan(
+      deliveredPrompt.indexOf("comment-scope"),
+    );
+    expect(deliveredPrompt).toContain("Change the final scope to the launch checklist.");
   });
 });

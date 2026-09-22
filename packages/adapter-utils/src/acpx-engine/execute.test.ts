@@ -38,6 +38,7 @@ import {
 } from "./execute.js";
 import { ACPX_HANDSHAKE_TIMEOUT_MS } from "./constants.js";
 import { runChildProcess } from "../server-utils.js";
+import { createPromptContextFixture } from "../test-fixtures/prompt-context.js";
 import { setExpensiveWorkspaceGitExecutor } from "../git-workspace-sync.js";
 import { resolveReferencedSourceIgnore } from "../sandbox-managed-runtime.js";
 import {
@@ -133,6 +134,7 @@ function createLocalSandboxRunner(
 function buildRuntime(
   onSetConfigOption?: (input: { key: string; value: string }) => void,
   onEnsureSession?: (input: Record<string, unknown>) => void,
+  onStartTurn?: (input: Record<string, unknown>) => void,
 ) {
   return {
     ensureSession: async (input: Record<string, unknown>) => {
@@ -143,13 +145,16 @@ function buildRuntime(
       runtimeSessionName: "runtime-session",
       });
     },
-    startTurn: () => ({
+    startTurn: (input: Record<string, unknown>) => {
+      onStartTurn?.(input);
+      return {
       events: (async function* () {
         yield { type: "done", stopReason: "end_turn" };
       })(),
       result: Promise.resolve({ status: "completed", stopReason: "end_turn" }),
       cancel: async () => {},
-    }),
+    };
+    },
     setConfigOption: async (input: { key: string; value: string }) => {
       onSetConfigOption?.(input);
     },
@@ -173,6 +178,7 @@ async function runExecutor(
   const runtimeOptions: Record<string, unknown>[] = [];
   const configOptions: Array<{ key: string; value: string }> = [];
   const sessionInputs: Record<string, unknown>[] = [];
+  const turnInputs: Record<string, unknown>[] = [];
   const meta: Record<string, unknown>[] = [];
   const logs: Array<{ stream: string; text: string }> = [];
   const events: Array<{ eventType: string; payload?: Record<string, unknown> }> = [];
@@ -185,6 +191,7 @@ async function runExecutor(
       return buildRuntime(
         ({ key, value }) => configOptions.push({ key, value }),
         (input) => sessionInputs.push(input),
+        (input) => turnInputs.push(input),
       ) as never;
     },
   });
@@ -215,7 +222,7 @@ async function runExecutor(
   } as never);
 
   expect(result.exitCode).toBe(0);
-  return { logs, meta, events, runtimeOptions, configOptions, sessionInputs, result };
+  return { logs, meta, events, runtimeOptions, configOptions, sessionInputs, turnInputs, result };
 }
 
 // Under `vi.useFakeTimers()`, setup before `ensureSession` still performs real
@@ -580,6 +587,32 @@ describe("shared ACPX engine runtime behavior", () => {
 
     expect((meta[0]?.env as Record<string, string>).CODEX_CONFIG).toBeUndefined();
     expect(configOptions).toEqual([]);
+  });
+
+  it.each(["claude", "codex", "gemini", "kimi", "custom"])("delivers the shared owned sections at the %s ACP turn boundary", async (agent) => {
+    const root = await makeTempRoot();
+    const context = createPromptContextFixture();
+    const config = { agent, agentCommand: "node ./fixture-acp.js", cwd: root, stateDir: path.join(root, "state"), mode: "persistent" };
+    const fresh = await runExecutor(config, { context });
+    expect(fresh.turnInputs).toHaveLength(1);
+    const prompt = String(fresh.turnInputs[0]?.text ?? "");
+    expect(prompt).toContain(context.paperclipTaskMarkdownAssignment);
+    expect(prompt).toContain(context.paperclipTaskCommunicationGuidance);
+    expect(prompt).not.toContain('"objective":');
+    expect(prompt).not.toContain("### Issue description");
+    expect(prompt).toContain('"id":"comment-first"');
+    expect(prompt).toContain('"id":"comment-second"');
+    expect(prompt).toContain('"id":"comment-scope"');
+    expect(prompt.indexOf('"id":"comment-first"')).toBeLessThan(prompt.indexOf('"id":"comment-second"'));
+    expect(prompt).toContain("Untrusted continuation evidence");
+    expect(prompt).toContain("receipt-1");
+    const resumed = await runExecutor(config, { context, runtime: { sessionParams: fresh.result.sessionParams } });
+    expect(resumed.sessionInputs[0]?.resumeSessionId).toBe(fresh.result.sessionId);
+    const resumedPrompt = String(resumed.turnInputs[0]?.text ?? "");
+    expect(resumedPrompt).toContain(context.paperclipTaskMarkdownAssignmentCompact);
+    expect(resumedPrompt).not.toContain(context.paperclipTaskCommunicationGuidance);
+    expect(resumedPrompt).not.toContain('"id":"comment-first"');
+    expect(resumedPrompt).toContain('"id":"comment-second"');
   });
 
   it("includes Paperclip env and API access notes in the ACPX prompt without leaking the token", async () => {
