@@ -81,3 +81,34 @@ metadata production and return automatic lanes to legacy wake rendering. Do
 not delete checkpoints, invalidate active session pins, replay external
 actions, or discard source comments. Existing runs must continue to read their
 persisted schema and completion context until they reach a terminal state.
+
+## Maintained harness selection repair (2026-09-22)
+
+`selectPaperclipPromptSections` selects assignment and wake sections together.
+Legacy CLI, ACP, cloud and gateway adapters use it. The native input builder uses
+it for the full bootstrap. The native runner keeps its existing prepared input
+and verified continuation rules. It does not import application adapter utilities.
+
+The adapter selects sections for the same session attempt that it dispatches.
+If that resume fails and the existing recovery policy permits a fresh retry,
+the adapter selects the full brief, history, bootstrap and instructions again.
+The repair does not add a retry or decide whether an external action is safe to
+repeat. Existing session and recovery checks still make those decisions.
+
+Pi carries its default Paperclip rules in its system extension. The user prompt
+does not carry another default copy. Explicit custom templates retain their
+existing carriers and variables. A gateway with a separate execution-contract
+carrier can suppress the wake copy while retaining the current event delta.
+
+Paperclip owns task content and its source authority. The harness and execution
+environment own filesystem and command permissions. A working directory is not
+filesystem confinement. The approved removal of the workspace-only prompt line
+does not add confinement or change permission flags. Local harnesses retain the
+access granted by their configuration. Sandboxed paths retain their enforced
+boundaries. This repair must not replace that product choice with another prompt
+restriction.
+
+This follow-up changes no stored input version or session identifier. Rolling it
+back does not require deleting sessions. Keep the v5/v3 reader compatibility
+rules above when rolling back the earlier prepared-context change. Native Pi,
+Kimi and Grok are not enabled by this repair.

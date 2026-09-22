@@ -416,44 +416,38 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     context,
   };
   const instructions = await buildInstructionsPrefix(config, onLog);
-  const buildPrompt = (resumedSession: boolean) => {
-    const { taskContextNote, wakePrompt } = selectPaperclipPromptSections(context, {
-      resumedSession,
-      includeCommunicationGuidance: false,
-    });
-    const renderedBootstrapPrompt =
-      !resumedSession && bootstrapPromptTemplate.trim().length > 0
-        ? renderTemplate(bootstrapPromptTemplate, templateData).trim()
-        : "";
-    const renderedPrompt =
-      (resumedSession && wakePrompt.length > 0) || isPaperclipRecoveryWakePayload(context.paperclipWake)
-        ? ""
-        : renderTemplate(promptTemplate, templateData).trim();
-    const paperclipEnvNote = renderPaperclipEnvNote(remoteEnv);
-    const prompt = joinPromptSections([
-      selectInitialCommunicationGuidance(context, { resumedSession }),
-      instructions.prefix,
-      renderedBootstrapPrompt,
-      wakePrompt,
-      taskContextNote,
-      paperclipEnvNote,
-      renderedPrompt,
-    ]);
-    const sessionHandoffNote = asString(context.paperclipSessionHandoffMarkdown, "").trim();
-    const finalPrompt = joinPromptSections([prompt, sessionHandoffNote]);
-    return {
-      finalPrompt,
-      promptMetrics: {
-        promptChars: finalPrompt.length,
-        instructionsChars: instructions.chars,
-        bootstrapPromptChars: renderedBootstrapPrompt.length,
-        wakePromptChars: wakePrompt.length,
-        taskContextChars: taskContextNote.length,
-        heartbeatPromptChars: renderedPrompt.length,
-      },
-    };
+  const { taskContextNote, wakePrompt } = selectPaperclipPromptSections(context, {
+    resumedSession: canReuseSession,
+    includeCommunicationGuidance: false,
+  });
+  const renderedBootstrapPrompt =
+    !canReuseSession && bootstrapPromptTemplate.trim().length > 0
+      ? renderTemplate(bootstrapPromptTemplate, templateData).trim()
+      : "";
+  const renderedPrompt =
+    (canReuseSession && wakePrompt.length > 0) || isPaperclipRecoveryWakePayload(context.paperclipWake)
+      ? ""
+      : renderTemplate(promptTemplate, templateData).trim();
+  const paperclipEnvNote = renderPaperclipEnvNote(remoteEnv);
+  const prompt = joinPromptSections([
+    selectInitialCommunicationGuidance(context, { resumedSession: canReuseSession }),
+    instructions.prefix,
+    renderedBootstrapPrompt,
+    wakePrompt,
+    taskContextNote,
+    paperclipEnvNote,
+    renderedPrompt,
+  ]);
+  const sessionHandoffNote = asString(context.paperclipSessionHandoffMarkdown, "").trim();
+  const finalPrompt = joinPromptSections([prompt, sessionHandoffNote]);
+  const promptMetrics = {
+    promptChars: finalPrompt.length,
+    instructionsChars: instructions.chars,
+    bootstrapPromptChars: renderedBootstrapPrompt.length,
+    wakePromptChars: wakePrompt.length,
+    taskContextChars: taskContextNote.length,
+    heartbeatPromptChars: renderedPrompt.length,
   };
-  const { finalPrompt, promptMetrics } = buildPrompt(canReuseSession);
 
   const agentOptions = buildAgentOptions({
     apiKey,
