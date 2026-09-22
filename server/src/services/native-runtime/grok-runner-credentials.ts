@@ -18,7 +18,9 @@ export async function prepareGrokRunnerCredentials(input: {
   delete environment.GROK_HOME;
   if (environment.XAI_API_KEY?.trim()) return { environment, home: null };
   delete environment.XAI_API_KEY;
-  const companyHome = resolveManagedGrokHomeDir(input.environment, input.companyId);
+  // Credential discovery belongs to the controller instance. Agent-supplied
+  // PAPERCLIP_HOME/INSTANCE_ID values must not redirect company login reads.
+  const companyHome = resolveManagedGrokHomeDir(process.env, input.companyId);
   const home = configuredHome ?? (await grokHomeHasUsableAuth(companyHome)
     ? companyHome : input.remote ? companyHome : join(homedir(), ".grok"));
   try {

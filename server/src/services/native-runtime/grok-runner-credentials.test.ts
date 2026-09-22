@@ -19,7 +19,8 @@ describe("Grok runner company credentials", () => {
     companyHome.mockReturnValue(join(root, "company-without-login"));
     const host = join(root, "host"); await mkdir(host, { mode: 0o700 });
     await writeFile(join(host, "auth.json"), "host-secret", { mode: 0o600 });
-    await expect(prepareGrokRunnerCredentials({ companyId: "test-company", remote: true, environment: { GROK_HOME: host } })).rejects.toThrow("subscription login is unavailable");
+    await expect(prepareGrokRunnerCredentials({ companyId: "test-company", remote: true, environment: { GROK_HOME: host, PAPERCLIP_HOME: host, PAPERCLIP_INSTANCE_ID: "other" } })).rejects.toThrow("subscription login is unavailable");
+    expect(companyHome).toHaveBeenCalledWith(process.env, "test-company");
   });
   it("uses only an explicitly selected API key and strips subscription payloads and homes", async () => {
     expect(await prepareGrokRunnerCredentials({ companyId: "test-company", remote: true, environment: { XAI_API_KEY: "selected", GROK_HOME: "/host", PAPERCLIP_ACPX_GROK_AUTH_JSON_SECRET: "stale" } })).toEqual({ environment: { XAI_API_KEY: "selected" }, home: null });

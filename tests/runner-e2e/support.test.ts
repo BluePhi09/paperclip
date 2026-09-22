@@ -824,6 +824,9 @@ describe("runner E2E server isolation", () => {
         ANTHROPIC_API_KEY: "anthropic",
         OPENROUTER_API_KEY: "openrouter",
         DAYTONA_API_KEY: "daytona",
+        XAI_API_KEY: "xai",
+        XAI_ORG_ID: "xai-sensitive",
+        GROK_HOME: "/outside/grok",
         OPENAI_ORG_ID: "also-provider-sensitive",
         PAPERCLIP_API_KEY: "ambient-board-key",
         PAPERCLIP_AGENT_API_KEY: "ambient-agent-key",
@@ -847,6 +850,9 @@ describe("runner E2E server isolation", () => {
     expect(env.DATABASE_URL).toBeUndefined();
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.OPENAI_ORG_ID).toBeUndefined();
+    expect(env.XAI_API_KEY).toBeUndefined();
+    expect(env.XAI_ORG_ID).toBeUndefined();
+    expect(env.GROK_HOME).toBeUndefined();
     expect(env.PAPERCLIP_API_KEY).toBeUndefined();
     expect(env.PAPERCLIP_AGENT_API_KEY).toBeUndefined();
     expect(env.XDG_CACHE_HOME).toBe("/tmp/cell/xdg-cache");
