@@ -15,6 +15,10 @@ on:
         description: "Run broad source checks on EC2"
         type: boolean
         default: false
+      build_eval_viewer:
+        description: "Build the canonical eval report viewer on EC2"
+        type: boolean
+        default: false
   pull_request:
     paths:
       - .github/workflows/docker-runner-check.yml
@@ -29,7 +33,7 @@ permissions: {}
 
 concurrency:
   # Publishing a newer image must not discard an earlier verification's evidence.
-  group: docker-runner-check-${{ github.event.pull_request.number || github.ref }}-${{ inputs.verify_source && 'verification' || 'image' }}
+  group: docker-runner-check-${{ github.event.pull_request.number || github.ref }}-${{ inputs.verify_source && 'verification' || inputs.build_eval_viewer && 'viewer' || 'image' }}
   cancel-in-progress: true
 
 jobs:
@@ -175,9 +179,10 @@ jobs:
           done
           exit "$status"
       - name: Build canonical eval report viewer
-        if: always() && inputs.verify_source
+        if: always() && (inputs.verify_source || inputs.build_eval_viewer)
         run: |
           set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts --filter '@paperclipai/paperclip-runner...'
           pnpm --filter @paperclipai/paperclip-runner build:issue-thread > remote-verification/viewer-build.log 2>&1
           tar -czf remote-verification/eval-viewer.tar.gz -C packages/paperclip-runner dist-issue-thread
           sha256sum remote-verification/eval-viewer.tar.gz > remote-verification/eval-viewer.sha256
