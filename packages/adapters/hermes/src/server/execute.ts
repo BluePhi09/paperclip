@@ -36,8 +36,7 @@ import {
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
   DEFAULT_PAPERCLIP_CONVERSATION_PROMPT_TEMPLATE,
   joinPromptSections,
-  renderPaperclipWakePrompt,
-  selectPaperclipTaskMarkdown,
+  selectPaperclipPromptSections,
   stringifyPaperclipWakePayload,
   isPaperclipRecoveryWakePayload,
 } from "@paperclipai/adapter-utils/server-utils";
@@ -164,15 +163,9 @@ export function buildPrompt(
     paperclipApiUrl = paperclipApiUrl.replace(/\/+$/, "") + "/api";
   }
 
-  const taskContextMarkdown = selectPaperclipTaskMarkdown(context, {
+  const { taskContextNote: taskContextMarkdown, wakePrompt } = selectPaperclipPromptSections(context, {
     resumedSession: options.resumedSession === true,
-  });
-  const wakePrompt = renderPaperclipWakePrompt(context.paperclipWake, {
-    conversationMode: context.conversationMode === true,
-    resumedSession: options.resumedSession === true,
-    // The task-context markdown is the authoritative brief on this lane; keep
-    // the wake prompt's description copy out so the prompt carries it once.
-    suppressIssueDescription: taskContextMarkdown.length > 0,
+    includeCommunicationGuidance: true,
   });
   // Keep the historical variable available to custom templates. Automatic
   // assembly uses the ownership-aware assignment variant below.

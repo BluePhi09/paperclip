@@ -361,4 +361,54 @@ printf '%s\\n' '{"type":"result","subtype":"success","session_id":"cursor-sessio
       await fs.rm(rootDir, { recursive: true, force: true });
     }
   });
+
+  it("rebuilds the full assignment after an unknown-session resume", async () => {
+    setPrepareCursorSandboxCommand.mockReset();
+    setPrepareCursorSandboxCommand.mockImplementation(async (input) => ({
+      command: input.command,
+      env: input.env,
+      remoteSystemHomeDir: null,
+      addedPathEntry: null,
+      preferredCommandPath: null,
+    }));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-resume-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "agent.sh");
+    const capturePath = path.join(root, "prompts.txt");
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.writeFile(commandPath, `#!/bin/sh
+count_file=${JSON.stringify(path.join(root, "count"))}
+count=$(cat "$count_file" 2>/dev/null || printf '0')
+count=$((count + 1))
+printf '%s' "$count" > "$count_file"
+printf '\\n--- prompt %s ---\\n' "$count" >> ${JSON.stringify(capturePath)}
+cat >> ${JSON.stringify(capturePath)}
+if [ "$count" -eq 1 ]; then
+  printf '%s\\n' '{"type":"error","message":"Unknown session"}'
+  exit 1
+fi
+printf '%s\\n' '{"type":"system","subtype":"init","session_id":"cursor-session-fresh-2","model":"auto"}'
+printf '%s\\n' '{"type":"result","subtype":"success","session_id":"cursor-session-fresh-2","result":"ok"}'
+`);
+    await fs.chmod(commandPath, 0o755);
+
+    try {
+      const result = await execute({
+        runId: "run-cursor-resume-fallback",
+        agent: { id: "agent-1", companyId: "company-1", name: "Cursor Coder", adapterType: "cursor", adapterConfig: {} },
+        runtime: { sessionId: "cursor-session-old", sessionParams: null, sessionDisplayId: null, taskKey: null },
+        config: { command: commandPath, cwd: workspace, promptTemplate: "Follow the paperclip heartbeat." },
+        context: createPromptContextFixture(),
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+      const prompts = await fs.readFile(capturePath, "utf8");
+      expect(prompts).toContain("## Compact assignment");
+      expect(prompts).toContain("## Owned assignment");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });

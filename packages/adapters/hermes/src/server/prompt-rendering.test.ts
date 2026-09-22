@@ -298,6 +298,17 @@ test("keeps historical task markdown available to custom templates while automat
   expect(prompt).toContain("Current comment.");
 });
 
+test("keeps legacy task markdown when ownership fields are absent", () => {
+  const legacyTask = "Legacy task context from an older Paperclip caller.";
+  const prompt = buildPrompt(baseContext({
+    paperclipTaskMarkdown: legacyTask,
+    paperclipTaskMarkdownAssignment: undefined,
+    paperclipTaskMarkdownCompact: undefined,
+  }), {});
+
+  expect(prompt).toContain(legacyTask);
+});
+
 
 test.each([false, true])("conversation prompts preserve the handoff policy (resumed=%s)", (resumedSession) => {
   const directive = "Chat directive: clarify goals and hand the plan off to project tasks.";

@@ -8,9 +8,8 @@ import {
   asString,
   parseObject,
   readPaperclipIssueWorkModeFromContext,
-  renderPaperclipWakePrompt,
+  selectPaperclipPromptSections,
   isPaperclipRecoveryWakePayload,
-  selectPaperclipTaskMarkdown,
   stringifyPaperclipWakePayload,
   paperclipWakeCommentsArePromptOwned,
 } from "@paperclipai/adapter-utils/server-utils";
@@ -273,12 +272,11 @@ function buildInput(ctx: AdapterExecutionContext, paperclipApiUrl: string | null
   const resumedSession =
     (sessionKeyStrategy === "issue" || sessionKeyStrategy === "agent") &&
     Boolean(nonEmpty(ctx.runtime?.sessionId));
-  const taskMarkdown = nonEmpty(selectPaperclipTaskMarkdown(ctx.context, { resumedSession }));
-  const wakePrompt = renderPaperclipWakePrompt(ctx.context.paperclipWake, {
-    conversationMode: ctx.context.conversationMode === true,
-    // The task-context markdown is the authoritative brief on this lane; keep
-    // the wake prompt's description copy out so the prompt carries it once.
-    suppressIssueDescription: Boolean(taskMarkdown),
+  const { taskContextNote: taskMarkdown, wakePrompt } = selectPaperclipPromptSections(ctx.context, {
+    resumedSession,
+    // Hermes gateway owns the execution contract below; retain the old
+    // gateway prompt shape and avoid adding a second contract on resume.
+    includeExecutionContract: false,
   });
   const wakePayloadJson = paperclipWakeCommentsArePromptOwned(ctx.context)
     ? null

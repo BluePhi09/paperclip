@@ -10,8 +10,7 @@ import {
   buildRuntimeToolsEnv,
   parseObject,
   readPaperclipIssueWorkModeFromContext,
-  renderPaperclipWakePrompt,
-  selectPaperclipTaskMarkdown,
+  selectPaperclipPromptSections,
   selectInitialCommunicationGuidance,
   joinPromptSections,
   stringifyPaperclipWakePayload,
@@ -1107,13 +1106,16 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const paperclipEnv = buildPaperclipEnvForWake(ctx, wakePayload);
   // No heartbeat prompt template is sent over the gateway, so the wake prompt
   // must carry the execution contract itself.
-  const structuredWakePrompt = renderPaperclipWakePrompt(ctx.context.paperclipWake, {
+  const { taskContextNote, wakePrompt: structuredWakePrompt } = selectPaperclipPromptSections(ctx.context, {
+    resumedSession: Boolean(ctx.runtime?.sessionId),
     includeExecutionContract: true,
-    conversationMode: ctx.context.conversationMode === true,
+    includeCommunicationGuidance: false,
   });
   const structuredWakeJson = paperclipWakeCommentsArePromptOwned(ctx.context)
     ? null
-    : stringifyPaperclipWakePayload(ctx.context.paperclipWake);
+    : stringifyPaperclipWakePayload(ctx.context.paperclipWake, {
+        omitIssueDescription: Boolean(taskContextNote),
+      });
   const wakeText = buildWakeText(
     wakePayload,
     paperclipEnv,
@@ -1121,9 +1123,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       ? joinWakePayloadSections(structuredWakePrompt, structuredWakeJson)
       : structuredWakePrompt,
     resolveClaimedApiKeyPath(ctx.config.claimedApiKeyPath),
-    ctx.context.conversationMode === true
-      ? selectPaperclipTaskMarkdown(ctx.context, { resumedSession: Boolean(ctx.runtime?.sessionId), includeCommunicationGuidance: false })
-      : undefined,
+    taskContextNote || undefined,
   );
 
   const sessionKeyStrategy = normalizeSessionKeyStrategy(ctx.config.sessionKeyStrategy);
