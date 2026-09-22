@@ -60,7 +60,7 @@ export const lifecycleLiveCases = lifecycleNarrativePairs.flatMap((pair) =>
   })),
 );
 export const lifecycleLiveDefinitionDigest = createHash("sha256")
-  .update(JSON.stringify({ version: 4, cases: lifecycleLiveCases }))
+  .update(JSON.stringify({ version: 5, cases: lifecycleLiveCases }))
   .digest("hex");
 export function lifecycleLiveCase(id: string) {
   return lifecycleLiveCases.find((c) => c.id === id);
@@ -107,8 +107,9 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
         buildVisibleMarker: nonce => `REPAIRED_${nonce}`,
         buildPrompt: nonce => [
           "This is a bounded two-turn disposition repair exercise. Use the public Paperclip API with normal authorization and run attribution headers.",
-          `On the initial assignment turn only: post exactly one task comment whose complete body is ${JSON.stringify(probe.narrative)}, then end the provider turn with the same text. Leave task status in_progress. Do not record completion, a blocker, an approval, a question, a monitor, children, or a continuation. The quoted words do not describe actual authorization or missing prerequisites.`,
-          `When Paperclip wakes you for task disposition repair: PATCH the current task to status done, with the exact comment REPAIRED_${nonce}. End the provider turn. Do not repeat the initial comment or create further work.`,
+          "Before any mutation, read PAPERCLIP_WAKE_REASON from the process environment. Branch only on that exact value: issue_assigned is INITIAL; issue_disposition_repair is REPAIR. Never infer the phase from the task title, these instructions, or quoted words. Execute only the selected branch, then end this turn.",
+          `INITIAL branch (PAPERCLIP_WAKE_REASON is issue_assigned): post exactly one task comment whose complete body is ${JSON.stringify(probe.narrative)}, then end the provider turn with the same text. Leave task status in_progress. Do not record completion, a blocker, an approval, a question, a monitor, children, or a continuation. The quoted words do not describe actual authorization or missing prerequisites.`,
+          `REPAIR branch (PAPERCLIP_WAKE_REASON is issue_disposition_repair): PATCH the current task to status done, with the exact comment REPAIRED_${nonce}. End the provider turn. Do not repeat the initial comment or create further work.`,
         ].join("\n"),
         buildMatchers: (nonce, execution) => [
           { kind: "message_exact", expected: `REPAIRED_${nonce}` },

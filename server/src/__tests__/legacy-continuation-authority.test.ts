@@ -16,13 +16,13 @@ describe("legacy continuation persisted authority", () => {
     await db.insert(agents).values({ id: agentId, companyId, name: "Worker", role: "engineer", status: "idle", adapterType: "codex_local", runtimeConfig: { heartbeat: { wakeOnDemand: true } } });
     await db.insert(issues).values({ id: issueId, companyId, title: "Implement export", status: "in_progress", assigneeAgentId: agentId, responsibleUserId: "fixture-owner" });
     await db.insert(heartbeatRuns).values({ id: runId, companyId, agentId, invocationSource: "on_demand", status: "succeeded", runtimeMode: "legacy", continuationAttempt, contextSnapshot: { issueId, ...context }, livenessState: "blocked", resultJson: { summary: "All done. Need approval. I will continue." } });
-    const createRecovery = () => recoveryService(db, {
+    const createRecovery = (afterEnqueue?: (run: typeof heartbeatRuns.$inferSelect) => Promise<void>) => recoveryService(db, {
       enqueueWakeup: async (targetAgentId, opts) => db.transaction(async tx => {
         const [wake] = await tx.insert(agentWakeupRequests).values({ companyId, agentId: targetAgentId, source: "automation", reason: opts?.reason, payload: opts?.payload, idempotencyKey: opts?.idempotencyKey, status: "queued" }).returning();
         const [run] = await tx.insert(heartbeatRuns).values({ companyId, agentId: targetAgentId, invocationSource: "automation", status: "queued", runtimeMode: "legacy", wakeupRequestId: wake.id, contextSnapshot: opts?.contextSnapshot }).returning();
         await tx.update(agentWakeupRequests).set({ runId: run.id }).where(eq(agentWakeupRequests.id, wake.id));
         return run;
-      }),
+      }).then(async run => { await afterEnqueue?.(run); return run; }),
     });
     const runs = () => db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, companyId));
     const actions = () => db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.companyId, companyId));
@@ -43,6 +43,17 @@ describe("legacy continuation persisted authority", () => {
     const repair = (await f.runs()).find(r => r.id !== f.runId)!;
     expect(repair.contextSnapshot).toMatchObject({ legacyDispositionEpisode: { id: f.runId, attempt: 1, maxAttempts: 2 } });
   });
+  it("does not roll back the ledger when a fast repair finishes before enqueue returns", async () => {
+    const f = await fixture();
+    await f.createRecovery(async first => {
+      await f.finish(first);
+      await f.createRecovery().reconcileLegacyContinuation(first.id);
+      expect((await f.actions())[0].attemptCount).toBe(2);
+    }).reconcileLegacyContinuation(f.runId);
+    const second = (await f.runs()).find(r => r.status === "scheduled_retry")!;
+    expect((await f.actions())[0]).toMatchObject({ attemptCount: 2, wakePolicy: { scheduledRunId: second.id, attempt: 2 } });
+    expect(await f.runs()).toHaveLength(3);
+  });
   it("keeps the same bounded episode across restart and commentary, then escalates only after agent attempts", async () => {
     const f = await fixture();
     await f.createRecovery().reconcileLegacyContinuation(f.runId);
@@ -58,6 +69,21 @@ describe("legacy continuation persisted authority", () => {
     expect((await f.actions()).find(a => a.status === "active")).toMatchObject({ ownerType: "board", attemptCount: 2 });
     await f.createRecovery().reconcileLegacyContinuation(second.id);
     expect(await f.runs()).toHaveLength(3);
+  });
+  it("persists the source identity while the second repair waits to dispatch", async () => {
+    const f = await fixture();
+    await f.createRecovery().reconcileLegacyContinuation(f.runId);
+    const first = (await f.runs()).find(r => r.id !== f.runId)!;
+    await db.update(heartbeatRuns).set({ responsibleUserId: "initiating-operator" }).where(eq(heartbeatRuns.id, first.id));
+    await f.finish(first);
+    await f.createRecovery().reconcileLegacyContinuation(first.id);
+    expect((await f.runs()).find(r => r.status === "scheduled_retry")?.responsibleUserId).toBe("initiating-operator");
+  });
+  it.each(["retry_queued", "retry_exhausted"])("does not stack a new repair budget on the %s comment policy", async issueCommentStatus => {
+    const f = await fixture();
+    await db.update(heartbeatRuns).set({ issueCommentStatus }).where(eq(heartbeatRuns.id, f.runId));
+    expect(await f.createRecovery().reconcileLegacyContinuation(f.runId)).toBe("skipped");
+    expect(await f.runs()).toHaveLength(1);
   });
   it("does not grant a new budget to exhausted pre-upgrade continuation", async () => {
     const f = await fixture({}, 2);
