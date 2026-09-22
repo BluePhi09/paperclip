@@ -1,6 +1,6 @@
 # Legacy continuation authority: wording invariance
 
-Status: implemented; verification in progress. Requested September 22, 2026.
+Status: implemented; legacy acceptance verified. Full live campaign retains one browser reload failure. Requested September 22, 2026.
 Working branch: `codex/lifecycle-behavior-baseline-20260921`.
 Baseline implementation/results head: `141950faf`.
 
@@ -101,6 +101,16 @@ and new key cannot schedule two successors.
 - Use scripted unit/database tests for timing permutations; real LLM/browser runs
   verify tool compliance and orchestration, not exhaustive race coverage.
 
+## Verification result
+
+[September 22 report](../../tests/lifecycle-baseline/LEGACY-CONTINUATION-2026-09-22.md):
+902/904 deterministic assertions pass; the two native compatibility probes remain
+visible. All 22 legacy live cases pass, including both causally verified repair
+variants. The complete live campaign is 41/42, with one native case completing its
+persisted lifecycle but failing on a blank browser reload. Earlier failed runs and
+artifact hashes remain in the inventory. This does not claim repo-wide green or
+removal of prose interpretation from every remaining product surface.
+
 ## Retained backlog for later requests
 
 These counts refer to the original scripted baseline, not a new measurement.
@@ -114,6 +124,8 @@ Keep this section even if this slice incidentally resolves some assertions.
 | Wording selects liveness versus handoff path in heartbeat | 1 | Retain separately in results; must be covered while closing the current shared authority boundary |
 | Native autonomous continuation compatibility probes | 2 | Replace with reachable public-contract tests; `same_agent` injection is not a current model-facing defect |
 | Productive continuation versus repair/failure budgets | Coverage boundary | Separate audit after this slice; do not infer progress from text/event counts |
+| Blank task route after reload | New live observation | Investigate browser bootstrap/rendering; seen after successful persisted lifecycle in both runtimes; campaigns 35744074887 and 35747200170 |
+| Missing-comment policy ownership | Coverage boundary | Existing typed retry policy remains; review separately if consolidating all post-run compliance into one disposition contract |
 | Maintain CI and prepare App/Evals review | Pending | Promote fixed invariants into maintained cheap gates; paid suites remain explicit |
 
 Reference reports: `tests/lifecycle-baseline/BASELINE-2026-09-21.md`,

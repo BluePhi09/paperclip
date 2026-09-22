@@ -144,3 +144,5 @@ For subsequent live execution use existing explicit selectors and record exact
 App/Evals revisions, profile/environment, retries, usage/cost, and artifact IDs.
 See `doc/evals.md`. Do not combine mock-authority Runner Eval scores with Product
 E2E scores, or claim full qualification from a partial selection.
+
+September 22 follow-up: [legacy continuation implementation and verification](LEGACY-CONTINUATION-2026-09-22.md), including preserved failed campaigns and the remaining backlog.
