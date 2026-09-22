@@ -2,7 +2,8 @@
 
 Measured on GitHub Actions with real LLM calls on September 21 (America/Chicago;
 September 22 UTC). This supplements the immutable [scripted baseline](BASELINE-2026-09-21.md).
-No production lifecycle behavior was changed.
+No production lifecycle behavior was changed for the initial measurement.
+Subsequent changes and fresh runs are recorded in the [fix report](LIVE-FIXES-2026-09-21.md).
 
 ## Initial measurements
 
@@ -148,4 +149,4 @@ a turn. Earlier cancellation rejects the late session; later cancellation can
 reach the published handle. Deterministic tests inject Stop in that exact gap.
 The existing execution-owned cleanup closes rejected sessions.
 
-Fresh live verification is recorded separately when complete.
+Fresh live verification is recorded in the [fix report](LIVE-FIXES-2026-09-21.md).
