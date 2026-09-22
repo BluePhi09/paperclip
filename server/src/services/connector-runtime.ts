@@ -1,3 +1,5 @@
+import { SLACK_TOOLS } from "@paperclipai/shared";
+import { slackAssignedResource, executeGovernedSlackTool } from "./connectors/slack.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +20,7 @@ import {
 } from "./connectors/agentmail.js";
 import { materializeAsset } from "./native-runtime/runtime-context.js";
 
-type AgentBinding = { companyId: string; agentId: string };
+type AgentBinding = { companyId: string; agentId: string; runId?: string; issueId?: string };
 type ToolBinding = AgentBinding & {
   runId: string;
   issueId: string;
@@ -52,6 +54,11 @@ interface ConnectorDefinition {
 // Trusted connector packages declare their contributions here. Assignments and
 // current access, not credential availability or agent-authored config, select them.
 const connectors: ConnectorDefinition[] = [
+  { key: "slack", label: "Slack", skillName: "slack",
+    tools: SLACK_TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
+    resolve: slackAssignedResource,
+    execute: executeGovernedSlackTool,
+  },
   {
     key: "agentmail",
     label: "AgentMail",
@@ -176,6 +183,7 @@ export async function applyConnectorSkills(
         content: Buffer.from(markdown + context),
         mode: 0o444,
       },
+      ...(assignment.key === "slack" ? [{ path: "TOOLS.json", content: Buffer.from(JSON.stringify(assignment.tools, null, 2)), mode: 0o444 }] : []),
     ]);
     skills.push({
       key: assignment.skillKey,

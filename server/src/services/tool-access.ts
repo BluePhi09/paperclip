@@ -16675,6 +16675,8 @@ export function toolAccessService(
 
     reconnectGalleryApp,
 
+    storeConnectorOAuthSecret: createOrRotateOAuthSecret,
+    resolveConnectorOAuthGrantSecret: resolveOAuthGrantSecret,
     startOAuth,
 
     startAuthorizationForAgent: async (input: {
