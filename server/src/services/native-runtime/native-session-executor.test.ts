@@ -3900,7 +3900,7 @@ describe("stopped native conversation physical cleanup", () => {
     const run = { id: input.binding.runId, companyId: mode === "foreign_company" ? "foreign" : input.binding.companyId,
       agentId: input.binding.agentId, nativeIssueId: input.binding.issueId, runtimeMode: "native", status: "failed", finishedAt: new Date(),
       nativeSessionId: input.session.normalizedSessionId, runnerInstanceId: mode === "foreign_runner" ? "foreign" : identity.runnerInstanceId,
-      runnerProfileJson: { nativeExecutionInput: input, nativeToolContractFingerprint: nativeToolContractFingerprintForTarget("local") } } as typeof heartbeatRuns.$inferSelect;
+      runnerProfileJson: { nativeExecutionInput: input, nativeToolContractFingerprint: nativeToolContractFingerprintForTarget("local") } } as unknown as typeof heartbeatRuns.$inferSelect;
     try {
       await mkdir(join(root, "runner"), { recursive: true });
       await mkdir(join(root, "control-plane"), { recursive: true });
