@@ -278,6 +278,9 @@ describe("LCA full heartbeat observation", () => {
             runtimeMode: r.runtimeMode,
             errorCode: r.errorCode,
             livenessState: r.livenessState,
+            repairAttempt: r.contextSnapshot?.dispositionRepairAttempt ?? null,
+            repairMaxAttempts: r.contextSnapshot?.dispositionRepairMaxAttempts ?? null,
+            repairInstruction: r.contextSnapshot?.dispositionRepairInstruction ?? null,
           })),
           wakes: wakes
             .map((w) => ({ reason: w.reason, status: w.status }))
@@ -358,6 +361,10 @@ describe("LCA full heartbeat observation", () => {
     expect(misleading.providerTurns).toBe(2);
     expect(misleading.wakes).toEqual(neutral.wakes);
     expect(misleading.issue).toEqual(neutral.issue);
+    const repairs = (observed: typeof neutral) => observed.runs.filter(r => r.repairAttempt !== null)
+      .map(({ repairAttempt, repairMaxAttempts, repairInstruction }) => ({ repairAttempt, repairMaxAttempts, repairInstruction }));
+    expect(repairs(neutral)).toMatchObject([{ repairAttempt: 1, repairMaxAttempts: 2 }]);
+    expect(repairs(misleading)).toEqual(repairs(neutral));
   });
   it("LCA-02 native productive workflow continues beyond the failure retry allowance", async () => {
     const steps = BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS.length + 2;

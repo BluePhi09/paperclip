@@ -8,7 +8,7 @@ import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.j
 describe("legacy continuation persisted authority", () => {
   let temporary: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
   let db: ReturnType<typeof createDb>;
-  beforeAll(async () => { temporary = await startEmbeddedPostgresTestDatabase("legacy-authority-"); db = createDb(temporary.connectionString); });
+  beforeAll(async () => { temporary = await startEmbeddedPostgresTestDatabase("legacy-authority-"); db = createDb(temporary.connectionString); }, 20_000);
   afterAll(async () => { await db?.$client.end({ timeout: 0 }); await temporary?.cleanup(); });
   async function fixture(context: Record<string, unknown> = {}, continuationAttempt = 0) {
     const companyId = randomUUID(), agentId = randomUUID(), issueId = randomUUID(), runId = randomUUID();
@@ -85,6 +85,21 @@ describe("legacy continuation persisted authority", () => {
     expect(await f.createRecovery().legacyRepairDispatchBlock(repair.id)).toBe("durable_wait");
     expect((await f.actions())[0].attemptCount).toBe(1);
   });
+  it("preserves repair authority and its budget through a typed infrastructure retry", async () => {
+    const f = await fixture();
+    await f.createRecovery().reconcileLegacyContinuation(f.runId);
+    const repair = (await f.runs()).find(r => r.id !== f.runId)!;
+    await db.update(heartbeatRuns).set({ status: "failed", errorCode: "transient_failure" }).where(eq(heartbeatRuns.id, repair.id));
+    await db.update(agentWakeupRequests).set({ status: "completed" }).where(eq(agentWakeupRequests.id, repair.wakeupRequestId!));
+    const [retry] = await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId,
+      status: "queued", runtimeMode: "legacy", retryOfRunId: repair.id,
+      contextSnapshot: { ...repair.contextSnapshot, retryOfRunId: repair.id, retryReason: "transient_failure", wakeReason: "transient_failure_retry" },
+    }).returning();
+    expect(await f.createRecovery().legacyRepairDispatchBlock(retry.id)).toBeNull();
+    expect((await f.actions())[0].attemptCount).toBe(1);
+    await db.insert(issueThreadInteractions).values({ companyId: f.companyId, issueId: f.issueId, kind: "request_confirmation", status: "pending", payload: { version: 1, prompt: "Approve?" } });
+    expect(await f.createRecovery().legacyRepairDispatchBlock(retry.id)).toBe("durable_wait");
+  });
   it.each(["done", "paused", "reassigned", "stopped"])("suppresses a queued repair after %s", async gate => {
     const f = await fixture();
     await f.createRecovery().reconcileLegacyContinuation(f.runId);
@@ -95,6 +110,12 @@ describe("legacy continuation persisted authority", () => {
     if (gate === "stopped") await db.update(heartbeatRuns).set({ status: "cancelled", errorCode: "operator_cancelled" }).where(eq(heartbeatRuns.id, repair.id));
     expect(await f.createRecovery().legacyRepairDispatchBlock(repair.id)).not.toBeNull();
     expect((await f.actions())[0].attemptCount).toBe(1);
+  });
+  it.each([{ goalControlRequestId: "control" }, { resumeSessionGoalHeartbeat: true }])("leaves goal-control run ownership intact: %j", async context => {
+    const f = await fixture(context);
+    expect(await f.createRecovery().reconcileLegacyContinuation(f.runId)).toBe("skipped");
+    expect(await f.actions()).toHaveLength(0);
+    expect(await f.runs()).toHaveLength(1);
   });
   it("leaves a due monitor as the owner of the next step", async () => {
     const f = await fixture();
