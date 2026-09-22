@@ -910,7 +910,8 @@ The fixture then releases the read-only brief wait and sends a new chat message
 that records the known saved-plan and interrupted-command outcomes. The server
 must verify that the recorded worker and provider process groups stopped before
 admitting exactly one successful fresh session. The answer must contain the
-reference supplied only after the crash, and the saved plan must remain unchanged.
+reference supplied only after the crash, and the saved plan must remain unchanged. The old quarantined run must not regain
+a misleading Try again control after the fresh turn succeeds.
 This qualifies **explicit conversation continuation after local worker loss**.
 It does not qualify replay of uncertain actions, automatic recovery, remote worker
 loss, or exact-session resumption. It budgets two provider runs. Unexpected
@@ -939,6 +940,6 @@ it does not certify a native option in the wizard, which is not offered yet.
 
 Current proof and remaining decisions are recorded in
 [the 21 September qualification report](QUALIFICATION-2026-09-21.md). In particular,
-the original worker-loss attempts quarantined both providers. The version 8 crash
+the original worker-loss attempts quarantined both providers. The version 9 crash
 eval requires a usable fresh conversation after verified cleanup. A passing
 quarantine guard alone is not a recovered workflow.
