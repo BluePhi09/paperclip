@@ -1218,9 +1218,6 @@ importers:
         specifier: 13.6.32
         version: 13.6.32
     devDependencies:
-      '@paperclipai/plugin-sdk':
-        specifier: workspace:*
-        version: link:../packages/plugins/sdk
       '@sentry/browser':
         specifier: 10.71.0
         version: 10.71.0
