@@ -78,7 +78,17 @@ must be reported accurately and retain bounded history search.
   Paperclip but not Slack. The fix verifies the durable tool-review wake and every
   referenced action's source before authorizing publication, and separates wakes
   from different source runs. Authority/dedup integration and 81 gateway/response
-  tests pass; the live approval-result retest is pending.
+  tests pass. Live retest on `bef1a0fad` passed: an approved deletion executed
+  once, read-back found the disposable message absent, and the continuation's
+  final answer appeared in the original Slack thread.
+- Explicit upload with valid arguments delivered the registered text attachment;
+  the agent read back its exact content from Slack. Initial malformed arguments
+  were rejected before execution. Write schemas and the skill now emphasize UUID
+  idempotency keys because ordinary artifact tools also accept descriptive keys.
+- A separate completion-validator gap appeared when the agent tried to cite an
+  earlier run's registered artifact during finalization: it requested registration
+  again. The file was already delivered and no duplicate upload was made. This
+  is an underlying artifact-reuse workflow gap, not a Slack transport failure.
 - Optional OAuth, private multi-user boundaries, and CLI execution
   currently have automated coverage, not complete live qualification.
 

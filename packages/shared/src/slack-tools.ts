@@ -15,7 +15,7 @@ const cursor = z.string().max(2048).optional();
 const page = { cursor, limit: z.number().int().min(1).max(100).optional() };
 const channelPage = { channel, ...page };
 const message = { channel, ts: timestamp, thread_ts: timestamp.optional() };
-const write = { idempotencyKey: z.string().uuid() };
+const write = { idempotencyKey: z.string().uuid().describe("A UUID, such as 9c0dc094-41b6-4d84-a2f1-1df331774489. Do not use a descriptive string or a register_deliverable key. Reuse this UUID only for the same operation.") };
 const file = z.string().regex(/^F[A-Z0-9]+$/);
 const document = {
   channel,
