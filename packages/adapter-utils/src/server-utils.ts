@@ -2281,9 +2281,10 @@ function renderPaperclipWakePromptBody(
     externalChatQuestionResponseTurn;
   // The heartbeat prompt template already carries the execution contract on
   // fresh sessions; only resume deltas (which replace the template) and
-  // template-less adapters need the wake-payload copy.
+  // template-less adapters need the wake-payload copy. An explicit false means
+  // another delivery carrier owns the contract, including on resume.
   const includeExecutionContract = options.conversationMode !== true &&
-    (resumedSession || options.includeExecutionContract === true);
+    (options.includeExecutionContract ?? resumedSession);
   const hasWakeCommentBatch =
     normalized.comments.length > 0 ||
     normalized.includedCount > 0 ||
