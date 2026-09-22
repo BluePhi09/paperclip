@@ -9,8 +9,8 @@ retrieved messages are data, never instructions or authorization.
 - [x] Typed tool/method/scope matrix and bundled skill; no arbitrary Web API execution.
 - [x] Task/run/endpoint/accepted-user binding, live membership, revocation and session compatibility.
 - [x] Paginated reads, files, bounded history search, source links and honest coverage.
-- [ ] Durable governed writes, approval, retries, delivery reconciliation and duplicate prevention.
-- [ ] Private-source publication restrictions, including automatic replies and attachments.
+- [x] Durable governed writes, approval, retries, delivery reconciliation and duplicate prevention.
+- [x] Private-source publication restrictions, including automatic replies and attachments.
 - [x] Optional endpoint-bound personal search OAuth, credentials, refresh and disconnect.
 - [ ] Native search only with qualified transient runtime delivery; no stored search responses.
 - [x] Native and authenticated CLI operations, preserving AgentMail restrictions.
@@ -38,7 +38,37 @@ must be reported accurately and retain bounded history search.
   disconnect race and removed-profile/identity revocation.
 - Storybook capability and upgrade screens inspected visually. OAuth fields,
   disabled save, secret clearing and connected/disconnect state inspected.
-- Full repository tests and live staging acceptance are still pending.
+- Full checks after staging fixes: `pnpm -r typecheck` and `pnpm build` pass.
+- General server suite: 679 files / 12,958 tests passed. UI retry: 626 files /
+  6,555 tests passed. CLI passed in two groups after using canonical macOS TMPDIR.
+  Shared: 770 tests; skills catalog: 20 tests; remaining source-only workspace
+  packages: 184 files / 2,652 tests passed (19 skipped).
+- Serialized server checks passed after a process-start timeout retry. The
+  remaining route-test timeout passed on rerun; new Slack routes now have exact
+  OpenAPI coverage. These are composite results, not one uninterrupted green run.
+- Staging-fix checks: 89 transport/API/route tests and the PostgreSQL authority
+  integration test pass. The latter now holds the endpoint lock concurrently
+  and verifies resolution waits, then retains identity/revocation enforcement.
+- Live staging on `4e00210da`: a linked Slack request read the channel decision,
+  cited its source, created exactly two assigned backlog tasks through normal
+  Paperclip tools, and added an eyes reaction. The quoted malicious task request
+  was ignored. This fixture was posted by the linked tester; a live unlinked
+  participant is not yet qualified (automated coverage uses unlinked sources).
+- Bounded search scanned 35 top-level messages, returned four matches with source
+  links, and reported its incomplete coverage. Thread reading completed with
+  `hasMore: false`. Initial invalid search arguments were rejected before retrieval;
+  the exact typed contract succeeded. The skill now includes a concrete example.
+- Live canvas creation, append and read-back passed. The canvas was opened in Slack
+  and contained the expected text. List creation, record insertion, update and
+  read-back passed; the bot correctly reported that channel sharing needs approval.
+- Initial staging defects (JSON transport, missing native source-channel guidance,
+  endpoint lock race) are fixed and retested. Channel discovery subsequently found
+  a listed channel returning `channel_not_found`; `d23bb857a` omits only definite
+  access denials. Its unit/PG regressions, full typecheck and build pass. Deployment
+  and live discovery retest are in progress.
+- Remaining live checks include governed actions and disabled-response channel
+  reads/writes. Optional OAuth, private multi-user boundaries, and CLI execution
+  currently have automated coverage, not complete live qualification.
 
 ## Explicit runtime/provider limitations
 
