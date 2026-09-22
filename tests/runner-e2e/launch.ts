@@ -49,6 +49,7 @@ import {
   type MatrixExecution,
   type RunnerE2EResult,
 } from "./types.js";
+import { assertRunnerE2EPrerequisites } from "./prerequisites.js";
 import {
   reapNewDetachedDarwinSharedMemory,
   snapshotDarwinSharedMemory,
@@ -1092,6 +1093,10 @@ async function main() {
     );
     return;
   }
+
+  // Keep admission before local-env loading and credential checks. Pending
+  // profiles remain discoverable, but cannot reach a provider.
+  assertRunnerE2EPrerequisites(executions);
 
   await loadLocalEnvironment(process.env);
   const missingCredentials = [

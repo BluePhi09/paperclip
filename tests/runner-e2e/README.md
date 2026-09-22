@@ -40,6 +40,8 @@ Shell variables take precedence over the local file. The recognized names are:
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `OPENROUTER_API_KEY`
+- `KIMI_MODEL_API_KEY` (local-only pending Kimi CLI/ACP profiles)
+- `XAI_API_KEY` (local-only pending Grok profile)
 - `DAYTONA_API_KEY`
 - `PAPERCLIP_E2E_DAYTONA_IMAGE` (Daytona only)
 
@@ -49,6 +51,12 @@ keys only to Playwright, which posts each value once to the company-secrets API.
 Paperclip receives secret references in agent/environment payloads. Provider
 keys, Daytona keys, `DATABASE_URL`, and `DATABASE_MIGRATION_URL` are removed
 from the Paperclip child process.
+
+Kimi and Grok keys are recognized for local catalog, schema, and isolation tests
+only. Their explicit context-integrity profiles are blocked before credential
+loading until runtime identity, authentication, skills, session, and billing
+qualification is complete. They are absent from the paid workflow credential
+environment.
 
 Never put credentials in `catalog.ts`, screenshots, fixture metadata, workflow
 inputs, or a tracked env file.
@@ -220,7 +228,11 @@ pnpm test:e2e:runner -- --id agent-chat-hardening.runner-codex.local.stop-startu
 ```
 
 `context-integrity` is an explicit-only local suite with two bounded cases across
-the seven qualified legacy/native profiles (14 cells). `ordered-comment-continuation`
+ten listed legacy/native profiles (20 cells). Six cells are pending-prerequisite
+profiles and are listed for discovery but rejected before provider credentials are
+loaded: `legacy-kimi-cli`, `legacy-kimi-acp`, and `legacy-grok`, each with both
+cases. The seven previously qualified profiles remain unchanged. Pi is not listed
+because no qualified model source exists. `ordered-comment-continuation`
 sends three separate user comments through the public comments API, retaining an
 intentional repeated comment before a changed scope. `assigned-skill-explicit-invocation`
 creates and pins a task skill through public skill APIs, requires an explicit
