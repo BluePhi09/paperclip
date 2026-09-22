@@ -1,0 +1,1625 @@
+{
+  "schema": "paperclip.lifecycle-baseline/v1",
+  "commit": "c65fc9e3c81c41aafe421aa90a00514b84343285",
+  "fingerprint": "54fc778c5a3f75a2e4435b8ad191a56cc5535490b3d95a9b32fd78a789b05f9b",
+  "measuredAt": "2026-09-21T18:18:32.452Z",
+  "layers": [
+    "unit",
+    "runner",
+    "integration",
+    "grading"
+  ],
+  "execution": {
+    "unit": {
+      "exitCode": 1,
+      "signal": null,
+      "success": false,
+      "total": 292,
+      "passed": 251,
+      "failed": 41,
+      "pending": 0,
+      "launchError": null
+    },
+    "runner": {
+      "exitCode": 0,
+      "signal": null,
+      "success": true,
+      "total": 182,
+      "passed": 182,
+      "failed": 0,
+      "pending": 0,
+      "launchError": null
+    },
+    "integration": {
+      "exitCode": 1,
+      "signal": null,
+      "success": false,
+      "total": 326,
+      "passed": 323,
+      "failed": 3,
+      "pending": 0,
+      "launchError": null
+    },
+    "grading": {
+      "exitCode": 0,
+      "signal": null,
+      "success": true,
+      "total": 31,
+      "passed": 31,
+      "failed": 0,
+      "pending": 0,
+      "launchError": null
+    }
+  },
+  "measurementDirectory": ".lifecycle-baseline/2026-09-21T18-16-24.961Z",
+  "environment": {
+    "node": "v26.4.0",
+    "vitest": "4.1.11",
+    "platform": "darwin arm64",
+    "providers": "scripted; no paid calls"
+  },
+  "evals": {
+    "commit": "0bae4e0947dc7959cae25b73d27533c096f23a14",
+    "fingerprint": "9732498781947ce14b8898cfce7a50cf03168e897337bd9058739a60504a51dc",
+    "roster": "evals/paperclip-runner/rosters/lifecycle-narrative-baseline.json",
+    "validation": {
+      "passed": 8,
+      "total": 8
+    },
+    "liveStatus": "not_run"
+  },
+  "scenarios": [
+    {
+      "id": "LCA-01",
+      "name": "Ordinary completion",
+      "expected": "Valid completion, delivered answer, no extra execution",
+      "live": [
+        {
+          "id": "everyday-workflows:build-revise",
+          "status": "not_run"
+        },
+        {
+          "id": "runner-evals:finish-task",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "runner",
+          "file": "tests/lifecycle-baseline/runner.test.ts",
+          "pattern": "LCA-01",
+          "status": "pass",
+          "assertions": 8,
+          "failedAssertions": []
+        },
+        {
+          "lane": "grading",
+          "file": "tests/runner-e2e/lifecycle-baseline.test.ts",
+          "pattern": "LCA-01",
+          "status": "pass",
+          "assertions": 5,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-01",
+          "status": "pass",
+          "assertions": 13,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/native-status-arbiter-corpus.test.ts",
+          "pattern": ".",
+          "status": "pass",
+          "assertions": 31,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/test-baselines/lifecycle-heartbeat.test.ts",
+          "pattern": "LCA-01",
+          "status": "pass",
+          "assertions": 2,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-02",
+      "name": "Productive multi-turn continuation",
+      "expected": "Continue without replaying completed work or treating productivity as repeated failure",
+      "live": [
+        {
+          "id": "continuation:completed-action-resume",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-02",
+          "status": "assertion_failure",
+          "assertions": 64,
+          "failedAssertions": [
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / empty preserves continuation effects"
+          ]
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/heartbeat-retry-scheduling.test.ts",
+          "pattern": "max-turn",
+          "status": "pass",
+          "assertions": 6,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/test-baselines/lifecycle-heartbeat.test.ts",
+          "pattern": "LCA-02",
+          "status": "assertion_failure",
+          "assertions": 3,
+          "failedAssertions": [
+            "LCA full heartbeat observation LCA-02 native explicit continuation survives misleading approval prose",
+            "LCA full heartbeat observation LCA-02 legacy incomplete work schedules the same follow-up regardless of approval wording",
+            "LCA full heartbeat observation LCA-02 native productive workflow continues beyond the failure retry allowance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LCA-03",
+      "name": "Durable human question",
+      "expected": "Bound question precedes wait; matching answer resumes once",
+      "live": [
+        {
+          "id": "continuation:answer-updates-scope",
+          "status": "not_run"
+        },
+        {
+          "id": "continuation:provider-question-bridge",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "grading",
+          "file": "tests/runner-e2e/lifecycle-baseline.test.ts",
+          "pattern": "LCA-03",
+          "status": "pass",
+          "assertions": 3,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-03",
+          "status": "pass",
+          "assertions": 9,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/question-response-delivery.test.ts",
+          "pattern": ".",
+          "status": "pass",
+          "assertions": 35,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-04",
+      "name": "Approval and decline",
+      "expected": "Correct authorized approval releases only its gate; decline executes nothing",
+      "live": [
+        {
+          "id": "continuation:clarification-not-approval",
+          "status": "not_run"
+        },
+        {
+          "id": "everyday-workflows:service-approve",
+          "status": "not_run"
+        },
+        {
+          "id": "everyday-workflows:service-decline",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "integration",
+          "file": "server/test-baselines/lifecycle-heartbeat.test.ts",
+          "pattern": "LCA-04",
+          "status": "pass",
+          "assertions": 4,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-04",
+          "status": "pass",
+          "assertions": 23,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "server/src/__tests__/issue-thread-interaction-routes.test.ts",
+          "pattern": "confirmation|approval|tool.action",
+          "status": "pass",
+          "assertions": 26,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/heartbeat-retry-scheduling.test.ts",
+          "pattern": "gate|budget|paused",
+          "status": "pass",
+          "assertions": 6,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-05",
+      "name": "Plan revision acceptance",
+      "expected": "Work mode and exact accepted revision authorize execution",
+      "live": [
+        {
+          "id": "agent-chat:plan-handoff",
+          "status": "not_run"
+        },
+        {
+          "id": "continuation:revision-preserves-approval",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "grading",
+          "file": "tests/runner-e2e/lifecycle-baseline.test.ts",
+          "pattern": "LCA-05",
+          "status": "pass",
+          "assertions": 1,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-05",
+          "status": "assertion_failure",
+          "assertions": 4,
+          "failedAssertions": [
+            "LCA narrative authority baseline LCA-05 legacy title report is not work-mode authority",
+            "LCA narrative authority baseline LCA-05 legacy title plan is not work-mode authority",
+            "LCA narrative authority baseline LCA-05 legacy title research is not work-mode authority",
+            "LCA narrative authority baseline LCA-05 legacy description is not work-mode authority"
+          ]
+        },
+        {
+          "lane": "unit",
+          "file": "server/src/__tests__/issue-thread-interaction-routes.test.ts",
+          "pattern": "plan|revision",
+          "status": "pass",
+          "assertions": 7,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/issue-thread-interactions-service.test.ts",
+          "pattern": "Plan.mode|stale.*revision|revision.*stale|plan confirmation",
+          "status": "pass",
+          "assertions": 6,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-06",
+      "name": "Dependencies",
+      "expected": "All required dependencies release one parent wake; unrelated events do nothing",
+      "live": [
+        {
+          "id": "everyday-workflows:delegate-feedback",
+          "status": "not_run"
+        },
+        {
+          "id": "runner-evals:set-task-dependencies",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/heartbeat-issue-liveness-escalation.test.ts",
+          "pattern": ".",
+          "status": "pass",
+          "assertions": 15,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-07",
+      "name": "External monitor wait",
+      "expected": "Durable eligible monitor fires once and respects timeout and exhaustion",
+      "live": [
+        {
+          "id": "runner-evals:schedule-task-wake",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-07",
+          "status": "pass",
+          "assertions": 9,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/issue-monitor-scheduler.test.ts",
+          "pattern": ".",
+          "status": "pass",
+          "assertions": 9,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-08",
+      "name": "Ordinary conversation",
+      "expected": "Deliver response without task completion coercion or repair loops",
+      "live": [
+        {
+          "id": "agent-chat:clarify-reuse",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-08",
+          "status": "pass",
+          "assertions": 9,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/heartbeat-retry-scheduling.test.ts",
+          "pattern": "conversation",
+          "status": "pass",
+          "assertions": 4,
+          "failedAssertions": []
+        },
+        {
+          "lane": "runner",
+          "file": "packages/paperclip-runner/src/native-session-runtime.test.ts",
+          "pattern": "governed wait|structured input",
+          "status": "pass",
+          "assertions": 5,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-09",
+      "name": "Missing disposition and exhausted repair",
+      "expected": "Bounded explicit recovery; prose/comments do not supply authority or reset attempts",
+      "live": [],
+      "coverage": [
+        {
+          "lane": "runner",
+          "file": "tests/lifecycle-baseline/runner.test.ts",
+          "pattern": "LCA-09",
+          "status": "pass",
+          "assertions": 9,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-09",
+          "status": "assertion_failure",
+          "assertions": 65,
+          "failedAssertions": [
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy summary / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy result / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy comment / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy continuation / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stdout / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / neutral preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / no-approval preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / historical-quote preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / spanish preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / all-done preserves continuation effects",
+            "LCA narrative authority baseline LCA-02 LCA-09 legacy stderr / empty preserves continuation effects",
+            "LCA narrative authority baseline LCA-09 additional commentary cannot manufacture progress or reset an attempt"
+          ]
+        },
+        {
+          "lane": "integration",
+          "file": "server/test-baselines/lifecycle-heartbeat.test.ts",
+          "pattern": "LCA-09",
+          "status": "pass",
+          "assertions": 1,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "server/src/__tests__/disposition-repair.test.ts",
+          "pattern": ".",
+          "status": "pass",
+          "assertions": 2,
+          "failedAssertions": []
+        },
+        {
+          "lane": "runner",
+          "file": "packages/paperclip-runner/src/native-session-runtime.test.ts",
+          "pattern": "result.less|proposal.less|semantic result",
+          "status": "pass",
+          "assertions": 16,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/services/native-runtime/native-safe-replacement.test.ts",
+          "pattern": "exhausted|another run id",
+          "status": "pass",
+          "assertions": 2,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-10",
+      "name": "Stop, pause and budget",
+      "expected": "Distinct stop/pause semantics; no unauthorized continuation",
+      "live": [
+        {
+          "id": "everyday-workflows:stop-redirect",
+          "status": "not_run"
+        },
+        {
+          "id": "agent-chat:stop-new-resume",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "integration",
+          "file": "server/test-baselines/lifecycle-heartbeat.test.ts",
+          "pattern": "LCA-10",
+          "status": "pass",
+          "assertions": 4,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-10",
+          "status": "pass",
+          "assertions": 13,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/heartbeat-stale-queue-invalidation.test.ts",
+          "pattern": "cap|gate|ownership|before adapter",
+          "status": "pass",
+          "assertions": 13,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/heartbeat-retry-scheduling.test.ts",
+          "pattern": "budget|pause|cancel|gate",
+          "status": "pass",
+          "assertions": 11,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-11",
+      "name": "Terminal ordering and cleanup",
+      "expected": "Completion report is not provider success; terminal/cleanup events retain their authority",
+      "live": [],
+      "coverage": [
+        {
+          "lane": "runner",
+          "file": "tests/lifecycle-baseline/runner.test.ts",
+          "pattern": "LCA-11",
+          "status": "pass",
+          "assertions": 9,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-11",
+          "status": "pass",
+          "assertions": 9,
+          "failedAssertions": []
+        },
+        {
+          "lane": "runner",
+          "file": "packages/paperclip-runner/src/native-session-runtime.test.ts",
+          "pattern": "terminal|completion report|cleanup|handoff",
+          "status": "pass",
+          "assertions": 23,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-12",
+      "name": "Replay, restart and stale ownership",
+      "expected": "One successor, preserved receipts/budgets; stale finalizers cannot mutate new ownership",
+      "live": [
+        {
+          "id": "everyday-workflows:recover-controller",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "grading",
+          "file": "tests/runner-e2e/lifecycle-baseline.test.ts",
+          "pattern": "LCA-12",
+          "status": "pass",
+          "assertions": 1,
+          "failedAssertions": []
+        },
+        {
+          "lane": "unit",
+          "file": "tests/lifecycle-baseline/authority.test.ts",
+          "pattern": "LCA-12",
+          "status": "pass",
+          "assertions": 13,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/native-finalization-recovery.test.ts",
+          "pattern": ".",
+          "status": "pass",
+          "assertions": 32,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/services/native-runtime/native-safe-replacement.test.ts",
+          "pattern": ".",
+          "status": "pass",
+          "assertions": 55,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/question-response-delivery.test.ts",
+          "pattern": "concurrent|interrupted|stale|receipt",
+          "status": "pass",
+          "assertions": 4,
+          "failedAssertions": []
+        }
+      ]
+    },
+    {
+      "id": "LCA-13",
+      "name": "Owned review",
+      "expected": "Concrete reviewer; reviewer outcome drives next transition",
+      "live": [
+        {
+          "id": "runner-evals:request-task-review",
+          "status": "not_run"
+        }
+      ],
+      "coverage": [
+        {
+          "lane": "unit",
+          "file": "server/src/services/native-runtime/status-arbiter.test.ts",
+          "pattern": "review",
+          "status": "pass",
+          "assertions": 6,
+          "failedAssertions": []
+        },
+        {
+          "lane": "integration",
+          "file": "server/src/__tests__/native-status-arbiter-corpus.test.ts",
+          "pattern": "ATT|review|corpus",
+          "status": "pass",
+          "assertions": 31,
+          "failedAssertions": []
+        }
+      ]
+    }
+  ],
+  "observations": [
+    {
+      "scenario": "LCA-02",
+      "variant": "legacy:summary:no-approval",
+      "actual": {
+        "before": {
+          "classification": {
+            "livenessState": "plan_only",
+            "livenessReason": "Run described runnable future work without concrete action evidence",
+            "continuationAttempt": 0,
+            "lastUsefulActionAt": null,
+            "nextAction": "I will inspect the repository and run tests.",
+            "actionability": "runnable"
+          },
+          "decision": {
+            "kind": "enqueue",
+            "nextAttempt": 1,
+            "idempotencyKey": "run_liveness_continuation:issue:run:plan_only:1",
+            "payload": {
+              "issueId": "issue",
+              "sourceRunId": "run",
+              "livenessState": "plan_only",
+              "livenessReason": "Run described runnable future work without concrete action evidence",
+              "continuationAttempt": 1,
+              "maxContinuationAttempts": 2,
+              "instruction": "I will inspect the repository and run tests."
+            },
+            "contextSnapshot": {
+              "issueId": "issue",
+              "taskId": "issue",
+              "taskKey": "issue",
+              "wakeReason": "run_liveness_continuation",
+              "livenessContinuationAttempt": 1,
+              "livenessContinuationMaxAttempts": 2,
+              "livenessContinuationSourceRunId": "run",
+              "livenessContinuationState": "plan_only",
+              "livenessContinuationReason": "Run described runnable future work without concrete action evidence",
+              "livenessContinuationInstruction": "I will inspect the repository and run tests."
+            }
+          },
+          "effect": {
+            "kind": "enqueue",
+            "nextAttempt": 1,
+            "idempotencyKey": "run_liveness_continuation:issue:run:plan_only:1"
+          }
+        },
+        "after": {
+          "classification": {
+            "livenessState": "blocked",
+            "livenessReason": "Run output declared a concrete blocker",
+            "continuationAttempt": 0,
+            "lastUsefulActionAt": null,
+            "nextAction": "No approval required. I will inspect the repository.",
+            "actionability": "approval_required"
+          },
+          "decision": {
+            "kind": "skip",
+            "reason": "liveness state is not actionable for continuation"
+          },
+          "effect": {
+            "kind": "skip"
+          }
+        }
+      }
+    },
+    {
+      "scenario": "LCA-02",
+      "variant": "legacy:summary:spanish",
+      "actual": {
+        "before": {
+          "classification": {
+            "livenessState": "plan_only",
+            "livenessReason": "Run described runnable future work without concrete action evidence",
+            "continuationAttempt": 0,
+            "lastUsefulActionAt": null,
+            "nextAction": "I will inspect the repository and run tests.",
+            "actionability": "runnable"
+          },
+          "decision": {
+            "kind": "enqueue",
+            "nextAttempt": 1,
+            "idempotencyKey": "run_liveness_continuation:issue:run:plan_only:1",
+            "payload": {
+              "issueId": "issue",
+              "sourceRunId": "run",
+              "livenessState": "plan_only",
+              "livenessReason": "Run described runnable future work without concrete action evidence",
+              "continuationAttempt": 1,
+              "maxContinuationAttempts": 2,
+              "instruction": "I will inspect the repository and run tests."
+            },
+            "contextSnapshot": {
+              "issueId": "issue",
+              "taskId": "issue",
+              "taskKey": "issue",
+              "wakeReason": "run_liveness_continuation",
+              "livenessContinuationAttempt": 1,
+              "livenessContinuationMaxAttempts": 2,
+              "livenessContinuationSourceRunId": "run",
+              "livenessContinuationState": "plan_only",
+              "livenessContinuationReason": "Run described runnable future work without concrete action evidence",
+              "livenessContinuationInstruction": "I will inspect the repository and run tests."
+            }
+          },
+          "effect": {
+            "kind": "enqueue",
+            "nextAttempt": 1,
+            "idempotencyKey": "run_liveness_continuation:issue:run:plan_only:1"
+          }
+        },
+        "after": {
+          "classification": {
+            "livenessState": "needs_followup",
+            "livenessReason": "Run produced useful output but no concrete action evidence",
+            "continuationAttempt": 0,
+            "lastUsefulActionAt": null,
+            "nextAction": null,
+            "actionability": "unknown"
+          },
+          "decision": {
+            "kind": "skip",
+            "reason": "liveness state is not actionable for continuation"
+          },
+          "effect": {
+            "kind": "skip"
+          }
+        }
+      }
+    },
+    {
+      "scenario": "LCA-05",
+      "variant": "report",
+      "actual": {
+        "before": {
+          "classification": {
+            "livenessState": "plan_only",
+            "livenessReason": "Run described runnable future work without concrete action evidence",
+            "continuationAttempt": 0,
+            "lastUsefulActionAt": null,
+            "nextAction": "I will inspect the repository and run tests.",
+            "actionability": "runnable"
+          },
+          "decision": {
+            "kind": "enqueue",
+            "nextAttempt": 1,
+            "idempotencyKey": "run_liveness_continuation:issue:run:plan_only:1",
+            "payload": {
+              "issueId": "issue",
+              "sourceRunId": "run",
+              "livenessState": "plan_only",
+              "livenessReason": "Run described runnable future work without concrete action evidence",
+              "continuationAttempt": 1,
+              "maxContinuationAttempts": 2,
+              "instruction": "I will inspect the repository and run tests."
+            },
+            "contextSnapshot": {
+              "issueId": "issue",
+              "taskId": "issue",
+              "taskKey": "issue",
+              "wakeReason": "run_liveness_continuation",
+              "livenessContinuationAttempt": 1,
+              "livenessContinuationMaxAttempts": 2,
+              "livenessContinuationSourceRunId": "run",
+              "livenessContinuationState": "plan_only",
+              "livenessContinuationReason": "Run described runnable future work without concrete action evidence",
+              "livenessContinuationInstruction": "I will inspect the repository and run tests."
+            }
+          },
+          "effect": {
+            "kind": "enqueue",
+            "nextAttempt": 1,
+            "idempotencyKey": "run_liveness_continuation:issue:run:plan_only:1"
+          }
+        },
+        "after": {
+          "classification": {
+            "livenessState": "advanced",
+            "livenessReason": "Planning/document task produced useful output and is exempt from plan-only classification",
+            "continuationAttempt": 0,
+            "lastUsefulActionAt": null,
+            "nextAction": null,
+            "actionability": "runnable"
+          },
+          "decision": {
+            "kind": "skip",
+            "reason": "liveness state is not actionable for continuation"
+          },
+          "effect": {
+            "kind": "skip"
+          }
+        }
+      }
+    },
+    {
+      "scenario": "LCA-05",
+      "variant": "description",
+      "actual": {
+        "before": {
+          "classification": {
+            "livenessState": "plan_only",
+            "livenessReason": "Run described runnable future work without concrete action evidence",
+            "continuationAttempt": 0,
+            "lastUsefulActionAt": null,
+            "nextAction": "I will inspect the repository and run tests.",
+            "actionability": "runnable"
+          },
+          "decision": {
+            "kind": "enqueue",
+            "nextAttempt": 1,
+            "idempotencyKey": "run_liveness_continuation:issue:run:plan_only:1",
+            "payload": {
+              "issueId": "issue",
+              "sourceRunId": "run",
+              "livenessState": "plan_only",
+              "livenessReason": "Run described runnable future work without concrete action evidence",
+              "continuationAttempt": 1,
+              "maxContinuationAttempts": 2,
+              "instruction": "I will inspect the repository and run tests."
+            },
+            "contextSnapshot": {
+              "issueId": "issue",
+              "taskId": "issue",
+              "taskKey": "issue",
+              "wakeReason": "run_liveness_continuation",
+              "livenessContinuationAttempt": 1,
+              "livenessContinuationMaxAttempts": 2,
+              "livenessContinuationSourceRunId": "run",
+              "livenessContinuationState": "plan_only",
+              "livenessContinuationReason": "Run described runnable future work without concrete action evidence",
+              "livenessContinuationInstruction": "I will inspect the repository and run tests."
+            }
+          },
+          "effect": {
+            "kind": "enqueue",
+            "nextAttempt": 1,
+            "idempotencyKey": "run_liveness_continuation:issue:run:plan_only:1"
+          }
+        },
+        "after": {
+          "classification": {
+            "livenessState": "advanced",
+            "livenessReason": "Planning/document task produced useful output and is exempt from plan-only classification",
+            "continuationAttempt": 0,
+            "lastUsefulActionAt": null,
+            "nextAction": null,
+            "actionability": "runnable"
+          },
+          "decision": {
+            "kind": "skip",
+            "reason": "liveness state is not actionable for continuation"
+          },
+          "effect": {
+            "kind": "skip"
+          }
+        }
+      }
+    },
+    {
+      "scenario": "LCA-09",
+      "variant": "comment-only",
+      "actual": {
+        "before": {
+          "classification": {
+            "livenessState": "plan_only",
+            "livenessReason": "Run described runnable future work without concrete action evidence",
+            "continuationAttempt": 2,
+            "lastUsefulActionAt": null,
+            "nextAction": "I will inspect the repository and run tests.",
+            "actionability": "runnable"
+          },
+          "decision": {
+            "kind": "exhausted",
+            "attempt": 2,
+            "maxAttempts": 2,
+            "comment": "Bounded liveness continuation exhausted\n\n- Last liveness state: `plan_only`\n- Attempts used: 2/2\n- Reason: Run described runnable future work without concrete action evidence\n- Next action: a human or manager should inspect the run and either clarify the task, mark it blocked, or assign a concrete follow-up."
+          },
+          "effect": {
+            "kind": "exhausted"
+          }
+        },
+        "after": {
+          "classification": {
+            "livenessState": "advanced",
+            "livenessReason": "Run produced concrete action evidence: 1 issue comment(s)",
+            "continuationAttempt": 2,
+            "lastUsefulActionAt": null,
+            "nextAction": null,
+            "actionability": "runnable"
+          },
+          "decision": {
+            "kind": "skip",
+            "reason": "liveness state is not actionable for continuation"
+          },
+          "effect": {
+            "kind": "skip"
+          }
+        }
+      }
+    },
+    {
+      "scenario": "LCA-01",
+      "variant": "native:Completed requested work.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        },
+        "settled": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        }
+      }
+    },
+    {
+      "scenario": "LCA-01",
+      "variant": "native:No approval required. I will inspect optional next steps.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        },
+        "settled": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        }
+      }
+    },
+    {
+      "scenario": "LCA-01",
+      "variant": "legacy:Completed requested work.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 0,
+          "operations": 1,
+          "providerTurns": 1
+        },
+        "settled": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 0,
+          "operations": 1,
+          "providerTurns": 1
+        }
+      }
+    },
+    {
+      "scenario": "LCA-01",
+      "variant": "legacy:No approval required. I will inspect optional next steps.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 0,
+          "operations": 1,
+          "providerTurns": 1
+        },
+        "settled": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 0,
+          "operations": 1,
+          "providerTurns": 1
+        }
+      }
+    },
+    {
+      "scenario": "LCA-02",
+      "variant": "native:First step recorded.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "in_progress",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "advanced"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": "issue_execution_same_name",
+              "status": "coalesced"
+            },
+            {
+              "reason": "issue_status_changed",
+              "status": "coalesced"
+            },
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        },
+        "settled": {
+          "issue": {
+            "status": "in_progress",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "advanced"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": "issue_execution_same_name",
+              "status": "coalesced"
+            },
+            {
+              "reason": "issue_status_changed",
+              "status": "coalesced"
+            },
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        }
+      }
+    },
+    {
+      "scenario": "LCA-02",
+      "variant": "native:No approval required. I will inspect optional next steps.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "in_progress",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "blocked"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": "issue_execution_same_name",
+              "status": "coalesced"
+            },
+            {
+              "reason": "issue_status_changed",
+              "status": "coalesced"
+            },
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        },
+        "settled": {
+          "issue": {
+            "status": "in_progress",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "blocked"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": "issue_execution_same_name",
+              "status": "coalesced"
+            },
+            {
+              "reason": "issue_status_changed",
+              "status": "coalesced"
+            },
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        }
+      }
+    },
+    {
+      "scenario": "LCA-02",
+      "variant": "legacy:I will inspect the repository and run tests.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "plan_only"
+            },
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            },
+            {
+              "reason": "run_liveness_continuation",
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 0,
+          "operations": 1,
+          "providerTurns": 2
+        },
+        "settled": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "plan_only"
+            },
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": null,
+              "status": "completed"
+            },
+            {
+              "reason": "run_liveness_continuation",
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 0,
+          "operations": 1,
+          "providerTurns": 2
+        }
+      }
+    },
+    {
+      "scenario": "LCA-02",
+      "variant": "legacy:No approval required. I will inspect the repository and run tests.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "blocked"
+            },
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": "finish_successful_run_handoff",
+              "status": "completed"
+            },
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 0,
+          "operations": 1,
+          "providerTurns": 2
+        },
+        "settled": {
+          "issue": {
+            "status": "done",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "blocked"
+            },
+            {
+              "status": "succeeded",
+              "runtimeMode": "legacy",
+              "errorCode": null,
+              "livenessState": "completed"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": "finish_successful_run_handoff",
+              "status": "completed"
+            },
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 0,
+          "operations": 1,
+          "providerTurns": 2
+        }
+      }
+    },
+    {
+      "scenario": "LCA-02",
+      "variant": "native:Step recorded; continue.",
+      "actual": {
+        "first": {
+          "issue": {
+            "status": "in_progress",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "advanced"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": "issue_execution_same_name",
+              "status": "coalesced"
+            },
+            {
+              "reason": "issue_status_changed",
+              "status": "coalesced"
+            },
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        },
+        "settled": {
+          "issue": {
+            "status": "in_progress",
+            "locked": false
+          },
+          "runs": [
+            {
+              "status": "succeeded",
+              "runtimeMode": "native",
+              "errorCode": null,
+              "livenessState": "advanced"
+            }
+          ],
+          "wakes": [
+            {
+              "reason": "issue_execution_same_name",
+              "status": "coalesced"
+            },
+            {
+              "reason": "issue_status_changed",
+              "status": "coalesced"
+            },
+            {
+              "reason": null,
+              "status": "completed"
+            }
+          ],
+          "decisionCount": 1,
+          "operations": 1,
+          "providerTurns": 1
+        }
+      }
+    },
+    {
+      "scenario": "LCA-04",
+      "variant": "native:approved:paused",
+      "actual": {
+        "admitted": false,
+        "runs": [],
+        "invocations": 0
+      }
+    },
+    {
+      "scenario": "LCA-04",
+      "variant": "legacy:approved:paused",
+      "actual": {
+        "admitted": false,
+        "runs": [],
+        "invocations": 0
+      }
+    },
+    {
+      "scenario": "LCA-04",
+      "variant": "native:approved:budget",
+      "actual": {
+        "admitted": false,
+        "runs": [],
+        "invocations": 0
+      }
+    },
+    {
+      "scenario": "LCA-04",
+      "variant": "legacy:approved:budget",
+      "actual": {
+        "admitted": false,
+        "runs": [],
+        "invocations": 0
+      }
+    },
+    {
+      "scenario": "LCA-09",
+      "variant": "exhausted-comment-versus-user-request",
+      "actual": {
+        "before": {
+          "outcome": "retry_exhausted",
+          "attempt": 3,
+          "maxAttempts": 2
+        },
+        "afterComment": {
+          "outcome": "retry_exhausted",
+          "attempt": 3,
+          "maxAttempts": 2
+        },
+        "runs": [
+          {
+            "status": "failed",
+            "retryOfRunId": null,
+            "scheduledRetryAttempt": 2
+          },
+          {
+            "status": "succeeded",
+            "retryOfRunId": null,
+            "scheduledRetryAttempt": 0
+          }
+        ],
+        "invocations": 1
+      }
+    }
+  ]
+}

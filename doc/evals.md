@@ -212,3 +212,18 @@ without that record, the helper will refuse to overwrite an existing prefix.
 Verify the public page and its links after publication. This manual refresh
 does not add a scheduled workflow. Preserve the measurement date when choosing
 a newer rendering of the same campaign.
+
+## Lifecycle behavior baseline
+
+The credential-free [lifecycle baseline](../tests/lifecycle-baseline/README.md)
+joins unit, scripted-runner, and database integration assertions to a scenario
+inventory before changing narrative-based lifecycle policy. Run
+`pnpm test:lifecycle-baseline` to retain current passes and failures. Its Product
+E2E matcher calibration is separate from live execution; unrun live coverage
+remains explicitly unmeasured.
+
+The separate [live lifecycle baseline](../tests/runner-e2e/LIFECYCLE-BASELINE.md)
+defines 40 real-provider Product E2E cells, including paired narrative probes and
+named existing controls on legacy and native Codex. Discover it with
+`pnpm test:e2e:runner -- --list --suite lifecycle-baseline`. Authoring validation
+has passed; live execution remains unmeasured.
