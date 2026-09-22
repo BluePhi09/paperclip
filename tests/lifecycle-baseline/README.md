@@ -6,7 +6,9 @@ intended behavior; an observed failure is retained, not blessed as an expected
 outcome and not fixed by this change.
 
 The [initial recorded baseline](BASELINE-2026-09-21.md) preserves passes,
-failures, representative observations and unmeasured coverage.
+failures, representative observations and unmeasured coverage. The separate
+[live Actions baseline](LIVE-BASELINE-2026-09-21.md) records actual LLM/browser runs,
+assertion corrections and retained behavior failures.
 
 ## Run and inspect
 
@@ -40,8 +42,9 @@ Each invocation retains an independent directory under `.lifecycle-baseline/`:
 
 The commit plus fingerprint covers tracked differences and untracked authored
 files. Keep the worktree or commit its tests with retained measurements when
-comparing revisions. Live coverage is explicitly `not_run`; authored definitions
-and passing grader calibration are not proof of real provider behavior. A test
+comparing revisions. The scripted report marks live coverage `not_run`; use the separate live Actions
+record for provider measurements. Authored definitions and passing grader
+calibration are not proof of real provider behavior. A test
 suite that cannot load is an evidence/harness failure, not a product finding.
 Skips are unavailable coverage, never a pass. Failed assertions require triage;
 raw runner/provider text is not uploaded by this command.
@@ -106,8 +109,8 @@ These proof boundaries must remain visible when interpreting the baseline.
 
 The dedicated [live lifecycle suite](../runner-e2e/LIFECYCLE-BASELINE.md) adds
 40 explicitly selected real-LLM/browser cells on both runtime generations.
-It was authored after the initial baseline. Discovery and grader calibration
-have run; real provider execution has not. Use
+It was authored after the initial scripted baseline and has now run on GitHub
+Actions; see the separate live record for measured outcomes. Use
 `pnpm test:e2e:runner -- --list --suite lifecycle-baseline` to inspect it.
 
 Product E2E uses the existing `continuation`, `agent-chat`, and

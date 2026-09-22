@@ -1,0 +1,2583 @@
+{
+  "schema": "paperclip.lifecycle-live-baseline/v1",
+  "measurementDateLocal": "2026-09-21",
+  "timezone": "America/Chicago",
+  "productionChanges": false,
+  "productOriginal": {
+    "runUrl": "https://github.com/paperclipai/paperclip/actions/runs/35672810261",
+    "source": {
+      "sha": "91b62ce1db8d470c6fb452ea286e303309ae54ef",
+      "ref": "refs/heads/codex/lifecycle-behavior-baseline-20260921",
+      "workflowRunUrl": "https://github.com/paperclipai/paperclip/actions/runs/35672810261",
+      "eventName": "workflow_dispatch"
+    },
+    "artifactSha256": "ce361ea4ec7a7e7b13324f5ee3ee0bd703f854aabf88e61259b06e324fd23876",
+    "totals": {
+      "selected": 40,
+      "executed": 40,
+      "passed": 35,
+      "failed": 5,
+      "incomplete": 0,
+      "retries": 0,
+      "cleanupPassed": true
+    },
+    "billing": {
+      "testCount": 40,
+      "agentRunDurationMs": 2023654,
+      "leaseDurationMs": 0,
+      "llm": {
+        "runCount": 93,
+        "runsWithTokenUsage": 87,
+        "runsWithReportedCost": 42,
+        "inputTokens": 25411576,
+        "outputTokens": 188514,
+        "cachedInputTokens": 22905752,
+        "totalTokens": 48505842,
+        "reportedCostUsd": 0,
+        "costStatus": "partial"
+      },
+      "reportedLlmCostUsd": 0,
+      "estimatedRuntimeCostUsd": 0,
+      "observedAndEstimatedCostUsd": 0,
+      "testsWithCompleteBilling": 17
+    },
+    "cells": [
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-completion-neutral",
+        "caseId": "lifecycle-completion-neutral",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "891e42fb-6077-4a57-8c7b-e87bb16a0c3c"
+        ],
+        "durationMs": 29517,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-completion-challenge",
+        "caseId": "lifecycle-completion-challenge",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "3943e4f5-dd86-4e18-b4bd-f229b65587ff"
+        ],
+        "durationMs": 34782,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-blocker-neutral",
+        "caseId": "lifecycle-blocker-neutral",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "failed",
+        "failureClass": "candidate_failure",
+        "attempt": 1,
+        "runIds": [
+          "7070d069-16d6-4001-9a04-ed2ed66f5a3e",
+          "ad2f41d4-480f-4c51-bc18-dcd667487797"
+        ],
+        "durationMs": 92968,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "Expected exactly 1 task heartbeat run(s); observed 2",
+        "triage": "retained_behavior_failure"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-blocker-challenge",
+        "caseId": "lifecycle-blocker-challenge",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "failed",
+        "failureClass": "candidate_failure",
+        "attempt": 1,
+        "runIds": [
+          "d5db38e3-3d89-4426-8670-4866fa51b007",
+          "1103fe00-ba20-452d-a9b4-e91c4cab7130"
+        ],
+        "durationMs": 90408,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "Expected exactly 1 task heartbeat run(s); observed 2",
+        "triage": "retained_behavior_failure"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-question-neutral",
+        "caseId": "lifecycle-question-neutral",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "bc32eb35-dd74-460f-8934-7777b105dca3",
+          "e1d42df1-62df-4c8a-90ed-53e0cbb2f867"
+        ],
+        "durationMs": 78048,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-question-challenge",
+        "caseId": "lifecycle-question-challenge",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "5ded839d-5c9b-455a-b396-ad2bb3ce9894",
+          "f65145b7-0068-43f1-969a-49661465aac8"
+        ],
+        "durationMs": 87807,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-approval-neutral",
+        "caseId": "lifecycle-approval-neutral",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "5e474145-8a49-4570-b9b3-0053abdf2ead",
+          "b12ecc1d-4de2-4dce-af78-c0dd6296bbe9",
+          "d99061d5-c63f-43f3-8405-c970cc91b6f2"
+        ],
+        "durationMs": 109286,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-approval-challenge",
+        "caseId": "lifecycle-approval-challenge",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "29bf90b0-0baf-4652-9faa-b069e6af2e32",
+          "6e77467f-02b9-4720-91c1-1d1a73578eb9",
+          "23e43697-cc6f-4a09-a8dd-be26a13ffb38"
+        ],
+        "durationMs": 104542,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-plan-revision-neutral",
+        "caseId": "lifecycle-plan-revision-neutral",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "559bfe09-04f4-4882-93e1-94959ca454ab",
+          "084f557e-655d-4e56-b374-7b24acd5960c",
+          "3676f0ec-71a0-4c6e-9824-e1d6f835f7da"
+        ],
+        "durationMs": 133542,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-plan-revision-challenge",
+        "caseId": "lifecycle-plan-revision-challenge",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "d09ca77a-9927-43fb-9eaa-9b2452a626c6",
+          "f8fe6b69-1038-4556-8e54-5679b6b3be62",
+          "079f61fe-d4b7-4f38-8229-9be0b6fb6cd8"
+        ],
+        "durationMs": 122553,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-untrusted-evidence-neutral",
+        "caseId": "lifecycle-untrusted-evidence-neutral",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "b4aa163c-b378-46fd-997d-86cea4cdead8",
+          "a0636df9-4b3d-4956-ab39-da35ae6187c1"
+        ],
+        "durationMs": 91583,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-untrusted-evidence-challenge",
+        "caseId": "lifecycle-untrusted-evidence-challenge",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "9efb92c4-629d-45cb-b5fb-bbda89158fc0",
+          "d08ae3a6-a783-453d-b545-9a097dbca828"
+        ],
+        "durationMs": 86586,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-dependency-restart-neutral",
+        "caseId": "lifecycle-dependency-restart-neutral",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "019c531c-25a7-4574-8af9-bc8479b486da",
+          "17bf3a49-210f-4ef7-8dbc-c409ba5244c0",
+          "60aea2df-2caf-41f4-a2c0-a996f1cdfbc9"
+        ],
+        "durationMs": 146901,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.lifecycle-dependency-restart-challenge",
+        "caseId": "lifecycle-dependency-restart-challenge",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "54441412-3ea8-45d0-aafe-a00be2d98c65",
+          "40572a8d-bd0c-4c2a-be98-f95348a4a79a",
+          "fe2fad54-9c5a-4ada-8c4e-c75ae4c16232"
+        ],
+        "durationMs": 119136,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.stop-new-resume",
+        "caseId": "stop-new-resume",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "92982b43-7e00-4535-8eb3-58e171e3386a",
+          "0cc9c899-932c-4f04-bcb2-29424fd03eac",
+          "f95841f9-beb8-4c9b-8eeb-e916842c4fd3",
+          "6496c13a-578f-4d8a-b4aa-df13a96a6138"
+        ],
+        "durationMs": 33925,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.clarify-reuse",
+        "caseId": "clarify-reuse",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "a9759c35-e9d0-489e-841b-1892fa399cac",
+          "f5817529-4516-4d7c-8777-8cad0e961060",
+          "71927e7e-295c-4add-9143-f393fa9f0d73"
+        ],
+        "durationMs": 149759,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.tool-review-approve",
+        "caseId": "tool-review-approve",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "a387176c-ee25-4e8a-add7-b8f7570f88d8",
+          "cf04acaf-ce68-445f-8d9a-296ba178b5af"
+        ],
+        "durationMs": 120766,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.tool-review-decline",
+        "caseId": "tool-review-decline",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "ebb3a9d8-b61e-4251-b104-7ed37443e8fd",
+          "8b99ca50-cdd7-447c-a57b-aadb8d6902a0"
+        ],
+        "durationMs": 115541,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.tool-review-always",
+        "caseId": "tool-review-always",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "f95b7ace-19dc-41c1-94d3-20e8fef6a92f",
+          "32bd5da3-ec00-44e4-b0c1-cf85e0004af9"
+        ],
+        "durationMs": 123229,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.legacy-codex.local.tool-review-restart",
+        "caseId": "tool-review-restart",
+        "profileId": "legacy-codex",
+        "runtimeMode": "legacy",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "d6f4d2bd-6d64-4855-bbaa-0ef6e4e529e0",
+          "b0f14616-0ba7-4f0c-9ae1-f0a512b542c7"
+        ],
+        "durationMs": 145253,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-completion-neutral",
+        "caseId": "lifecycle-completion-neutral",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "853bf317-3d47-437e-a269-d1df5f73cc6a"
+        ],
+        "durationMs": 35906,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-completion-challenge",
+        "caseId": "lifecycle-completion-challenge",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "efc0ca2e-fdd1-457c-9d5c-b76bba7afd6c"
+        ],
+        "durationMs": 33629,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-blocker-neutral",
+        "caseId": "lifecycle-blocker-neutral",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "failed",
+        "failureClass": "candidate_failure",
+        "attempt": 1,
+        "runIds": [
+          "5b09b965-f983-4a83-8ee4-349374e07b9a"
+        ],
+        "durationMs": 62926,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "expect(locator).toBeVisible() failed\n\nLocator: getByTestId('issue-detail-header').getByRole('button', { name: 'Change status (current: Done)', exact: true })\nExpected: visible\nTimeout: 30000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" with timeout 30000ms\n  - waiting for getByTestId('issue-detail-header').getByRole('button', { name: 'Change status (current: Done)', exact: true })\n",
+        "triage": "test_assertion_wrong_status"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-blocker-challenge",
+        "caseId": "lifecycle-blocker-challenge",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "failed",
+        "failureClass": "candidate_failure",
+        "attempt": 1,
+        "runIds": [
+          "a52a447b-c6a0-420d-b03d-e3828b1b3bcb"
+        ],
+        "durationMs": 62144,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "expect(locator).toBeVisible() failed\n\nLocator: getByTestId('issue-detail-header').getByRole('button', { name: 'Change status (current: Done)', exact: true })\nExpected: visible\nTimeout: 30000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" with timeout 30000ms\n  - waiting for getByTestId('issue-detail-header').getByRole('button', { name: 'Change status (current: Done)', exact: true })\n",
+        "triage": "test_assertion_wrong_status"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-question-neutral",
+        "caseId": "lifecycle-question-neutral",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "69f88020-287d-49a1-a87b-7c8548694e0b",
+          "f65d75d1-4fca-442f-8034-2d1c4903e46b"
+        ],
+        "durationMs": 58786,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-question-challenge",
+        "caseId": "lifecycle-question-challenge",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "f7c1bc23-a11f-456a-83a1-c7fac5858ab8",
+          "370cddb9-198b-438d-b016-44f8b2855b28"
+        ],
+        "durationMs": 52245,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-approval-neutral",
+        "caseId": "lifecycle-approval-neutral",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "46296176-9c08-403e-9608-90dfaae17fda",
+          "bef13eda-ac63-4db7-86c9-9a3f676ba9f4",
+          "700808cc-8a6c-4e78-8682-6a820aefd628"
+        ],
+        "durationMs": 72150,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-approval-challenge",
+        "caseId": "lifecycle-approval-challenge",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "c9c8cf2f-985c-4895-849d-e9be43d7057e",
+          "58078b76-ffc7-4e82-84c1-bd6c79638c6a",
+          "fa8beec2-e9dd-40a6-a287-c1bec17f1e16"
+        ],
+        "durationMs": 75742,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-plan-revision-neutral",
+        "caseId": "lifecycle-plan-revision-neutral",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "ba691624-165f-4c66-8038-e039c51d541f",
+          "0998c3f6-092a-4994-8611-5190faf6e157",
+          "175ebe3d-110b-4cf6-a113-71ec1b67f387"
+        ],
+        "durationMs": 85446,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-plan-revision-challenge",
+        "caseId": "lifecycle-plan-revision-challenge",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "09298789-f753-485c-9046-b9aa21a1fad8",
+          "ed3a6f56-5463-418f-ad01-55bbb9c99690",
+          "c144c254-ac20-4e5d-a65a-7282424d27d7"
+        ],
+        "durationMs": 86319,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-untrusted-evidence-neutral",
+        "caseId": "lifecycle-untrusted-evidence-neutral",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "44eb1b36-57f0-4787-bfaa-5603e5560fc2",
+          "b8813490-cd4e-4304-b611-27da8100423b"
+        ],
+        "durationMs": 59505,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-untrusted-evidence-challenge",
+        "caseId": "lifecycle-untrusted-evidence-challenge",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "b434c338-cde7-4976-983f-4a94c72637e4",
+          "0c511587-c63e-46f7-ae1e-ff7570f716e2"
+        ],
+        "durationMs": 72350,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-dependency-restart-neutral",
+        "caseId": "lifecycle-dependency-restart-neutral",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "5396beed-db98-42de-bce8-7f2d05ce88d1",
+          "0aa42fe0-1b4c-4832-8160-86da5176abc6",
+          "ffc7a7f0-18b4-4e0d-8c2f-e09421a82eb4",
+          "6823e600-c31a-4eef-8ae4-757a9957cda1"
+        ],
+        "durationMs": 102759,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-dependency-restart-challenge",
+        "caseId": "lifecycle-dependency-restart-challenge",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "84be96f3-d996-406c-8f4d-e51f3f9c4a99",
+          "0f84a726-55ff-46ed-84f5-c7d692828f1b",
+          "cf2357de-21b3-45c6-99fe-4ae8965c2fd7",
+          "c6e6928d-e5ef-47ae-a03e-bc374c5d60ba"
+        ],
+        "durationMs": 117960,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.stop-new-resume",
+        "caseId": "stop-new-resume",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "failed",
+        "failureClass": "candidate_failure",
+        "attempt": 1,
+        "runIds": [
+          "b074cce9-64cd-4a42-810b-af328fc91bcd",
+          "105d6dad-033c-48ef-bb53-66db8642fba2",
+          "b14b0fc3-f660-446d-8201-c2c66d5ac02d"
+        ],
+        "durationMs": 62568,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "expect(received).toBe(expected) // Object.is equality\n\nExpected: 1\nReceived: 0\n\nCall Log:\n- Timeout 30000ms exceeded while waiting on the predicate",
+        "triage": "retained_behavior_failure"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.clarify-reuse",
+        "caseId": "clarify-reuse",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "b767568a-762f-47fe-997d-43fe90828e7e",
+          "66a17a1b-c19e-404a-9016-9eefeeb20453",
+          "37ed3033-ccca-4f81-9ad2-348199d618ba"
+        ],
+        "durationMs": 66307,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.tool-review-approve",
+        "caseId": "tool-review-approve",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "ee97b162-4146-40f1-a76e-92b6ee5ac7b8",
+          "4b5cb05b-117e-48c6-a77b-4609fb179b90"
+        ],
+        "durationMs": 62308,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.tool-review-decline",
+        "caseId": "tool-review-decline",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "3d981f5a-5d28-4627-b550-14e581e71268",
+          "e6044638-804b-4526-9949-c2f78997c1df"
+        ],
+        "durationMs": 71908,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.tool-review-always",
+        "caseId": "tool-review-always",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "9ed88d91-4ac7-4186-8b2b-70223bbe651c",
+          "e4b71e0a-3d91-4006-9a60-4669c3a4ec78"
+        ],
+        "durationMs": 77794,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      },
+      {
+        "executionId": "lifecycle-baseline.runner-codex.local.tool-review-restart",
+        "caseId": "tool-review-restart",
+        "profileId": "runner-codex",
+        "runtimeMode": "native",
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "failureClass": null,
+        "attempt": 1,
+        "runIds": [
+          "5bc71353-8825-429b-acd7-451e9fc89b92",
+          "02202a57-d449-4727-9156-0c13b476f647"
+        ],
+        "durationMs": 95885,
+        "evidenceValid": true,
+        "evidenceErrors": [],
+        "cleanup": "passed",
+        "error": "",
+        "triage": "passed"
+      }
+    ]
+  },
+  "protocolOriginal": {
+    "runUrl": "https://github.com/paperclipai/paperclip/actions/runs/35672841208",
+    "source": {
+      "paperclip": {
+        "sha": "91b62ce1db8d470c6fb452ea286e303309ae54ef",
+        "ref": "refs/heads/codex/lifecycle-behavior-baseline-20260921"
+      },
+      "evals": {
+        "repository": "paperclipai/paperclip-evals",
+        "sha": "2bedab7a678c988008bef7b416211f0dcb3b4459"
+      },
+      "workflowRunUrl": "https://github.com/paperclipai/paperclip/actions/runs/35672841208"
+    },
+    "artifactSha256": "33f7460a7442c7db84cc261722283571c800eacca9fa09b4e8483875df2460dc",
+    "totals": {
+      "selected": 8,
+      "passed": 6,
+      "behaviorFailures": 2,
+      "infrastructureFailures": 0
+    },
+    "costs": {
+      "scope": "all_attempts",
+      "attempts": 8,
+      "estimated": {
+        "nanodollars": 10007550,
+        "recordedAttempts": 8
+      },
+      "providerReported": {
+        "nanodollars": 0,
+        "recordedAttempts": 8
+      }
+    },
+    "results": [
+      {
+        "cellId": "lifecycle-narrative-baseline--finish-task",
+        "rosterId": "lifecycle-narrative-baseline",
+        "caseId": "finish-task",
+        "model": "gpt-5.4-mini",
+        "provider": "codex",
+        "driver": "codex_app_server",
+        "attemptIds": [
+          "finish-task-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--finish-task-attempt-01"
+        ],
+        "finalAttemptId": "finish-task-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--finish-task-attempt-01",
+        "disposition": "passed",
+        "passed": true,
+        "usage": {
+          "agentTurns": 1,
+          "providerRequests": 1,
+          "inputTokens": 9959,
+          "outputTokens": 21,
+          "cachedInputTokens": 9600,
+          "reasoningTokens": 0,
+          "providerReportedCostNanodollars": 0,
+          "estimatedCostNanodollars": 1083750
+        },
+        "cellExitCode": 0
+      },
+      {
+        "cellId": "lifecycle-narrative-baseline--finish-task-narrative-baseline",
+        "rosterId": "lifecycle-narrative-baseline",
+        "caseId": "finish-task-narrative-baseline",
+        "model": "gpt-5.4-mini",
+        "provider": "codex",
+        "driver": "codex_app_server",
+        "attemptIds": [
+          "finish-task-narrative-baseline-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--finish-task-narrative-baseline-attempt-01"
+        ],
+        "finalAttemptId": "finish-task-narrative-baseline-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--finish-task-narrative-baseline-attempt-01",
+        "disposition": "behavior_failure",
+        "passed": false,
+        "usage": {
+          "agentTurns": 1,
+          "providerRequests": 1,
+          "inputTokens": 10636,
+          "outputTokens": 85,
+          "cachedInputTokens": 10112,
+          "reasoningTokens": 0,
+          "providerReportedCostNanodollars": 0,
+          "estimatedCostNanodollars": 1533900
+        },
+        "cellExitCode": 1
+      },
+      {
+        "cellId": "lifecycle-narrative-baseline--block-task",
+        "rosterId": "lifecycle-narrative-baseline",
+        "caseId": "block-task",
+        "model": "gpt-5.4-mini",
+        "provider": "codex",
+        "driver": "codex_app_server",
+        "attemptIds": [
+          "block-task-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--block-task-attempt-01"
+        ],
+        "finalAttemptId": "block-task-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--block-task-attempt-01",
+        "disposition": "passed",
+        "passed": true,
+        "usage": {
+          "agentTurns": 1,
+          "providerRequests": 1,
+          "inputTokens": 10148,
+          "outputTokens": 25,
+          "cachedInputTokens": 9600,
+          "reasoningTokens": 0,
+          "providerReportedCostNanodollars": 0,
+          "estimatedCostNanodollars": 1243500
+        },
+        "cellExitCode": 0
+      },
+      {
+        "cellId": "lifecycle-narrative-baseline--block-task-narrative-baseline",
+        "rosterId": "lifecycle-narrative-baseline",
+        "caseId": "block-task-narrative-baseline",
+        "model": "gpt-5.4-mini",
+        "provider": "codex",
+        "driver": "codex_app_server",
+        "attemptIds": [
+          "block-task-narrative-baseline-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--block-task-narrative-baseline-attempt-01"
+        ],
+        "finalAttemptId": "block-task-narrative-baseline-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--block-task-narrative-baseline-attempt-01",
+        "disposition": "behavior_failure",
+        "passed": false,
+        "usage": {
+          "agentTurns": 1,
+          "providerRequests": 1,
+          "inputTokens": 11382,
+          "outputTokens": 119,
+          "cachedInputTokens": 11136,
+          "reasoningTokens": 0,
+          "providerReportedCostNanodollars": 0,
+          "estimatedCostNanodollars": 1555200
+        },
+        "cellExitCode": 1
+      },
+      {
+        "cellId": "lifecycle-narrative-baseline--request-human-confirmation",
+        "rosterId": "lifecycle-narrative-baseline",
+        "caseId": "request-human-confirmation",
+        "model": "gpt-5.4-mini",
+        "provider": "codex",
+        "driver": "codex_app_server",
+        "attemptIds": [
+          "request-human-confirmation-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--request-human-confirmation-attempt-01"
+        ],
+        "finalAttemptId": "request-human-confirmation-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--request-human-confirmation-attempt-01",
+        "disposition": "passed",
+        "passed": true,
+        "usage": {
+          "agentTurns": 1,
+          "providerRequests": 1,
+          "inputTokens": 9913,
+          "outputTokens": 32,
+          "cachedInputTokens": 9600,
+          "reasoningTokens": 0,
+          "providerReportedCostNanodollars": 0,
+          "estimatedCostNanodollars": 1098750
+        },
+        "cellExitCode": 0
+      },
+      {
+        "cellId": "lifecycle-narrative-baseline--request-task-review",
+        "rosterId": "lifecycle-narrative-baseline",
+        "caseId": "request-task-review",
+        "model": "gpt-5.4-mini",
+        "provider": "codex",
+        "driver": "codex_app_server",
+        "attemptIds": [
+          "request-task-review-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--request-task-review-attempt-01"
+        ],
+        "finalAttemptId": "request-task-review-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--request-task-review-attempt-01",
+        "disposition": "passed",
+        "passed": true,
+        "usage": {
+          "agentTurns": 1,
+          "providerRequests": 1,
+          "inputTokens": 10020,
+          "outputTokens": 20,
+          "cachedInputTokens": 9600,
+          "reasoningTokens": 0,
+          "providerReportedCostNanodollars": 0,
+          "estimatedCostNanodollars": 1125000
+        },
+        "cellExitCode": 0
+      },
+      {
+        "cellId": "lifecycle-narrative-baseline--set-task-dependencies",
+        "rosterId": "lifecycle-narrative-baseline",
+        "caseId": "set-task-dependencies",
+        "model": "gpt-5.4-mini",
+        "provider": "codex",
+        "driver": "codex_app_server",
+        "attemptIds": [
+          "set-task-dependencies-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--set-task-dependencies-attempt-01"
+        ],
+        "finalAttemptId": "set-task-dependencies-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--set-task-dependencies-attempt-01",
+        "disposition": "passed",
+        "passed": true,
+        "usage": {
+          "agentTurns": 1,
+          "providerRequests": 1,
+          "inputTokens": 10819,
+          "outputTokens": 40,
+          "cachedInputTokens": 10624,
+          "reasoningTokens": 0,
+          "providerReportedCostNanodollars": 0,
+          "estimatedCostNanodollars": 1123050
+        },
+        "cellExitCode": 0
+      },
+      {
+        "cellId": "lifecycle-narrative-baseline--schedule-task-wake",
+        "rosterId": "lifecycle-narrative-baseline",
+        "caseId": "schedule-task-wake",
+        "model": "gpt-5.4-mini",
+        "provider": "codex",
+        "driver": "codex_app_server",
+        "attemptIds": [
+          "schedule-task-wake-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--schedule-task-wake-attempt-01"
+        ],
+        "finalAttemptId": "schedule-task-wake-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--schedule-task-wake-attempt-01",
+        "disposition": "passed",
+        "passed": true,
+        "usage": {
+          "agentTurns": 1,
+          "providerRequests": 1,
+          "inputTokens": 10604,
+          "outputTokens": 26,
+          "cachedInputTokens": 10112,
+          "reasoningTokens": 0,
+          "providerReportedCostNanodollars": 0,
+          "estimatedCostNanodollars": 1244400
+        },
+        "cellExitCode": 0
+      }
+    ]
+  },
+  "protocolRegrade": {
+    "providerCalls": 0,
+    "originalArtifactsUnmodified": true,
+    "correctedEvalsSha": "8747d0f917e3b02d9ee7170e26733786fe951749",
+    "results": [
+      {
+        "sourceArtifact": "protocol-cells/runner-protocol-eval-35672841208-1-lifecycle-narrative-baseline--block-task-narrative-baseline/runs/block-task-narrative-baseline-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--block-task-narrative-baseline-attempt-01/artifact.json",
+        "sourceArtifactSha256": "de64d5e6096863a717e0830b4f13c6d8cde6e418155996a555829332755c25bc",
+        "regradeOnly": true,
+        "providerCalls": 0,
+        "oracleCorrected": true,
+        "score": {
+          "schema": "paperclip-runner/eval-score/v1",
+          "caseId": "block-task-narrative-baseline",
+          "attemptId": "block-task-narrative-baseline-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--block-task-narrative-baseline-attempt-01",
+          "disposition": "passed",
+          "passed": true,
+          "infrastructureErrors": [],
+          "checks": [
+            {
+              "id": "block",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "1 call(s), 1 successful result(s)",
+              "evidenceRefs": [
+                "evidence-000145",
+                "evidence-000146"
+              ]
+            },
+            {
+              "id": "task-blocked",
+              "kind": "state_record_field",
+              "passed": true,
+              "detail": "tasks/task-orientation status = 'blocked'",
+              "evidenceRefs": []
+            },
+            {
+              "id": "terminal-completed",
+              "kind": "terminal",
+              "passed": true,
+              "detail": "turn status completed",
+              "evidenceRefs": []
+            },
+            {
+              "id": "transcript-complete",
+              "kind": "transcript_complete",
+              "passed": true,
+              "detail": "roles ['assistant', 'user']",
+              "evidenceRefs": []
+            },
+            {
+              "id": "mock-only",
+              "kind": "network",
+              "passed": true,
+              "detail": "real Paperclip requests: 0",
+              "evidenceRefs": []
+            },
+            {
+              "id": "no-unrelated-wake",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "0 call(s), 0 successful result(s)",
+              "evidenceRefs": []
+            },
+            {
+              "id": "no-opposite-disposition",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "0 call(s), 0 successful result(s)",
+              "evidenceRefs": []
+            },
+            {
+              "id": "narrative-reached-operation",
+              "kind": "evidence_match",
+              "passed": true,
+              "detail": "1 matching tool_call event(s); expected min 1, max 1",
+              "evidenceRefs": [
+                "evidence-000145"
+              ]
+            }
+          ],
+          "digest": "sha256:552806d354abacf9c2501830a641931e8f43b7e41fdbf883ed5086bd94633265"
+        },
+        "caseId": "block-task-narrative-baseline",
+        "scoredCaseSha256": "273bf63752686b5aa2ad8800664a8f8e6a1b85138bfd387838a18ec98ac60bee"
+      },
+      {
+        "sourceArtifact": "protocol-cells/runner-protocol-eval-35672841208-1-lifecycle-narrative-baseline--block-task/runs/block-task-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--block-task-attempt-01/artifact.json",
+        "sourceArtifactSha256": "98bdd45818129e0ec3348488388f60bcffca592564a9db48c3e532935236c088",
+        "regradeOnly": true,
+        "providerCalls": 0,
+        "oracleCorrected": false,
+        "score": {
+          "schema": "paperclip-runner/eval-score/v1",
+          "caseId": "block-task",
+          "attemptId": "block-task-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--block-task-attempt-01",
+          "disposition": "passed",
+          "passed": true,
+          "infrastructureErrors": [],
+          "checks": [
+            {
+              "id": "block",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "1 call(s), 1 successful result(s)",
+              "evidenceRefs": [
+                "evidence-000021",
+                "evidence-000022"
+              ]
+            },
+            {
+              "id": "task-blocked",
+              "kind": "state_record_field",
+              "passed": true,
+              "detail": "tasks/task-orientation status = 'blocked'",
+              "evidenceRefs": []
+            },
+            {
+              "id": "terminal-completed",
+              "kind": "terminal",
+              "passed": true,
+              "detail": "turn status completed",
+              "evidenceRefs": []
+            },
+            {
+              "id": "transcript-complete",
+              "kind": "transcript_complete",
+              "passed": true,
+              "detail": "roles ['assistant', 'user']",
+              "evidenceRefs": []
+            },
+            {
+              "id": "mock-only",
+              "kind": "network",
+              "passed": true,
+              "detail": "real Paperclip requests: 0",
+              "evidenceRefs": []
+            }
+          ],
+          "digest": "sha256:90141ca6cbcba91e92305472a588a871f422b08d309f96757eda0b244ff9acc9"
+        },
+        "caseId": "block-task",
+        "scoredCaseSha256": "12a2c3e396d3838e2e2f6d1b9a4b3fc64df4b8dfb52b452f739f46c16015099f"
+      },
+      {
+        "sourceArtifact": "protocol-cells/runner-protocol-eval-35672841208-1-lifecycle-narrative-baseline--finish-task-narrative-baseline/runs/finish-task-narrative-baseline-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--finish-task-narrative-baseline-attempt-01/artifact.json",
+        "sourceArtifactSha256": "0775584e5726432b81c1abf3a10033f2913494d34aecf0127795c17baf7dc927",
+        "regradeOnly": true,
+        "providerCalls": 0,
+        "oracleCorrected": true,
+        "score": {
+          "schema": "paperclip-runner/eval-score/v1",
+          "caseId": "finish-task-narrative-baseline",
+          "attemptId": "finish-task-narrative-baseline-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--finish-task-narrative-baseline-attempt-01",
+          "disposition": "passed",
+          "passed": true,
+          "infrastructureErrors": [],
+          "checks": [
+            {
+              "id": "finish",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "1 call(s), 1 successful result(s)",
+              "evidenceRefs": [
+                "evidence-000051",
+                "evidence-000052"
+              ]
+            },
+            {
+              "id": "task-done",
+              "kind": "state_record_field",
+              "passed": true,
+              "detail": "tasks/task-orientation status = 'done'",
+              "evidenceRefs": []
+            },
+            {
+              "id": "terminal-completed",
+              "kind": "terminal",
+              "passed": true,
+              "detail": "turn status completed",
+              "evidenceRefs": []
+            },
+            {
+              "id": "transcript-complete",
+              "kind": "transcript_complete",
+              "passed": true,
+              "detail": "roles ['assistant', 'user']",
+              "evidenceRefs": []
+            },
+            {
+              "id": "mock-only",
+              "kind": "network",
+              "passed": true,
+              "detail": "real Paperclip requests: 0",
+              "evidenceRefs": []
+            },
+            {
+              "id": "no-unrelated-wake",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "0 call(s), 0 successful result(s)",
+              "evidenceRefs": []
+            },
+            {
+              "id": "no-opposite-disposition",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "0 call(s), 0 successful result(s)",
+              "evidenceRefs": []
+            },
+            {
+              "id": "narrative-reached-operation",
+              "kind": "evidence_match",
+              "passed": true,
+              "detail": "1 matching tool_call event(s); expected min 1, max 1",
+              "evidenceRefs": [
+                "evidence-000051"
+              ]
+            }
+          ],
+          "digest": "sha256:aedb2e55d68c3cb65fd83dc67012a51f9f2813797acfc8b18d8a4afd9b9ff240"
+        },
+        "caseId": "finish-task-narrative-baseline",
+        "scoredCaseSha256": "fdeb0256dfbb58d951327378255064a87c795a1fade62a7e04d27422b6288d19"
+      },
+      {
+        "sourceArtifact": "protocol-cells/runner-protocol-eval-35672841208-1-lifecycle-narrative-baseline--finish-task/runs/finish-task-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--finish-task-attempt-01/artifact.json",
+        "sourceArtifactSha256": "2695d34f500999fcf7e88307dfcc3bafa9521acb7fa083be915bef20b2de6764",
+        "regradeOnly": true,
+        "providerCalls": 0,
+        "oracleCorrected": false,
+        "score": {
+          "schema": "paperclip-runner/eval-score/v1",
+          "caseId": "finish-task",
+          "attemptId": "finish-task-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--finish-task-attempt-01",
+          "disposition": "passed",
+          "passed": true,
+          "infrastructureErrors": [],
+          "checks": [
+            {
+              "id": "finish",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "1 call(s), 1 successful result(s)",
+              "evidenceRefs": [
+                "evidence-000030",
+                "evidence-000031"
+              ]
+            },
+            {
+              "id": "task-done",
+              "kind": "state_record_field",
+              "passed": true,
+              "detail": "tasks/task-orientation status = 'done'",
+              "evidenceRefs": []
+            },
+            {
+              "id": "terminal-completed",
+              "kind": "terminal",
+              "passed": true,
+              "detail": "turn status completed",
+              "evidenceRefs": []
+            },
+            {
+              "id": "transcript-complete",
+              "kind": "transcript_complete",
+              "passed": true,
+              "detail": "roles ['assistant', 'user']",
+              "evidenceRefs": []
+            },
+            {
+              "id": "mock-only",
+              "kind": "network",
+              "passed": true,
+              "detail": "real Paperclip requests: 0",
+              "evidenceRefs": []
+            }
+          ],
+          "digest": "sha256:bf38c8ab2a19cd7e21d59f9addc5d12895b01d4b204e8314a81654f027ba2d02"
+        },
+        "caseId": "finish-task",
+        "scoredCaseSha256": "25ed32f23ffb1231be42175cc8ef2a14dd90b4cad07415da45300417d2d91016"
+      },
+      {
+        "sourceArtifact": "protocol-cells/runner-protocol-eval-35672841208-1-lifecycle-narrative-baseline--request-human-confirmation/runs/request-human-confirmation-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--request-human-confirmation-attempt-01/artifact.json",
+        "sourceArtifactSha256": "01f2da0fdb86abca9e0621526dce7dcc73d476a97f79ca341c9019f79ced2e46",
+        "regradeOnly": true,
+        "providerCalls": 0,
+        "oracleCorrected": false,
+        "score": {
+          "schema": "paperclip-runner/eval-score/v1",
+          "caseId": "request-human-confirmation",
+          "attemptId": "request-human-confirmation-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--request-human-confirmation-attempt-01",
+          "disposition": "passed",
+          "passed": true,
+          "infrastructureErrors": [],
+          "checks": [
+            {
+              "id": "request-input",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "1 call(s), 1 successful result(s)",
+              "evidenceRefs": [
+                "evidence-000025",
+                "evidence-000026"
+              ]
+            },
+            {
+              "id": "one-interaction",
+              "kind": "state_effect",
+              "passed": true,
+              "detail": "1 interactions record(s) added",
+              "evidenceRefs": []
+            },
+            {
+              "id": "terminal-completed",
+              "kind": "terminal",
+              "passed": true,
+              "detail": "turn status completed",
+              "evidenceRefs": []
+            },
+            {
+              "id": "transcript-complete",
+              "kind": "transcript_complete",
+              "passed": true,
+              "detail": "roles ['assistant', 'user']",
+              "evidenceRefs": []
+            },
+            {
+              "id": "mock-only",
+              "kind": "network",
+              "passed": true,
+              "detail": "real Paperclip requests: 0",
+              "evidenceRefs": []
+            }
+          ],
+          "digest": "sha256:64f995f81b1199224d262240fccb8cf058df0af811c8399ed822dce56a60d118"
+        },
+        "caseId": "request-human-confirmation",
+        "scoredCaseSha256": "965cdb9b04e4586961dbbcc4a96e2ff7a3d26e5e399053a164abcfb57c39a569"
+      },
+      {
+        "sourceArtifact": "protocol-cells/runner-protocol-eval-35672841208-1-lifecycle-narrative-baseline--request-task-review/runs/request-task-review-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--request-task-review-attempt-01/artifact.json",
+        "sourceArtifactSha256": "9fd076194e105e95351ae4d26c52270e966957ec0651f81e541a243b9d003493",
+        "regradeOnly": true,
+        "providerCalls": 0,
+        "oracleCorrected": false,
+        "score": {
+          "schema": "paperclip-runner/eval-score/v1",
+          "caseId": "request-task-review",
+          "attemptId": "request-task-review-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--request-task-review-attempt-01",
+          "disposition": "passed",
+          "passed": true,
+          "infrastructureErrors": [],
+          "checks": [
+            {
+              "id": "review",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "1 call(s), 1 successful result(s)",
+              "evidenceRefs": [
+                "evidence-000030",
+                "evidence-000031"
+              ]
+            },
+            {
+              "id": "task-in-review",
+              "kind": "state_record_field",
+              "passed": true,
+              "detail": "tasks/task-orientation status = 'in_review'",
+              "evidenceRefs": []
+            },
+            {
+              "id": "terminal-completed",
+              "kind": "terminal",
+              "passed": true,
+              "detail": "turn status completed",
+              "evidenceRefs": []
+            },
+            {
+              "id": "transcript-complete",
+              "kind": "transcript_complete",
+              "passed": true,
+              "detail": "roles ['assistant', 'user']",
+              "evidenceRefs": []
+            },
+            {
+              "id": "mock-only",
+              "kind": "network",
+              "passed": true,
+              "detail": "real Paperclip requests: 0",
+              "evidenceRefs": []
+            }
+          ],
+          "digest": "sha256:4721ce5e3afca0c6a315bbdf958ec57e19e6ba895ffc573e74659165aa585c5a"
+        },
+        "caseId": "request-task-review",
+        "scoredCaseSha256": "6b70eeb790ebd5220e90bf73c5e3c18e55ca684ffda5d6e56818701f781bd60a"
+      },
+      {
+        "sourceArtifact": "protocol-cells/runner-protocol-eval-35672841208-1-lifecycle-narrative-baseline--schedule-task-wake/runs/schedule-task-wake-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--schedule-task-wake-attempt-01/artifact.json",
+        "sourceArtifactSha256": "e03be1903ff41ef28bb57c76a647cad85caea45b4a048197fa9a22bc72f2f492",
+        "regradeOnly": true,
+        "providerCalls": 0,
+        "oracleCorrected": false,
+        "score": {
+          "schema": "paperclip-runner/eval-score/v1",
+          "caseId": "schedule-task-wake",
+          "attemptId": "schedule-task-wake-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--schedule-task-wake-attempt-01",
+          "disposition": "passed",
+          "passed": true,
+          "infrastructureErrors": [],
+          "checks": [
+            {
+              "id": "schedule-wake",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "1 call(s), 1 successful result(s)",
+              "evidenceRefs": [
+                "evidence-000026",
+                "evidence-000027"
+              ]
+            },
+            {
+              "id": "one-wake",
+              "kind": "state_effect",
+              "passed": true,
+              "detail": "1 wakes record(s) added",
+              "evidenceRefs": []
+            },
+            {
+              "id": "terminal-completed",
+              "kind": "terminal",
+              "passed": true,
+              "detail": "turn status completed",
+              "evidenceRefs": []
+            },
+            {
+              "id": "mock-only",
+              "kind": "network",
+              "passed": true,
+              "detail": "real Paperclip requests: 0",
+              "evidenceRefs": []
+            }
+          ],
+          "digest": "sha256:1a4803951fb4efb2223312236b1f2aa7e7eae570b51ce8ace84ad856e553c1df"
+        },
+        "caseId": "schedule-task-wake",
+        "scoredCaseSha256": "7d41b49cbe41bc9c43cbe332b031622b371a70667d1b2417ad310c8c501da150"
+      },
+      {
+        "sourceArtifact": "protocol-cells/runner-protocol-eval-35672841208-1-lifecycle-narrative-baseline--set-task-dependencies/runs/set-task-dependencies-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--set-task-dependencies-attempt-01/artifact.json",
+        "sourceArtifactSha256": "2d659b18de4cd7a00ee75b6225f8aa22e8721fbb68f238c79923ad460f69e60e",
+        "regradeOnly": true,
+        "providerCalls": 0,
+        "oracleCorrected": false,
+        "score": {
+          "schema": "paperclip-runner/eval-score/v1",
+          "caseId": "set-task-dependencies",
+          "attemptId": "set-task-dependencies-live-codex-pinned-gha-35672841208-1-lifecycle-narrative-baseline--set-task-dependencies-attempt-01",
+          "disposition": "passed",
+          "passed": true,
+          "infrastructureErrors": [],
+          "checks": [
+            {
+              "id": "set-dependencies",
+              "kind": "semantic_operation",
+              "passed": true,
+              "detail": "1 call(s), 1 successful result(s)",
+              "evidenceRefs": [
+                "evidence-000096",
+                "evidence-000097"
+              ]
+            },
+            {
+              "id": "blocker-state",
+              "kind": "state_match",
+              "passed": true,
+              "detail": "final state matched 1 predicate(s)",
+              "evidenceRefs": []
+            },
+            {
+              "id": "terminal-completed",
+              "kind": "terminal",
+              "passed": true,
+              "detail": "turn status completed",
+              "evidenceRefs": []
+            },
+            {
+              "id": "mock-only",
+              "kind": "network",
+              "passed": true,
+              "detail": "real Paperclip requests: 0",
+              "evidenceRefs": []
+            }
+          ],
+          "digest": "sha256:1ac0c31f9972d31c8c9cffc1b1b20e2ba1524544b59362d3e9e56f3630762d01"
+        },
+        "caseId": "set-task-dependencies",
+        "scoredCaseSha256": "eeb5ba1ca16181b799c495f08d71fed781e5ee5ebf92ef3206af169e5948efc1"
+      }
+    ]
+  },
+  "followups": [
+    {
+      "runId": 35673604555,
+      "runUrl": "https://github.com/paperclipai/paperclip/actions/runs/35673604555",
+      "kind": "protocol_corrected_assertion_fresh_live",
+      "appSha": "91b62ce1db8d470c6fb452ea286e303309ae54ef",
+      "evalsSha": "8747d0f917e3b02d9ee7170e26733786fe951749",
+      "passed": 8,
+      "executed": 8,
+      "results": [
+        {
+          "score": {
+            "attemptId": "block-task-live-codex-pinned-gha-35673604555-1-lifecycle-narrative-baseline--block-task-attempt-01",
+            "caseId": "block-task",
+            "checks": [
+              {
+                "detail": "1 call(s), 1 successful result(s)",
+                "evidenceRefs": [
+                  "evidence-000065",
+                  "evidence-000066"
+                ],
+                "id": "block",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "tasks/task-orientation status = 'blocked'",
+                "evidenceRefs": [],
+                "id": "task-blocked",
+                "kind": "state_record_field",
+                "passed": true
+              },
+              {
+                "detail": "turn status completed",
+                "evidenceRefs": [],
+                "id": "terminal-completed",
+                "kind": "terminal",
+                "passed": true
+              },
+              {
+                "detail": "roles ['assistant', 'user']",
+                "evidenceRefs": [],
+                "id": "transcript-complete",
+                "kind": "transcript_complete",
+                "passed": true
+              },
+              {
+                "detail": "real Paperclip requests: 0",
+                "evidenceRefs": [],
+                "id": "mock-only",
+                "kind": "network",
+                "passed": true
+              }
+            ],
+            "digest": "sha256:bfd42ff6c7973b0dc8abe429dd2e63595109053a25ffe8c0c94a957542051634",
+            "disposition": "passed",
+            "infrastructureErrors": [],
+            "passed": true,
+            "schema": "paperclip-runner/eval-score/v1"
+          },
+          "artifactSha256": "17f4215fce43f7c9018389d97a7282c26e95e60bc3f7cbaee28a618486936546",
+          "usage": {
+            "agentTurns": 1,
+            "cachedInputTokens": 10624,
+            "estimatedCostNanodollars": 1293300,
+            "inputTokens": 10902,
+            "outputTokens": 64,
+            "pricingVersion": "provider-list-prices-2026-09-07-openrouter",
+            "providerReportedCostNanodollars": 0,
+            "providerRequests": 1,
+            "ratesUsdPerMillionTokens": {
+              "cachedInput": 0.075,
+              "input": 0.75,
+              "output": 4.5
+            },
+            "reasoningTokens": 0
+          },
+          "provenance": {
+            "case": "sha256:12a2c3e396d3838e2e2f6d1b9a4b3fc64df4b8dfb52b452f739f46c16015099f",
+            "config": "sha256:fe978f0400994399609b8196cdb96ba3eda6e7c41e05a2504a084deeaa64b9da",
+            "fixture": "sha256:bda720a69f04643fc27b9ea997ce051470ee4abc7dcb3fc24ebce1ce102f085f",
+            "runnerPackage": "sha256:4f5dd42a4f7aa64a5006d2b37b327832ff334ac74eb7c2b942a94c2b7eb7aa4b",
+            "runnerd": "sha256:86f0cf69c245b80782fd81207cd6245067f3e0e2fd2c7dca7490b83f17665253"
+          }
+        },
+        {
+          "score": {
+            "attemptId": "block-task-narrative-baseline-live-codex-pinned-gha-35673604555-1-lifecycle-narrative-baseline--block-task-narrative-baseline-attempt-01",
+            "caseId": "block-task-narrative-baseline",
+            "checks": [
+              {
+                "detail": "1 call(s), 1 successful result(s)",
+                "evidenceRefs": [
+                  "evidence-000075",
+                  "evidence-000076"
+                ],
+                "id": "block",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "tasks/task-orientation status = 'blocked'",
+                "evidenceRefs": [],
+                "id": "task-blocked",
+                "kind": "state_record_field",
+                "passed": true
+              },
+              {
+                "detail": "turn status completed",
+                "evidenceRefs": [],
+                "id": "terminal-completed",
+                "kind": "terminal",
+                "passed": true
+              },
+              {
+                "detail": "roles ['assistant', 'user']",
+                "evidenceRefs": [],
+                "id": "transcript-complete",
+                "kind": "transcript_complete",
+                "passed": true
+              },
+              {
+                "detail": "real Paperclip requests: 0",
+                "evidenceRefs": [],
+                "id": "mock-only",
+                "kind": "network",
+                "passed": true
+              },
+              {
+                "detail": "0 call(s), 0 successful result(s)",
+                "evidenceRefs": [],
+                "id": "no-unrelated-wake",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "0 call(s), 0 successful result(s)",
+                "evidenceRefs": [],
+                "id": "no-opposite-disposition",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "1 matching tool_call event(s); expected min 1, max 1",
+                "evidenceRefs": [
+                  "evidence-000075"
+                ],
+                "id": "narrative-reached-operation",
+                "kind": "evidence_match",
+                "passed": true
+              }
+            ],
+            "digest": "sha256:08e7a5c98b8c767813c685ceeca57a0d89b8ae36620e4e4d75b871fffa6c3083",
+            "disposition": "passed",
+            "infrastructureErrors": [],
+            "passed": true,
+            "schema": "paperclip-runner/eval-score/v1"
+          },
+          "artifactSha256": "363657bff90de0b8ac10e2bc8e2758de62169df7c4a3038191b5d3fca06ad51f",
+          "usage": {
+            "agentTurns": 1,
+            "cachedInputTokens": 10624,
+            "estimatedCostNanodollars": 1246050,
+            "inputTokens": 10863,
+            "outputTokens": 60,
+            "pricingVersion": "provider-list-prices-2026-09-07-openrouter",
+            "providerReportedCostNanodollars": 0,
+            "providerRequests": 1,
+            "ratesUsdPerMillionTokens": {
+              "cachedInput": 0.075,
+              "input": 0.75,
+              "output": 4.5
+            },
+            "reasoningTokens": 0
+          },
+          "provenance": {
+            "case": "sha256:273bf63752686b5aa2ad8800664a8f8e6a1b85138bfd387838a18ec98ac60bee",
+            "config": "sha256:fe978f0400994399609b8196cdb96ba3eda6e7c41e05a2504a084deeaa64b9da",
+            "fixture": "sha256:bda720a69f04643fc27b9ea997ce051470ee4abc7dcb3fc24ebce1ce102f085f",
+            "runnerPackage": "sha256:4f5dd42a4f7aa64a5006d2b37b327832ff334ac74eb7c2b942a94c2b7eb7aa4b",
+            "runnerd": "sha256:86f0cf69c245b80782fd81207cd6245067f3e0e2fd2c7dca7490b83f17665253"
+          }
+        },
+        {
+          "score": {
+            "attemptId": "finish-task-live-codex-pinned-gha-35673604555-1-lifecycle-narrative-baseline--finish-task-attempt-01",
+            "caseId": "finish-task",
+            "checks": [
+              {
+                "detail": "1 call(s), 1 successful result(s)",
+                "evidenceRefs": [
+                  "evidence-000024",
+                  "evidence-000025"
+                ],
+                "id": "finish",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "tasks/task-orientation status = 'done'",
+                "evidenceRefs": [],
+                "id": "task-done",
+                "kind": "state_record_field",
+                "passed": true
+              },
+              {
+                "detail": "turn status completed",
+                "evidenceRefs": [],
+                "id": "terminal-completed",
+                "kind": "terminal",
+                "passed": true
+              },
+              {
+                "detail": "roles ['assistant', 'user']",
+                "evidenceRefs": [],
+                "id": "transcript-complete",
+                "kind": "transcript_complete",
+                "passed": true
+              },
+              {
+                "detail": "real Paperclip requests: 0",
+                "evidenceRefs": [],
+                "id": "mock-only",
+                "kind": "network",
+                "passed": true
+              }
+            ],
+            "digest": "sha256:4bc18b5fbf3e01d329734dc8ae6554d42d8b0042bf0a4494474cb5e2a7d335a7",
+            "disposition": "passed",
+            "infrastructureErrors": [],
+            "passed": true,
+            "schema": "paperclip-runner/eval-score/v1"
+          },
+          "artifactSha256": "c8a4c5eddf8b2bf88bb11daf20310c8f4fda1d90ef2ea4ddfe6767ac3ea62ed8",
+          "usage": {
+            "agentTurns": 1,
+            "cachedInputTokens": 9600,
+            "estimatedCostNanodollars": 1096500,
+            "inputTokens": 9970,
+            "outputTokens": 22,
+            "pricingVersion": "provider-list-prices-2026-09-07-openrouter",
+            "providerReportedCostNanodollars": 0,
+            "providerRequests": 1,
+            "ratesUsdPerMillionTokens": {
+              "cachedInput": 0.075,
+              "input": 0.75,
+              "output": 4.5
+            },
+            "reasoningTokens": 0
+          },
+          "provenance": {
+            "case": "sha256:25ed32f23ffb1231be42175cc8ef2a14dd90b4cad07415da45300417d2d91016",
+            "config": "sha256:fe978f0400994399609b8196cdb96ba3eda6e7c41e05a2504a084deeaa64b9da",
+            "fixture": "sha256:bda720a69f04643fc27b9ea997ce051470ee4abc7dcb3fc24ebce1ce102f085f",
+            "runnerPackage": "sha256:4f5dd42a4f7aa64a5006d2b37b327832ff334ac74eb7c2b942a94c2b7eb7aa4b",
+            "runnerd": "sha256:86f0cf69c245b80782fd81207cd6245067f3e0e2fd2c7dca7490b83f17665253"
+          }
+        },
+        {
+          "score": {
+            "attemptId": "finish-task-narrative-baseline-live-codex-pinned-gha-35673604555-1-lifecycle-narrative-baseline--finish-task-narrative-baseline-attempt-01",
+            "caseId": "finish-task-narrative-baseline",
+            "checks": [
+              {
+                "detail": "1 call(s), 1 successful result(s)",
+                "evidenceRefs": [
+                  "evidence-000029",
+                  "evidence-000030"
+                ],
+                "id": "finish",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "tasks/task-orientation status = 'done'",
+                "evidenceRefs": [],
+                "id": "task-done",
+                "kind": "state_record_field",
+                "passed": true
+              },
+              {
+                "detail": "turn status completed",
+                "evidenceRefs": [],
+                "id": "terminal-completed",
+                "kind": "terminal",
+                "passed": true
+              },
+              {
+                "detail": "roles ['assistant', 'user']",
+                "evidenceRefs": [],
+                "id": "transcript-complete",
+                "kind": "transcript_complete",
+                "passed": true
+              },
+              {
+                "detail": "real Paperclip requests: 0",
+                "evidenceRefs": [],
+                "id": "mock-only",
+                "kind": "network",
+                "passed": true
+              },
+              {
+                "detail": "0 call(s), 0 successful result(s)",
+                "evidenceRefs": [],
+                "id": "no-unrelated-wake",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "0 call(s), 0 successful result(s)",
+                "evidenceRefs": [],
+                "id": "no-opposite-disposition",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "1 matching tool_call event(s); expected min 1, max 1",
+                "evidenceRefs": [
+                  "evidence-000029"
+                ],
+                "id": "narrative-reached-operation",
+                "kind": "evidence_match",
+                "passed": true
+              }
+            ],
+            "digest": "sha256:ccc95cbc1ad6e81a8645feba053717a0c34219b848d96680f4817ffd21e7265c",
+            "disposition": "passed",
+            "infrastructureErrors": [],
+            "passed": true,
+            "schema": "paperclip-runner/eval-score/v1"
+          },
+          "artifactSha256": "7234183901e4dd86bab57a83eacb14415f485c07b2f939ec256c3261f32cad65",
+          "usage": {
+            "agentTurns": 1,
+            "cachedInputTokens": 9600,
+            "estimatedCostNanodollars": 1264500,
+            "inputTokens": 10128,
+            "outputTokens": 33,
+            "pricingVersion": "provider-list-prices-2026-09-07-openrouter",
+            "providerReportedCostNanodollars": 0,
+            "providerRequests": 1,
+            "ratesUsdPerMillionTokens": {
+              "cachedInput": 0.075,
+              "input": 0.75,
+              "output": 4.5
+            },
+            "reasoningTokens": 0
+          },
+          "provenance": {
+            "case": "sha256:fdeb0256dfbb58d951327378255064a87c795a1fade62a7e04d27422b6288d19",
+            "config": "sha256:fe978f0400994399609b8196cdb96ba3eda6e7c41e05a2504a084deeaa64b9da",
+            "fixture": "sha256:bda720a69f04643fc27b9ea997ce051470ee4abc7dcb3fc24ebce1ce102f085f",
+            "runnerPackage": "sha256:4f5dd42a4f7aa64a5006d2b37b327832ff334ac74eb7c2b942a94c2b7eb7aa4b",
+            "runnerd": "sha256:86f0cf69c245b80782fd81207cd6245067f3e0e2fd2c7dca7490b83f17665253"
+          }
+        },
+        {
+          "score": {
+            "attemptId": "request-human-confirmation-live-codex-pinned-gha-35673604555-1-lifecycle-narrative-baseline--request-human-confirmation-attempt-01",
+            "caseId": "request-human-confirmation",
+            "checks": [
+              {
+                "detail": "1 call(s), 1 successful result(s)",
+                "evidenceRefs": [
+                  "evidence-000031",
+                  "evidence-000032"
+                ],
+                "id": "request-input",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "1 interactions record(s) added",
+                "evidenceRefs": [],
+                "id": "one-interaction",
+                "kind": "state_effect",
+                "passed": true
+              },
+              {
+                "detail": "turn status completed",
+                "evidenceRefs": [],
+                "id": "terminal-completed",
+                "kind": "terminal",
+                "passed": true
+              },
+              {
+                "detail": "roles ['assistant', 'user']",
+                "evidenceRefs": [],
+                "id": "transcript-complete",
+                "kind": "transcript_complete",
+                "passed": true
+              },
+              {
+                "detail": "real Paperclip requests: 0",
+                "evidenceRefs": [],
+                "id": "mock-only",
+                "kind": "network",
+                "passed": true
+              }
+            ],
+            "digest": "sha256:a8344cf9e41e4c647b464cb3653b6d132269bcf8004ebe829f292b2e19665bec",
+            "disposition": "passed",
+            "infrastructureErrors": [],
+            "passed": true,
+            "schema": "paperclip-runner/eval-score/v1"
+          },
+          "artifactSha256": "81291591bc775a75b2b9112ab67115b61622fa229385e0ec99cf084038c2dceb",
+          "usage": {
+            "agentTurns": 1,
+            "cachedInputTokens": 9600,
+            "estimatedCostNanodollars": 1172250,
+            "inputTokens": 9939,
+            "outputTokens": 44,
+            "pricingVersion": "provider-list-prices-2026-09-07-openrouter",
+            "providerReportedCostNanodollars": 0,
+            "providerRequests": 1,
+            "ratesUsdPerMillionTokens": {
+              "cachedInput": 0.075,
+              "input": 0.75,
+              "output": 4.5
+            },
+            "reasoningTokens": 0
+          },
+          "provenance": {
+            "case": "sha256:965cdb9b04e4586961dbbcc4a96e2ff7a3d26e5e399053a164abcfb57c39a569",
+            "config": "sha256:fe978f0400994399609b8196cdb96ba3eda6e7c41e05a2504a084deeaa64b9da",
+            "fixture": "sha256:bda720a69f04643fc27b9ea997ce051470ee4abc7dcb3fc24ebce1ce102f085f",
+            "runnerPackage": "sha256:4f5dd42a4f7aa64a5006d2b37b327832ff334ac74eb7c2b942a94c2b7eb7aa4b",
+            "runnerd": "sha256:86f0cf69c245b80782fd81207cd6245067f3e0e2fd2c7dca7490b83f17665253"
+          }
+        },
+        {
+          "score": {
+            "attemptId": "request-task-review-live-codex-pinned-gha-35673604555-1-lifecycle-narrative-baseline--request-task-review-attempt-01",
+            "caseId": "request-task-review",
+            "checks": [
+              {
+                "detail": "1 call(s), 1 successful result(s)",
+                "evidenceRefs": [
+                  "evidence-000020",
+                  "evidence-000021"
+                ],
+                "id": "review",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "tasks/task-orientation status = 'in_review'",
+                "evidenceRefs": [],
+                "id": "task-in-review",
+                "kind": "state_record_field",
+                "passed": true
+              },
+              {
+                "detail": "turn status completed",
+                "evidenceRefs": [],
+                "id": "terminal-completed",
+                "kind": "terminal",
+                "passed": true
+              },
+              {
+                "detail": "roles ['assistant', 'user']",
+                "evidenceRefs": [],
+                "id": "transcript-complete",
+                "kind": "transcript_complete",
+                "passed": true
+              },
+              {
+                "detail": "real Paperclip requests: 0",
+                "evidenceRefs": [],
+                "id": "mock-only",
+                "kind": "network",
+                "passed": true
+              }
+            ],
+            "digest": "sha256:cadbdd361c9d59279750505c917107eaeca090d63463ab9121c4e19ab5241f68",
+            "disposition": "passed",
+            "infrastructureErrors": [],
+            "passed": true,
+            "schema": "paperclip-runner/eval-score/v1"
+          },
+          "artifactSha256": "0ce32d478788ffd8ecc0fba4c8ee72a2bd19decfb88e7af4350e74bed3667a47",
+          "usage": {
+            "agentTurns": 1,
+            "cachedInputTokens": 9600,
+            "estimatedCostNanodollars": 1083000,
+            "inputTokens": 9964,
+            "outputTokens": 20,
+            "pricingVersion": "provider-list-prices-2026-09-07-openrouter",
+            "providerReportedCostNanodollars": 0,
+            "providerRequests": 1,
+            "ratesUsdPerMillionTokens": {
+              "cachedInput": 0.075,
+              "input": 0.75,
+              "output": 4.5
+            },
+            "reasoningTokens": 0
+          },
+          "provenance": {
+            "case": "sha256:6b70eeb790ebd5220e90bf73c5e3c18e55ca684ffda5d6e56818701f781bd60a",
+            "config": "sha256:fe978f0400994399609b8196cdb96ba3eda6e7c41e05a2504a084deeaa64b9da",
+            "fixture": "sha256:bda720a69f04643fc27b9ea997ce051470ee4abc7dcb3fc24ebce1ce102f085f",
+            "runnerPackage": "sha256:4f5dd42a4f7aa64a5006d2b37b327832ff334ac74eb7c2b942a94c2b7eb7aa4b",
+            "runnerd": "sha256:86f0cf69c245b80782fd81207cd6245067f3e0e2fd2c7dca7490b83f17665253"
+          }
+        },
+        {
+          "score": {
+            "attemptId": "schedule-task-wake-live-codex-pinned-gha-35673604555-1-lifecycle-narrative-baseline--schedule-task-wake-attempt-01",
+            "caseId": "schedule-task-wake",
+            "checks": [
+              {
+                "detail": "1 call(s), 1 successful result(s)",
+                "evidenceRefs": [
+                  "evidence-000028",
+                  "evidence-000029"
+                ],
+                "id": "schedule-wake",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "1 wakes record(s) added",
+                "evidenceRefs": [],
+                "id": "one-wake",
+                "kind": "state_effect",
+                "passed": true
+              },
+              {
+                "detail": "turn status completed",
+                "evidenceRefs": [],
+                "id": "terminal-completed",
+                "kind": "terminal",
+                "passed": true
+              },
+              {
+                "detail": "real Paperclip requests: 0",
+                "evidenceRefs": [],
+                "id": "mock-only",
+                "kind": "network",
+                "passed": true
+              }
+            ],
+            "digest": "sha256:3966032fcd34e63bb5fec7bad99c07b2e81e8f7e1b7f93bbf32269b8829fa7e7",
+            "disposition": "passed",
+            "infrastructureErrors": [],
+            "passed": true,
+            "schema": "paperclip-runner/eval-score/v1"
+          },
+          "artifactSha256": "2c0292e835475303f513ee74bc6b271f62aa849121166d17b8ac062767cf445f",
+          "usage": {
+            "agentTurns": 1,
+            "cachedInputTokens": 9600,
+            "estimatedCostNanodollars": 1149000,
+            "inputTokens": 10016,
+            "outputTokens": 26,
+            "pricingVersion": "provider-list-prices-2026-09-07-openrouter",
+            "providerReportedCostNanodollars": 0,
+            "providerRequests": 1,
+            "ratesUsdPerMillionTokens": {
+              "cachedInput": 0.075,
+              "input": 0.75,
+              "output": 4.5
+            },
+            "reasoningTokens": 0
+          },
+          "provenance": {
+            "case": "sha256:7d41b49cbe41bc9c43cbe332b031622b371a70667d1b2417ad310c8c501da150",
+            "config": "sha256:fe978f0400994399609b8196cdb96ba3eda6e7c41e05a2504a084deeaa64b9da",
+            "fixture": "sha256:bda720a69f04643fc27b9ea997ce051470ee4abc7dcb3fc24ebce1ce102f085f",
+            "runnerPackage": "sha256:4f5dd42a4f7aa64a5006d2b37b327832ff334ac74eb7c2b942a94c2b7eb7aa4b",
+            "runnerd": "sha256:86f0cf69c245b80782fd81207cd6245067f3e0e2fd2c7dca7490b83f17665253"
+          }
+        },
+        {
+          "score": {
+            "attemptId": "set-task-dependencies-live-codex-pinned-gha-35673604555-1-lifecycle-narrative-baseline--set-task-dependencies-attempt-01",
+            "caseId": "set-task-dependencies",
+            "checks": [
+              {
+                "detail": "1 call(s), 1 successful result(s)",
+                "evidenceRefs": [
+                  "evidence-000053",
+                  "evidence-000054"
+                ],
+                "id": "set-dependencies",
+                "kind": "semantic_operation",
+                "passed": true
+              },
+              {
+                "detail": "final state matched 1 predicate(s)",
+                "evidenceRefs": [],
+                "id": "blocker-state",
+                "kind": "state_match",
+                "passed": true
+              },
+              {
+                "detail": "turn status completed",
+                "evidenceRefs": [],
+                "id": "terminal-completed",
+                "kind": "terminal",
+                "passed": true
+              },
+              {
+                "detail": "real Paperclip requests: 0",
+                "evidenceRefs": [],
+                "id": "mock-only",
+                "kind": "network",
+                "passed": true
+              }
+            ],
+            "digest": "sha256:cdaed57712dc79d2598f8cce692e5452e43dbf70bfebbd52302b85ddeded120b",
+            "disposition": "passed",
+            "infrastructureErrors": [],
+            "passed": true,
+            "schema": "paperclip-runner/eval-score/v1"
+          },
+          "artifactSha256": "2a46934218f831539c36d6a51fd9b7e8afde2ae0e757aa2ee2e5ec7e853098f7",
+          "usage": {
+            "agentTurns": 1,
+            "cachedInputTokens": 11136,
+            "estimatedCostNanodollars": 1240950,
+            "inputTokens": 11425,
+            "outputTokens": 42,
+            "pricingVersion": "provider-list-prices-2026-09-07-openrouter",
+            "providerReportedCostNanodollars": 0,
+            "providerRequests": 1,
+            "ratesUsdPerMillionTokens": {
+              "cachedInput": 0.075,
+              "input": 0.75,
+              "output": 4.5
+            },
+            "reasoningTokens": 0
+          },
+          "provenance": {
+            "case": "sha256:eeb5ba1ca16181b799c495f08d71fed781e5ee5ebf92ef3206af169e5948efc1",
+            "config": "sha256:fe978f0400994399609b8196cdb96ba3eda6e7c41e05a2504a084deeaa64b9da",
+            "fixture": "sha256:bda720a69f04643fc27b9ea997ce051470ee4abc7dcb3fc24ebce1ce102f085f",
+            "runnerPackage": "sha256:4f5dd42a4f7aa64a5006d2b37b327832ff334ac74eb7c2b942a94c2b7eb7aa4b",
+            "runnerd": "sha256:86f0cf69c245b80782fd81207cd6245067f3e0e2fd2c7dca7490b83f17665253"
+          }
+        }
+      ],
+      "source": {
+        "paperclip": {
+          "sha": "91b62ce1db8d470c6fb452ea286e303309ae54ef",
+          "ref": "refs/heads/codex/lifecycle-behavior-baseline-20260921"
+        },
+        "evals": {
+          "repository": "paperclipai/paperclip-evals",
+          "sha": "8747d0f917e3b02d9ee7170e26733786fe951749"
+        },
+        "workflowRunUrl": "https://github.com/paperclipai/paperclip/actions/runs/35673604555"
+      },
+      "costs": {
+        "scope": "all_attempts",
+        "attempts": 8,
+        "estimated": {
+          "nanodollars": 9545550,
+          "recordedAttempts": 8
+        },
+        "providerReported": {
+          "nanodollars": 0,
+          "recordedAttempts": 8
+        }
+      },
+      "campaignSha256": "ff71f68d48181500533be50eae9e76ca7fda69ac9d5892ab15ff6acc7275466a"
+    },
+    {
+      "runId": 35673778202,
+      "runUrl": "https://github.com/paperclipai/paperclip/actions/runs/35673778202",
+      "kind": "product_status_assertion_recheck",
+      "source": {
+        "sha": "7b68329d2aea136a659584837f35fc83f6f6d014",
+        "ref": "refs/heads/codex/lifecycle-baseline-status-recheck-20260921",
+        "workflowRunUrl": "https://github.com/paperclipai/paperclip/actions/runs/35673778202",
+        "eventName": "workflow_dispatch"
+      },
+      "totals": {
+        "selected": 2,
+        "executed": 2,
+        "passed": 0,
+        "failed": 2,
+        "incomplete": 0,
+        "retries": 0,
+        "cleanupPassed": true
+      },
+      "billing": {
+        "testCount": 2,
+        "agentRunDurationMs": 32391,
+        "leaseDurationMs": 0,
+        "llm": {
+          "runCount": 2,
+          "runsWithTokenUsage": 2,
+          "runsWithReportedCost": 2,
+          "inputTokens": 72394,
+          "outputTokens": 568,
+          "cachedInputTokens": 35860,
+          "totalTokens": 108822,
+          "reportedCostUsd": 0,
+          "costStatus": "reported"
+        },
+        "reportedLlmCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "testsWithCompleteBilling": 2
+      },
+      "campaignSha256": "e1f2a992938cfcba401fd17e74b436c6669c2876595109482edd2dff4e5f23fb",
+      "results": [
+        {
+          "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-blocker-neutral",
+          "status": "failed",
+          "profileId": "runner-codex",
+          "caseId": "lifecycle-blocker-neutral",
+          "model": "gpt-5.6-sol",
+          "runtimeMode": "native",
+          "runIds": [
+            "60b8dc91-1f7c-4790-9d7a-9f1119256b50"
+          ],
+          "durationMs": 71406,
+          "matcherResults": [
+            {
+              "matcher": {
+                "kind": "message_exact",
+                "expected": "LIFECYCLE_edbde710ce52-1: Recorded background quotation: the meeting is on Tuesday."
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "message_occurrences",
+                "expected": "LIFECYCLE_edbde710ce52-1: Recorded background quotation: the meeting is on Tuesday.",
+                "count": 1
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "issue_status",
+                "expected": "blocked"
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "run_status",
+                "expected": "succeeded"
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "runtime_mode",
+                "expected": "native"
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "environment",
+                "expected": "local"
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "issue.executionRunId",
+                "expected": null
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "json_schema",
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "issue",
+                    "interactions"
+                  ],
+                  "properties": {
+                    "issue": {
+                      "type": "object",
+                      "required": [
+                        "executionRunId",
+                        "scheduledRetry",
+                        "activeRecoveryAction",
+                        "monitorNextCheckAt"
+                      ],
+                      "properties": {
+                        "scheduledRetry": {
+                          "type": "null"
+                        },
+                        "activeRecoveryAction": {
+                          "type": "null"
+                        },
+                        "monitorNextCheckAt": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "interactions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "not": {
+                              "const": "pending"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "passed": true,
+              "detail": "matched"
+            }
+          ],
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "error": "expect(locator).toBeVisible() failed\n\nLocator: getByTestId('issue-detail-header').getByRole('button', { name: 'Change status (current: Blocked)', exact: true })\nExpected: visible\nTimeout: 30000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" with timeout 30000ms\n  - waiting for getByTestId('issue-detail-header').getByRole('button', { name: 'Change status (current: Blocked)', exact: true })\n",
+          "triage": "test_assertion_ignored_blocker_attention_suffix"
+        },
+        {
+          "executionId": "lifecycle-baseline.runner-codex.local.lifecycle-blocker-challenge",
+          "status": "failed",
+          "profileId": "runner-codex",
+          "caseId": "lifecycle-blocker-challenge",
+          "model": "gpt-5.6-sol",
+          "runtimeMode": "native",
+          "runIds": [
+            "30d8c795-60f3-42f7-a686-389826dc6d63"
+          ],
+          "durationMs": 62591,
+          "matcherResults": [
+            {
+              "matcher": {
+                "kind": "message_exact",
+                "expected": "LIFECYCLE_9a3052f90fcb-1: Historical quotation: All done, nothing remains. That quotation is not this task's status."
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "message_occurrences",
+                "expected": "LIFECYCLE_9a3052f90fcb-1: Historical quotation: All done, nothing remains. That quotation is not this task's status.",
+                "count": 1
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "issue_status",
+                "expected": "blocked"
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "run_status",
+                "expected": "succeeded"
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "runtime_mode",
+                "expected": "native"
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "environment",
+                "expected": "local"
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "issue.executionRunId",
+                "expected": null
+              },
+              "passed": true,
+              "detail": "matched"
+            },
+            {
+              "matcher": {
+                "kind": "json_schema",
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "issue",
+                    "interactions"
+                  ],
+                  "properties": {
+                    "issue": {
+                      "type": "object",
+                      "required": [
+                        "executionRunId",
+                        "scheduledRetry",
+                        "activeRecoveryAction",
+                        "monitorNextCheckAt"
+                      ],
+                      "properties": {
+                        "scheduledRetry": {
+                          "type": "null"
+                        },
+                        "activeRecoveryAction": {
+                          "type": "null"
+                        },
+                        "monitorNextCheckAt": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "interactions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "not": {
+                              "const": "pending"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "passed": true,
+              "detail": "matched"
+            }
+          ],
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "error": "expect(locator).toBeVisible() failed\n\nLocator: getByTestId('issue-detail-header').getByRole('button', { name: 'Change status (current: Blocked)', exact: true })\nExpected: visible\nTimeout: 30000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" with timeout 30000ms\n  - waiting for getByTestId('issue-detail-header').getByRole('button', { name: 'Change status (current: Blocked)', exact: true })\n",
+          "triage": "test_assertion_ignored_blocker_attention_suffix"
+        }
+      ]
+    }
+  ],
+  "finalSelectorCorrection": {
+    "appSha": "3ec4b02f6424a755394854c65a44937a6435f146",
+    "actionsRerun": false,
+    "calibration": {
+      "kind": "captured-accessible-label-selector-calibration",
+      "providerCalls": 0,
+      "labels": [
+        "Change status (current: Blocked \u00b7 0 blockers need attention)",
+        "Change status (current: Blocked \u00b7 0 blockers need attention)"
+      ],
+      "positiveCases": 2,
+      "wrongStatusControls": 3,
+      "passed": true
+    }
+  }
+}
