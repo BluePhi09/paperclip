@@ -4043,6 +4043,16 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     await expect(executeConnectorTool(db, binding, "slack_post_message", send)).resolves.toMatchObject({ status: "completed" });
     await executeConnectorTool(db, binding, "slack_post_message", send);
     expect(postFetch.mock.calls.filter(call => String(call[0]).endsWith("/chat.postMessage"))).toHaveLength(1);
+    const { slackExplicitPublicationDuplicate } = await import("../services/connectors/slack-publication.js");
+    const [finalComment] = await db.insert(issueComments).values({ companyId: binding.companyId, issueId: binding.issueId, authorAgentId: binding.agentId, createdByRunId: runId, body: send.text }).returning();
+    const publication = { companyId: binding.companyId, issueId: binding.issueId, endpointId: endpoint.id, conversationId: conversation.id, commentId: finalComment.id, payload: { text: send.text } } as Parameters<typeof slackExplicitPublicationDuplicate>[1];
+    await expect(slackExplicitPublicationDuplicate(db, publication)).resolves.toBe("delivered");
+    await expect(slackExplicitPublicationDuplicate(db, { ...publication, payload: { text: "A distinct outcome summary" } })).resolves.toBeNull();
+    await expect(slackExplicitPublicationDuplicate(db, { ...publication, companyId: randomUUID() })).resolves.toBeNull();
+    const [explicitSend] = await db.select().from(chatActions).where(and(eq(chatActions.endpointId, endpoint.id), eq(chatActions.providerActionId, `slack-tool:${binding.issueId}:${send.idempotencyKey}`)));
+    await db.update(chatActions).set({ status: "uncertain" }).where(eq(chatActions.id, explicitSend.id));
+    await expect(slackExplicitPublicationDuplicate(db, publication)).resolves.toBe("unresolved");
+    await db.update(chatActions).set({ status: "processed" }).where(eq(chatActions.id, explicitSend.id));
     await expect(executeConnectorTool(db, binding, "slack_post_message", { ...send, text: "Different operation" })).rejects.toThrow("different Slack operation");
     // Definite rate-limit failures can retry after their deadline; uncertain
     // deliveries are reconciled without sending another message.
@@ -4088,6 +4098,32 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     expect(invocation, invocation.errorMessage ?? undefined).toMatchObject({ status: "succeeded", approvalState: "approved" });
     expect(postFetch.mock.calls.filter(call => String(call[0]).endsWith("/conversations.create"))).toHaveLength(1);
     expect(await db.select().from(chatEndpointResources).where(and(eq(chatEndpointResources.endpointId, endpoint.id), eq(chatEndpointResources.providerResourceId, "CNEWCHANNEL"), eq(chatEndpointResources.enabled, true)))).toEqual([]);
+    // The governed result must return to its exact originating Slack thread,
+    // even though approval delivery has a different wake key from normal input.
+    const { toolActionDeliveryService } = await import("../services/tool-action-delivery.js");
+    const { resolveChatRunPresentationAuthorizationReason, CHAT_RUN_PRESENTATION_AUTHORIZATION_REASON } = await import("../services/chat-run-publications.js");
+    await db.update(heartbeatRuns).set({ contextSnapshot: {
+      issueId: conversation.issueId, source: "chat:slack", endpointId: endpoint.id,
+      wakeCommentIds: [String(action.payload.commentId)],
+    } }).where(eq(heartbeatRuns.id, runId));
+    let continuationRunId = "";
+    const approvalWake = vi.fn(async (agentId: string, input: any) => {
+      const [wake] = await db.insert(agentWakeupRequests).values({ companyId: fixture.companyId,
+        agentId, source: input.source, status: "completed", idempotencyKey: input.idempotencyKey,
+        payload: input.payload }).returning();
+      const [run] = await db.insert(heartbeatRuns).values({ companyId: fixture.companyId,
+        agentId, status: "succeeded", wakeupRequestId: wake.id, contextSnapshot: input.contextSnapshot }).returning();
+      continuationRunId = run.id;
+      await db.update(agentWakeupRequests).set({ runId: run.id }).where(eq(agentWakeupRequests.id, wake.id));
+      return run;
+    });
+    await toolActionDeliveryService(db, { wakeup: approvalWake as any }).deliver(approval.id);
+    expect(approvalWake).toHaveBeenCalledWith(fixture.assignedAgentId, expect.objectContaining({ allowRunCoalescing: false }));
+    const presentation = { companyId: fixture.companyId, issueId: conversation.issueId, runId: continuationRunId };
+    await expect(resolveChatRunPresentationAuthorizationReason(db, presentation)).resolves.toBe(CHAT_RUN_PRESENTATION_AUTHORIZATION_REASON);
+    await expect(resolveChatRunPresentationAuthorizationReason(db, { ...presentation, companyId: randomUUID() })).resolves.toBe("internal_agent_write");
+    await db.update(agentWakeupRequests).set({ payload: { ...approvalWake.mock.calls[0][1].payload, sourceRunId: randomUUID() } }).where(eq(agentWakeupRequests.runId, continuationRunId));
+    await expect(resolveChatRunPresentationAuthorizationReason(db, presentation)).resolves.toBe("internal_agent_write");
     globalThis.fetch = originalFetch;
     const recoveredRun = randomUUID();
     await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, runId));

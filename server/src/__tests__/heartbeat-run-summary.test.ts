@@ -872,6 +872,7 @@ describe("resolveHeartbeatRunResponse", () => {
     expect(isExternalChatPresentationContext({ source: "chatty:github" })).toBe(
       false,
     );
+    expect(isExternalChatPresentationContext({ source: "tool_action_review" })).toBe(true);
     expect(isExternalChatPresentationContext(null)).toBe(false);
   });
 });

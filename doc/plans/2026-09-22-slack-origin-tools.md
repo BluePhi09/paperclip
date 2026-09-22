@@ -65,9 +65,21 @@ must be reported accurately and retain bounded history search.
   endpoint lock race) are fixed and retested. Channel discovery subsequently found
   a listed channel returning `channel_not_found`; `d23bb857a` omits only definite
   access denials. Its unit/PG regressions, full typecheck and build pass. Deployment
-  and live discovery retest are in progress.
-- Remaining live checks include governed actions and disabled-response channel
-  reads/writes. Optional OAuth, private multi-user boundaries, and CLI execution
+  and live discovery retest passed on `653c9ad2b`: two pages exhausted, both
+  accessible channels returned, and the natural-language search succeeded.
+- Live disabled-response boundary passed: from the requester's bot DM, channel
+  reading succeeded while a write was denied. The channel's original enabled
+  setting was restored afterward.
+- Explicit posting and editing passed without a duplicate send. Governed channel
+  creation executed only after approval; the new channel remained disabled for
+  responses and no invitations were sent. Leaf's independent signing secret was
+  configured through its managed environment with explicit operator permission.
+- Approval continuation exposed a missing return path: its result appeared in
+  Paperclip but not Slack. The fix verifies the durable tool-review wake and every
+  referenced action's source before authorizing publication, and separates wakes
+  from different source runs. Authority/dedup integration and 81 gateway/response
+  tests pass; the live approval-result retest is pending.
+- Optional OAuth, private multi-user boundaries, and CLI execution
   currently have automated coverage, not complete live qualification.
 
 ## Explicit runtime/provider limitations
