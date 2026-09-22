@@ -188,6 +188,11 @@ try {
   );
   writePortableExecutableShim("node", "node/bin/node");
   writePortableExecutableShim("opencode", "opencode-ai/bin/opencode.exe");
+  const grokPackage = dirname(packRequire.resolve("@paperclipai/grok-acp/package.json"));
+  const grokInstall = spawnSync(process.execPath, [join(grokPackage, "install.mjs")], { stdio: "inherit" });
+  if (grokInstall.status !== 0) throw new Error("Pinned Grok installation failed");
+  writePortableExecutableShim("grok", relative(realpathSync(join(temporaryRoot, "node_modules")), join(grokPackage, "bin/grok")));
+  writePortableNodeShim("paperclip-grok-acp", "@paperclipai/grok-acp/launcher.cjs");
   writePortableNodeShim("acpx", "acpx/dist/cli.js");
   writePortableNodeShim(
     "claude-agent-acp",
@@ -293,6 +298,7 @@ try {
       codex: "0.153.4",
       opencode: "1.18.29",
       acpx: "0.13.1",
+      grok: "1.0.13",
       claudeAcp: "0.73.0",
       codexAcp: "1.6.2",
     },
@@ -307,12 +313,17 @@ try {
       .update(distDigest)
       .digest("hex")}`,
     acpxProfileDigests: {
+      grok: "sha256:42fe296ec6fc0715c3509cec9671451bcd5bfdc7f185041101c8aac1e9ac8718",
       claude:
         "sha256:9d73d1f0f121fb96cc8badb28c22d5bff02d8582eb2e40360a81c189e1b9422a",
       codex:
         "sha256:c4538599d1ab767db5dff50934f13bb5ba313a59d9c4a83e993fac4617ea63d3",
     },
     artifacts: {
+      grokExecutable: {
+        path: "node_modules/@paperclipai/grok-acp/bin/grok",
+        sha256: sha256File(join(grokPackage, "bin/grok")),
+      },
       nodeCommand: {
         path: nodeCommand,
         sha256: sha256File(join(temporaryRoot, nodeCommand)),

@@ -142,7 +142,7 @@ function nativeProfile(input: {
   provider: "codex" | "opencode" | "acpx";
   model: string;
   credential: RunnerProfileFixture["credential"];
-  acpxAgent?: "claude" | "codex";
+  acpxAgent?: "claude" | "codex" | "grok";
   supportedEnvironments?: readonly (typeof ENVIRONMENT_IDS)[number][];
   modelQualification?: RunnerProfileFixture["modelQualification"];
   ranking?: RunnerProfileFixture["ranking"];
@@ -280,6 +280,14 @@ export const runnerProfiles: readonly RunnerProfileFixture[] = [
     acpxAgent: "claude",
     model: QUALIFIED_ACPX_PROFILES.claude.qualificationModel,
     credential: "ANTHROPIC_API_KEY",
+  }),
+  nativeProfile({
+    id: "runner-acpx-grok",
+    label: "Runner Grok Build",
+    provider: "acpx",
+    acpxAgent: "grok",
+    model: QUALIFIED_ACPX_PROFILES.grok.qualificationModel,
+    credential: "XAI_API_KEY",
   }),
   nativeProfile({
     id: "runner-acpx-codex",
@@ -910,6 +918,15 @@ const everydayProfiles = [
 
 export const runnerSuites: readonly RunnerSuiteFixture[] = [
   {
+    id: "grok-qualification", label: "Grok Build Qualification", manualOnly: true,
+    description: "Grok task replies, planning approval, questions and controller restart in local and Daytona environments.",
+    groups: ["native"],
+    profiles: runnerProfiles.filter(profile => profile.id === "runner-acpx-grok"),
+    environments: [localEnvironment, daytonaWarmEnvironment],
+    tasks: [...runnerTasks, ...localIntegrityTasks], expectedMatrixSize: 10,
+    definitionMetadata: { version: 1, binary: "1.0.13", model: "grok-4.7", scheduling: "explicit-only", repetitionsRequired: 3 },
+  },
+  {
     id: "continuation", label: "Task continuation",
     description: "Human direction, approval boundaries, untrusted evidence, and completed actions across turns.",
     groups: ["local"], environments: [localEnvironment],
@@ -987,7 +1004,7 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     profiles: runnerProfiles,
     environments: runnerEnvironments,
     tasks: runnerTasks,
-    expectedMatrixSize: 42,
+    expectedMatrixSize: 48,
   },
   {
     id: "local-session-integrity",
@@ -998,7 +1015,7 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     profiles: runnerProfiles,
     environments: [localEnvironment],
     tasks: localIntegrityTasks,
-    expectedMatrixSize: 14,
+    expectedMatrixSize: 16,
   },
   {
     id: "openrouter-model-breadth",
@@ -1182,6 +1199,7 @@ export function validateRunnerCatalog(): MatrixExecution[] {
       "OPENAI_API_KEY",
       "ANTHROPIC_API_KEY",
       "OPENROUTER_API_KEY",
+      "XAI_API_KEY",
       "DAYTONA_API_KEY",
     ].map((name, index) => [
       name,

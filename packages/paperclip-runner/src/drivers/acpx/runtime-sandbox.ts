@@ -428,6 +428,7 @@ export async function prepareAcpxRuntimeSandbox(input: {
     XDG_CACHE_HOME: cacheDirectory,
     PAPERCLIP_ACPX_PROFILE: input.agent,
     PAPERCLIP_ACPX_ISOLATED_CONTEXT: "1",
+    ...(input.agent === "grok" ? { GROK_HOME: agentHomeDirectory, NO_BROWSER: "1" } : {}),
     ...(input.agent === "pi"
       ? {
           PI_CODING_AGENT_DIR: agentHomeDirectory,

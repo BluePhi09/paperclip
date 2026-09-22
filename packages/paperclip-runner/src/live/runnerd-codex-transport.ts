@@ -3110,6 +3110,8 @@ export function createCapabilityRunnerdProviderEnvironment(input: {
         input.options.environment,
         input.options.acpxAgent ?? "codex",
       ).env,
+      ...(input.options.acpxAgent === "grok" && input.options.environment?.PAPERCLIP_ACPX_GROK_AUTH_JSON_SECRET
+        ? { PAPERCLIP_ACPX_GROK_AUTH_JSON_SECRET: input.options.environment.PAPERCLIP_ACPX_GROK_AUTH_JSON_SECRET } : {}),
       ...commonIdentity,
       // The verified sidecar bundle cannot use import.meta.url while Node
       // executes it through /proc/self/fd. Anchor its closed provider package
@@ -4723,7 +4725,7 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
                 : provider === "acpx"
                   ? acpxAgent === "pi"
                     ? "openrouter"
-                    : acpxAgent === "claude"
+                    : acpxAgent === "grok" ? "xai" : acpxAgent === "claude"
                       ? "anthropic"
                       : "openai"
                   : "openai",

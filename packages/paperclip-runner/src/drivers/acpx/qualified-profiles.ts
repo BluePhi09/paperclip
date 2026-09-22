@@ -31,6 +31,14 @@ export interface QualifiedAcpxProfile {
 export const QUALIFIED_ACPX_PROFILES: Readonly<
   Record<QualifiedAcpxAgent, QualifiedAcpxProfile>
 > = deepFreeze({
+  grok: {
+    driverKind: ACPX_DRIVER_KIND, protocolVersion: ACPX_DRIVER_PROTOCOL_VERSION,
+    acpxVersion: QUALIFIED_ACPX_VERSION, agent: "grok", agentProfileVersion: 1,
+    agentServerPackage: "@paperclipai/grok-acp", agentServerVersion: "1.0.13",
+    agentRuntimePackage: "@paperclipai/grok-acp", agentRuntimeVersion: "1.0.13",
+    commandDigest: "sha256:42fe296ec6fc0715c3509cec9671451bcd5bfdc7f185041101c8aac1e9ac8718",
+    qualificationModel: "grok-4.7", reportedModelId: "grok-4.7", permissionPolicy: "interactive",
+  },
   pi: {
     driverKind: ACPX_DRIVER_KIND,
     protocolVersion: ACPX_DRIVER_PROTOCOL_VERSION,
@@ -87,7 +95,7 @@ export function resolveQualifiedAcpxProfile(
 ): QualifiedAcpxProfile {
   const profile = QUALIFIED_ACPX_PROFILES[agent];
   if (!requestedModel.trim()) throw new Error("ACPX model must not be empty");
-  if (agent !== "claude" && requestedModel !== profile.qualificationModel) {
+  if (agent !== "claude" && agent !== "grok" && requestedModel !== profile.qualificationModel) {
     throw new Error(
       `ACPX ${agent} profile requires exact model ${profile.qualificationModel}; received ${requestedModel}`,
     );

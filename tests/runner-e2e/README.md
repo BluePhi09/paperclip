@@ -1001,3 +1001,13 @@ requires the saved content and usable composer to remain visible. Run it with th
 standard `tests/e2e/playwright.config.ts`; no provider or Daytona credentials are
 needed. Browser-support tests separately exercise blank-root/pending-module
 failure evidence, so a future blank page is distinguishable from a loaded task.
+
+### Grok Build qualification
+
+`runner-acpx-grok` uses native ACPX with Grok Build 1.0.13 and `grok-4.7`.
+Set an explicit `XAI_API_KEY` for this API-key profile. The manual
+`grok-qualification` suite runs the core and restart workflows on local and
+Daytona runtimes. Missing subscription coverage remains a qualification blocker;
+an API-key pass must not be reported as subscription evidence. See
+[`doc/grok-native-runner.md`](../../doc/grok-native-runner.md) for installation,
+credential boundaries and repetition requirements.

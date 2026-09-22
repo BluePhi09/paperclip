@@ -273,9 +273,9 @@ export async function openQualifiedAcpxRuntime(
     agentRegistry: createRegistry({
       // Preserve Claude's ACP capability identity. This is metadata only: the
       // spawn callback below always launches the verified command lease.
-      overrides: { [options.profile.agent]: [options.profile.agent === "claude"
-        ? "/paperclip-verified/claude-agent-acp"
-        : VERIFIED_COMMAND_SENTINEL] },
+      overrides: { [options.profile.agent]: options.profile.agent === "grok"
+        ? ["/paperclip-verified/grok", "agent", "stdio"]
+        : [options.profile.agent === "claude" ? "/paperclip-verified/claude-agent-acp" : VERIFIED_COMMAND_SENTINEL] },
     }),
     // ACPX does not know the Paperclip-specific mode. Exact SDK rules allow
     // admitted actions; all remaining requests keep its closed read policy.

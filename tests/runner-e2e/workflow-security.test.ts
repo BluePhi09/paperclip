@@ -511,6 +511,7 @@ describe("public repository paid workflow security", () => {
       OPENAI_API_KEY: "matrix.credentialName == 'OPENAI_API_KEY'",
       ANTHROPIC_API_KEY: "matrix.credentialName == 'ANTHROPIC_API_KEY'",
       OPENROUTER_API_KEY: "matrix.credentialName == 'OPENROUTER_API_KEY'",
+      XAI_API_KEY: "matrix.credentialName == 'XAI_API_KEY'",
       DAYTONA_API_KEY: "matrix.environmentId == 'daytona'",
     })) {
       expect(fullStack).toContain(

@@ -1,3 +1,6 @@
+import { readLocalAiCredentialFile } from "../local-ai-credential-file.js";
+import { prepareGrokRunnerCredentials } from "./grok-runner-credentials.js";
+import { copyBackGrokAuth } from "@paperclipai/adapter-grok-local/server";
 import { createNativeGitHubAccess, type NativeGitHubAccess } from "./native-github-access.js";
 import { resolveGitHubOperationCredentials } from "../github-operation-credentials.js";
 import { bindManagedNativeCredentialTurn, completeManagedNativeCredentialTurn } from "./managed-native-credentials.js";
@@ -5250,7 +5253,10 @@ export function resolveNativeHarnessPersistenceProfile(
               // nor necessary to restore. Credentials and launch-time config
               // are also re-materialized in the replacement sandbox.
               excludeEntries:
-                execution.provider.agent === "codex"
+                execution.provider.agent === "grok"
+                  ? ["auth.json", "auth-refresh.json", "auth-refresh.json.tmp", "config.toml"].map((entry) =>
+                    `acpx/${acpxRuntimeSessionDirectoryName(nativeSessionKey(execution))}/grok-home/${entry}`)
+                  : execution.provider.agent === "codex"
                   ? CODEX_HOME_NON_PERSISTENT_ENTRIES.map(
                       (entry) =>
                         `acpx/${acpxRuntimeSessionDirectoryName(nativeSessionKey(execution))}/codex-home/${entry}`,
@@ -9132,14 +9138,17 @@ const REMOTE_PROVIDER_PACK_PINS = {
   acpx: "0.13.1",
   claudeAcp: "0.73.0",
   codexAcp: "1.6.2",
+  grok: "1.0.13",
 } as const;
 const REMOTE_PROVIDER_PACK_PROFILE_DIGESTS = {
+  grok: "sha256:42fe296ec6fc0715c3509cec9671451bcd5bfdc7f185041101c8aac1e9ac8718",
   claude:
     "sha256:9d73d1f0f121fb96cc8badb28c22d5bff02d8582eb2e40360a81c189e1b9422a",
   codex:
     "sha256:c4538599d1ab767db5dff50934f13bb5ba313a59d9c4a83e993fac4617ea63d3",
 } as const;
 const REMOTE_PROVIDER_PACK_ARTIFACT_PATHS = {
+  grokExecutable: "node_modules/@paperclipai/grok-acp/bin/grok",
   nodeCommand: "node_modules/node/bin/node",
   productionLock: "pnpm-lock.yaml",
   opencodeCommand: "node_modules/.bin/opencode",
@@ -9159,6 +9168,7 @@ type RemoteProviderPackManifest = {
     bridgeDigest: string;
     acpxProfileDigests: typeof REMOTE_PROVIDER_PACK_PROFILE_DIGESTS;
     artifacts: {
+      grokExecutable: { path: string; sha256: string };
       nodeCommand: { path: string; sha256: string };
       productionLock: { path: string; sha256: string };
       opencodeCommand: { path: string; sha256: string };
@@ -9257,6 +9267,7 @@ export function readRemoteProviderPackManifest(
     );
   }
   const artifactEntries = [
+    ["Grok executable", payload.artifacts?.grokExecutable, REMOTE_PROVIDER_PACK_ARTIFACT_PATHS.grokExecutable],
     [
       "provider Node",
       payload.artifacts?.nodeCommand,
@@ -10680,14 +10691,14 @@ async function createRunnerdBackendWithinSessionClaim(
       "if(canonical(manifest)!==expected)throw new Error('manifest mismatch')",
       "const hash=(p)=>'sha256:'+crypto.createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex')",
       "const tree=(treeRoot)=>{const digest=crypto.createHash('sha256');const visit=(directory,prefix='')=>{for(const entry of fs.readdirSync(directory,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))){const relative=prefix?prefix+'/'+entry.name:entry.name;const absolute=path.join(directory,entry.name);if(entry.isDirectory()){digest.update('directory\\0'+relative+'\\n');visit(absolute,relative)}else if(entry.isFile()){digest.update('file\\0'+relative+'\\0'+'sha256:'+crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex')+'\\n')}else if(entry.isSymbolicLink()){digest.update('symlink\\0'+relative+'\\0'+fs.readlinkSync(absolute)+'\\n')}else throw new Error('unsupported dist entry '+relative)}};visit(treeRoot);return 'sha256:'+digest.digest('hex')}",
-      "for(const name of ['nodeCommand','productionLock','opencodeCommand','opencodeExecutable','opencodeProxy','acpxSidecar']){const artifact=manifest.payload.artifacts[name];if(hash(artifact.path)!==artifact.sha256)throw new Error(name+' digest mismatch')}",
+      "for(const name of ['nodeCommand','productionLock','opencodeCommand','opencodeExecutable','opencodeProxy','acpxSidecar','grokExecutable']){const artifact=manifest.payload.artifacts[name];if(hash(artifact.path)!==artifact.sha256)throw new Error(name+' digest mismatch')}",
       "if(tree(path.join(root,'dist'))!==manifest.payload.distDigest)throw new Error('dist tree digest mismatch')",
       "const version=process.versions.node.split('.').map(Number)",
       "const minimum=manifest.payload.pins.nodeMinimum.split('.').map(Number)",
       "if(version[0]<minimum[0]||(version[0]===minimum[0]&&(version[1]<minimum[1]||(version[1]===minimum[1]&&version[2]<minimum[2]))))throw new Error('Node version incompatible')",
       "if(process.platform!==manifest.payload.target.platform||process.arch!==manifest.payload.target.architecture)throw new Error('provider pack target mismatch')",
       "const packageVersion=(pkg)=>JSON.parse(fs.readFileSync(path.join(root,'node_modules',...pkg.split('/'),'package.json'),'utf8')).version",
-      "const expectedPackages={acpx:manifest.payload.pins.acpx,'@agentclientprotocol/claude-agent-acp':manifest.payload.pins.claudeAcp,'@agentclientprotocol/codex-acp':manifest.payload.pins.codexAcp,'opencode-ai':manifest.payload.pins.opencode}",
+      "const expectedPackages={acpx:manifest.payload.pins.acpx,'@agentclientprotocol/claude-agent-acp':manifest.payload.pins.claudeAcp,'@agentclientprotocol/codex-acp':manifest.payload.pins.codexAcp,'opencode-ai':manifest.payload.pins.opencode,'@paperclipai/grok-acp':manifest.payload.pins.grok}",
       "for(const [pkg,version] of Object.entries(expectedPackages))if(packageVersion(pkg)!==version)throw new Error(pkg+' version mismatch')",
     ].join(";");
     const verified = await remoteCommandRunner.execute({
@@ -11975,9 +11986,15 @@ async function createRunnerdBackendWithinSessionClaim(
         },
       }
     : input.execution;
-  const effectiveRunnerEnvironmentBase: NodeJS.ProcessEnv = {
-    ...(input.runnerEnvironment ?? process.env),
+  const isGrok = input.execution.provider.kind === "acpx" && input.execution.provider.agent === "grok";
+  let effectiveRunnerEnvironmentBase: NodeJS.ProcessEnv = {
+    ...(input.runnerEnvironment ?? (isGrok ? {} : process.env)),
   };
+  const grokCredential = isGrok ? await prepareGrokRunnerCredentials({
+    companyId: input.execution.binding.companyId, environment: effectiveRunnerEnvironmentBase, remote: Boolean(remoteTarget),
+    managedHome: input.managedAiCredentialHome,
+  }) : null;
+  if (grokCredential) effectiveRunnerEnvironmentBase = grokCredential.environment;
   // This authority bit is derived only from the selected execution target.
   // Never let an agent, environment binding, or host variable disable the
   // Codex sandbox for a local runner by supplying the same key.
@@ -12547,6 +12564,38 @@ async function createRunnerdBackendWithinSessionClaim(
   });
   const boundManagedSessions = new WeakSet<NativeSession>();
   const wrapManagedSession = (session: NativeSession): NativeSession => {
+    if (isGrok && grokCredential?.home && !boundManagedSessions.has(session)) {
+      boundManagedSessions.add(session);
+      const relativeHome = `acpx/${acpxRuntimeSessionDirectoryName(nativeSessionKey(input.execution))}/grok-home`;
+      const localHome = join(root, "acpx", relativeHome);
+      const remoteHome = remoteRunnerFilesystemRoot ? posix.join(remoteRunnerFilesystemRoot, "acpx", relativeHome) : null;
+      const readAuth = async (name: string): Promise<Buffer> => {
+        if (!remoteHome || !remoteCommandRunner) return Buffer.from(await readLocalAiCredentialFile(join(localHome, name)));
+        const script = `const fs=require('node:fs'),path=require('node:path');let fd;try{const file=process.argv[1];let parent=path.dirname(file);while(true){if(!fs.lstatSync(parent).isDirectory())throw Error('directory');const next=path.dirname(parent);if(next===parent)break;parent=next;}fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);const st=fs.fstatSync(fd);if(!st.isFile()||st.uid!==process.getuid()||(st.mode&511)!==384||st.size>65536)throw Error('credential');const b=Buffer.alloc(65537);let n=0;while(n<b.length){const k=fs.readSync(fd,b,n,b.length-n,n);if(!k)break;n+=k;}if(n>65536)throw Error('size');process.stdout.write(b.subarray(0,n).toString('base64'));b.fill(0);}catch(e){process.exitCode=e.code==='ENOENT'?66:1;}finally{if(fd!==undefined)fs.closeSync(fd);}`;
+        const result = await remoteCommandRunner.execute({ command: "node", args: ["-e", script, posix.join(remoteHome, name)], bypassSession: true, timeoutMs: 10000 });
+        if (result.exitCode !== 0 || result.timedOut) throw Object.assign(new Error("Grok credential refresh handoff unavailable"), { code: result.exitCode === 66 ? "ENOENT" : "INVALID_CREDENTIAL" });
+        return Buffer.from(result.stdout, "base64");
+      };
+      return bindManagedNativeCredentialTurn(session, {
+        copyBack: async () => {
+          await copyBackGrokAuth({ hostHomeDir: grokCredential.home!, log: () => {},
+            readSandboxAuth: () => readAuth("auth.json").catch((error) => {
+              if (error.code !== "ENOENT") throw error;
+              return readAuth("auth-refresh.json");
+            }),
+          });
+        },
+        remove: async () => {
+          for (const name of ["auth.json", "auth-refresh.json", "auth-refresh.json.tmp"]) {
+            rmSync(join(localHome, name), { force: true });
+            if (remoteHome && remoteCommandRunner) {
+              const result = await remoteCommandRunner.execute({ command: "rm", args: ["-f", "--", posix.join(remoteHome, name)], bypassSession: true, timeoutMs: 10000 });
+              if (result.exitCode !== 0 || result.timedOut) throw new Error("Grok credential cleanup failed");
+            }
+          }
+        },
+      });
+    }
     if (!input.managedAiCredentialHome || input.execution.provider.kind !== "codex" || boundManagedSessions.has(session)) return session;
     boundManagedSessions.add(session);
     const remoteAuth = remoteRunnerFilesystemRoot ? posix.join(remoteRunnerFilesystemRoot, "codex-home", "auth.json") : null;

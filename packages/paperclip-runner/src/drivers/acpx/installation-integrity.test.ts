@@ -605,6 +605,20 @@ describe("ACPX installation integrity", () => {
     },
   );
 
+  it("rejects a tampered native Grok executable and symlink substitution", async () => {
+    const fixture = await installationFixture();
+    const base = resolveQualifiedAcpxProfile("grok", "grok-4.7");
+    const profile = { ...base, commandDigest: fixture.profile.commandDigest };
+    await writeFile(fixture.serverPackageJsonPath, JSON.stringify({ version: "1.0.13", bin: "bin/server.js" }));
+    const native = join(fixture.commandDirectory, "grok");
+    await writeFile(native, "tampered native binary", { mode: 0o700 });
+    const resolvePackage = () => fixture.serverPackageJsonPath;
+    await expect(verifyQualifiedAcpxInstallation(profile, resolvePackage)).rejects.toThrow(/digest mismatch/);
+    await rm(native);
+    await symlink(fixture.commandPath, native);
+    await expect(verifyQualifiedAcpxInstallation(profile, resolvePackage)).rejects.toThrow(/regular file|symlink|no-follow/);
+  });
+
   it("rejects package version and executable digest drift", async () => {
     const fixture = await installationFixture();
     await writeFile(

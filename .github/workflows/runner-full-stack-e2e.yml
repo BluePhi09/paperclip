@@ -1037,6 +1037,7 @@ jobs:
           OPENAI_API_KEY: ${{ matrix.credentialName == 'OPENAI_API_KEY' && secrets.OPENAI_API_KEY || '' }}
           ANTHROPIC_API_KEY: ${{ matrix.credentialName == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY || '' }}
           OPENROUTER_API_KEY: ${{ matrix.credentialName == 'OPENROUTER_API_KEY' && secrets.OPENROUTER_API_KEY || '' }}
+          XAI_API_KEY: ${{ matrix.credentialName == 'XAI_API_KEY' && secrets.XAI_API_KEY || '' }}
           DAYTONA_API_KEY: ${{ matrix.environmentId == 'daytona' && secrets.DAYTONA_API_KEY || '' }}
           PAPERCLIP_E2E_DAYTONA_IMAGE: ${{ needs.daytona_image.outputs.image }}
           PAPERCLIP_RUNNER_REMOTE_PROVIDER_PACK_PATH: ${{ github.workspace }}/packages/paperclip-runner/provider-pack
