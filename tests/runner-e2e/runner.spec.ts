@@ -2346,9 +2346,13 @@ for (const execution of executions) {
       await expect(terminalAgentReplies.first()).toHaveText(marker, {
         useInnerText: true,
       });
+      // The fixture owns the expected disposition; blocked workflows must prove
+      // their Blocked UI rather than inheriting the completion-only Done check.
+      const expectedStatus = execution.task.expectedTerminalState.issue;
+      const expectedStatusLabel = expectedStatus.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase());
       await expect(
         page.getByTestId("issue-detail-header").getByRole("button", {
-          name: "Change status (current: Done)",
+          name: `Change status (current: ${expectedStatusLabel})`,
           exact: true,
         }),
       ).toBeVisible({ timeout: 30_000 });
