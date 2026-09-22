@@ -69,10 +69,10 @@ fixture exercised by the real LLM through production tool transport.
 
 ## Status and remaining boundaries
 
-**Authored and locally validated; live cells have not been executed.** The initial
-831-test report predates this suite. Its count is not an LLM/E2E pass count.
-The separate Runner Eval roster in `paperclip-evals` remains eight real-provider
-protocol definitions against a mock control plane, also not yet live-measured.
+**Executed on GitHub Actions.** See the [live measurement record](../lifecycle-baseline/LIVE-BASELINE-2026-09-21.md)
+for the 40-cell Product E2E results, eight protocol eval results, test corrections,
+source revisions and retained failures. The initial 831-test report predates this
+suite; its count is not an LLM/E2E pass count.
 
 Authoring validation on 2026-09-21: TypeScript passed, all 437 Product E2E support
 tests passed, all 4 baseline report/inventory tests passed, and discovery returned
