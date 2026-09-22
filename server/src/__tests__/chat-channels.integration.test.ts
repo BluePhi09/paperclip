@@ -4061,7 +4061,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     postFetch.mockReset();
     postFetch.mockImplementation(async (input, init) => {
       if (String(input).endsWith("/chat.postMessage")) {
-        if (rejectNextSend) { rejectNextSend = false; return new Response("", { status: 429, headers: { "retry-after": "1" } }); }
+        if (rejectNextSend) { rejectNextSend = false; return new Response("", { status: 429, headers: { "retry-after": "3600" } }); }
         return Response.json({ ok: true, channel: "CTOOLS", ts: "7200.2" });
       }
       if (String(input).endsWith("/conversations.create")) return Response.json({ ok: true, channel: { id: "CNEWCHANNEL" } });
