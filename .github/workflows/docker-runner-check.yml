@@ -28,7 +28,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: docker-runner-check-${{ github.event.pull_request.number || github.ref }}
+  # Publishing a newer image must not discard an earlier verification's evidence.
+  group: docker-runner-check-${{ github.event.pull_request.number || github.ref }}-${{ inputs.verify_source && 'verification' || 'image' }}
   cancel-in-progress: true
 
 jobs:
