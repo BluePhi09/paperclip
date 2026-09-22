@@ -59,7 +59,7 @@ export const lifecycleLiveCases = lifecycleNarrativePairs.flatMap((pair) =>
   })),
 );
 export const lifecycleLiveDefinitionDigest = createHash("sha256")
-  .update(JSON.stringify(lifecycleLiveCases))
+  .update(JSON.stringify({ version: 2, cases: lifecycleLiveCases }))
   .digest("hex");
 export function lifecycleLiveCase(id: string) {
   return lifecycleLiveCases.find((c) => c.id === id);
@@ -115,7 +115,8 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
           blocked
             ? 'Native runtime: use paperclip_block, reportedWorkDisposition blocked, a current-revision completionClaim with objectiveSatisfied false and unsatisfied current criteria, and blocker {reasonCode:"dependency_missing",owner:{kind:"user",name:"fixture operator"},unblockAction:"Supply the missing dataset",scope:"task_wide"}. Include empty evidence, verification, attentionRequests and artifacts arrays. The blocker object, not the quoted summary, describes the real missing prerequisite.'
             : "Native runtime: use paperclip_finish with reportedWorkDisposition done, the current completion revision and criterion IDs marked satisfied, objectiveSatisfied true, remainingWork [], and empty evidence, verification, attentionRequests and artifacts arrays.",
-          `Legacy runtime: use the public Paperclip API to PATCH the current task with status ${blocked ? "blocked" : "done"} and that exact response as its comment, using the normal authorization and run attribution headers. Do not post the same response twice.`,
+          `Legacy runtime: use the public Paperclip API to PATCH the current task with status ${blocked ? "blocked" : "done"}${blocked ? ' and blockedByIssueIds: ["{{LIFECYCLE_BLOCKER_ID}}"]' : ""} and that exact response as its comment, using the normal authorization and run attribution headers. Do not post the same response twice.`,
+          ...(blocked ? ["The harness has created the unassigned, unfinished dataset prerequisite {{LIFECYCLE_BLOCKER_ID}}. Do not complete it or name yourself as its unblock owner. Its completion belongs to the fixture operator."] : []),
           "Finish the provider turn after the successful disposition. Do not create files, children, extra interactions or scheduled work.",
         ].join("\n"),
       buildMatchers: (nonce, execution): Matcher[] => [

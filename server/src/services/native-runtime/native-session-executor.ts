@@ -8160,11 +8160,34 @@ async function executePaperclipNativeSessionWithinScope(
               if (session) {
                 const active: ActiveNativeSession = { session, cancelRequested: false };
                 activeNativeSessions.set(input.execution.binding.runId, active);
+                // Stop can win after the coordinator claim while the provider
+                // session is still opening. Publishing the handle before this
+                // read closes both sides of the race: earlier Stop is durable;
+                // later Stop can cancel this exact active session.
+                const [currentRun] = await input.db.select({
+                  status: heartbeatRuns.status,
+                  resultJson: heartbeatRuns.resultJson,
+                }).from(heartbeatRuns).where(and(
+                  eq(heartbeatRuns.id, input.execution.binding.runId),
+                  eq(heartbeatRuns.companyId, input.execution.binding.companyId),
+                  eq(heartbeatRuns.agentId, input.execution.binding.agentId),
+                )).limit(1);
+                const cancellation = record(currentRun?.resultJson?.nativeCancellation);
+                if (!currentRun || currentRun.status !== "running" ||
+                    currentRun.resultJson?.startupCancellation ||
+                    (cancellation.scope === "run" &&
+                      ["pending", "acknowledged"].includes(String(cancellation.dispatchState)))) {
+                  await cancelNativeSession(input.execution.binding.runId, "Run stopped during native session startup");
+                  // The execution-owned finally closes the session when this
+                  // callback fails; no provider turn may follow publication.
+                  throw new NativeCancellationPendingRecoveryError();
+                }
                 if (session.resolveRuntimeRequest) await liveQuestions.attach();
                 if (nativeRunsDetachingForRestart.has(input.execution.binding.runId)) {
                   if (session.detachControllerForRestart) await detachActiveNativeSessionForRestart(active);
                 }
                 nativeSessionStartups.get(input.execution.binding.runId)?.resolve(active);
+                if (active.cancelRequested) throw new NativeCancellationPendingRecoveryError();
               } else {
                 liveQuestions.close();
                 activeNativeSessions.delete(input.execution.binding.runId);

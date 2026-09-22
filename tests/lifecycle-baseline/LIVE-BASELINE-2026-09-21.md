@@ -124,3 +124,28 @@ The original and follow-up scores are preserved in the compact inventory.
 A dispatch with abbreviated Evals SHA (35673498243) was
 rejected before any provider execution; the successful replacement uses the full
 40-character SHA. It is a dispatch error, not a behavioral measurement.
+
+## Follow-up attribution correction and fixes
+
+Inspection during the fix found that the legacy blocker fixture omitted the
+required structured blocker. Its initial PATCH received HTTP 422. The model then
+supplied an unblock descriptor naming itself; the resulting
+`issue_unblock_requested` was the configured owner notification. The two legacy
+failures therefore do not establish that a valid external blocker generated an
+unrequested duplicate run. The original observations and scores above remain
+unchanged; their earlier product attribution is superseded by this finding.
+
+The fixture now creates an unassigned backlog prerequisite through the public
+API. Legacy PATCH includes its ID in `blockedByIssueIds`; the grader verifies
+that exact relation and that the prerequisite remains unfinished. Single-run
+and single-response assertions remain unchanged. The definition fingerprint
+advances because this is a corrected fixture, not an identical before/after pair.
+
+The native Stop trace shows cancellation acknowledged before the session handle
+was published, followed by provider output from the stopped run. The new executor
+fence reads durable cancellation after publishing the handle and before submitting
+a turn. Earlier cancellation rejects the late session; later cancellation can
+reach the published handle. Deterministic tests inject Stop in that exact gap.
+The existing execution-owned cleanup closes rejected sessions.
+
+Fresh live verification is recorded separately when complete.

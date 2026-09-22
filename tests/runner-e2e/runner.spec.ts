@@ -1,3 +1,4 @@
+import { lifecycleLiveCase } from "./lifecycle-live-cases.js";
 import { runContinuationFlow } from "./continuation-flow.js";
 import { runEverydayFlow } from "./everyday-flow.js";
 import { createTaskThroughUi, submitTaskReply } from "./user-actions.js";
@@ -523,7 +524,8 @@ for (const execution of executions) {
     const nonce = `${randomBytes(6).toString("hex")}-${attempt}`;
     const marker = execution.task.buildVisibleMarker(nonce);
     const title = execution.task.buildTitle(nonce);
-    const prompt = execution.task.buildPrompt(nonce);
+    let prompt = execution.task.buildPrompt(nonce);
+    let lifecycleBlockerId: string | null = null;
     const credentials = credentialValues();
     const secrets = normalizedSecrets(Object.values(credentials));
     const api = new RunnerApi(request);
@@ -765,11 +767,22 @@ for (const execution of executions) {
         daytonaImage: process.env.PAPERCLIP_E2E_DAYTONA_IMAGE,
       });
 
+      if (execution.suite.id === "lifecycle-baseline" && lifecycleLiveCase(execution.task.id)?.family === "blocker") {
+        const prerequisite = await api.post<{ id: string }>(`/api/companies/${fixtures.company.id}/issues`, {
+          title: `Supply dataset ${nonce}`,
+          description: "Fixture operator prerequisite: dataset has not been supplied.",
+          status: "backlog",
+        });
+        lifecycleBlockerId = prerequisite.id;
+        prompt = prompt.replaceAll("{{LIFECYCLE_BLOCKER_ID}}", prerequisite.id);
+      }
+
       await writeSanitizedJson(
         snapshotsDir,
         "fixtures.json",
         {
           executionId: execution.id,
+          lifecycleBlockerId,
           companyId: fixtures.company.id,
           environmentId: fixtures.environment.id,
           agentId: fixtures.agent.id,
@@ -1564,6 +1577,11 @@ for (const execution of executions) {
 
       issue = terminal.currentIssue;
       selectedRuns = terminal.taskRuns;
+      if (lifecycleBlockerId && execution.profile.expectedRuntimeMode === "legacy") {
+        const blockedIssue = await api.get<{ blockedByIssueIds: string[] }>(`/api/issues/${issue.id}`);
+        expect(blockedIssue.blockedByIssueIds).toEqual([lifecycleBlockerId]);
+        expect((await api.get<{ status: string }>(`/api/issues/${lifecycleBlockerId}`)).status).toBe("backlog");
+      }
       if (reviewProvider) {
         expect(reviewProvider.invocationCount()).toBe(execution.task.toolReviewDecision === "decline" ? 0 : execution.task.toolReviewDecision === "always" ? 2 : 1);
         const pending = await api.get<{ actionRequests: unknown[] }>(`/api/companies/${fixtures.company.id}/tools/action-requests?status=pending`);

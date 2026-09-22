@@ -13,7 +13,7 @@ fixture. No new model, credentials, remote image or publishing path is introduce
 | Journey | Cases per runtime | Independent evidence |
 |---|---:|---|
 | Complete despite background wording | 2 | Exact visible response, Done, one successful run, no execution lock, recovery, monitor or pending interaction |
-| Remain blocked on a missing dataset | 2 | Exact quoted response, Blocked, one successful run, structured native blocker/public legacy transition, no invented completion or scheduled work |
+| Remain blocked on a missing dataset | 2 | Exact quoted response, Blocked, one successful run, structured native blocker/public legacy dependency transition, no invented completion or scheduled work |
 | Ask and consume a changed answer | 2 | Durable question and original answer identity, revised saved output, no premature output |
 | Clarification is not approval | 2 | Initial question, answered-but-still-waiting checkpoint, explicit approval, then saved output |
 | Revise a plan without dropping approval | 2 | Current task/revision-bound confirmation, revision checkpoint before approval, final output |
@@ -33,6 +33,11 @@ wait. The grader requires exactly one matching agent-authored comment attributed
 to a run observed at that checkpoint. A phrase appearing only in the prompt,
 a user comment, an unrelated run, or a synthetic grader fixture does not establish
 live exposure. Completion/blocker probes require the exact visible response.
+
+Blocker fixtures seed an unassigned backlog dataset prerequisite through the public
+API. Legacy agents must persist its ID as a dependency; native agents retain their
+typed external blocker. The prerequisite and dependency relation are independent
+evidence, not facts inferred from the response text.
 
 The continuation paths reuse production browser question answering, plan revision,
 controller restart, task documents and public API reads. The six existing controls
