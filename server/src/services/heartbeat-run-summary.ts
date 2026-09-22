@@ -184,14 +184,17 @@ function record(value: unknown): Record<string, unknown> {
 
 export function isExternalChatPresentationContext(
   contextSnapshot: unknown,
+  verifiedToolReviewChatOrigin = false,
 ): boolean {
   const context = record(contextSnapshot);
   const wake = record(context.paperclipWake);
   const source =
     typeof context.source === "string" ? context.source.trim() : "";
+  // Tool approvals also resume ordinary board tasks. Only durable source-run
+  // authorization can classify those continuations as external chat.
+  if (source === "tool_action_review") return verifiedToolReviewChatOrigin;
   return (
     source.startsWith("chat:") ||
-    source === "tool_action_review" ||
     context.externalChatContinuation === true ||
     wake.externalInteractionContinuation === true
   );

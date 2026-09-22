@@ -12572,7 +12572,13 @@ export function issueService(db: Db) {
         // channel" publications use the separate publication path.
         const chatFinalOwnsProviderReply =
           createdByRun !== null &&
-          isExternalChatPresentationContext(createdByRun.contextSnapshot) &&
+          isExternalChatPresentationContext(
+            createdByRun.contextSnapshot,
+            readStringFromRecord(createdByRun.contextSnapshot, "source") === "tool_action_review" &&
+              (await resolveChatOriginPublicationBindings(
+                dbOrTx, issue.companyId, issueId, createdByRunId,
+              )).length > 0,
+          ) &&
           metadata?.authorizationReason !==
             CHAT_RUN_PRESENTATION_AUTHORIZATION_REASON;
         const interactionOwnsProviderReply = createdByRunId

@@ -4121,6 +4121,16 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     expect(approvalWake).toHaveBeenCalledWith(fixture.assignedAgentId, expect.objectContaining({ allowRunCoalescing: false }));
     const presentation = { companyId: fixture.companyId, issueId: conversation.issueId, runId: continuationRunId };
     await expect(resolveChatRunPresentationAuthorizationReason(db, presentation)).resolves.toBe(CHAT_RUN_PRESENTATION_AUTHORIZATION_REASON);
+    const approvalBookkeeping = await issueService(db).addComment(
+      conversation.issueId, "Recorded approved operation", { agentId: fixture.assignedAgentId, runId: continuationRunId },
+      { authorType: "agent", authorizationReason: "paperclip_runner_protocol" },
+    );
+    expect(await db.select().from(chatPublications).where(eq(chatPublications.commentId, approvalBookkeeping.id))).toHaveLength(0);
+    const approvalFinal = await issueService(db).addComment(
+      conversation.issueId, "Channel created", { agentId: fixture.assignedAgentId, runId: continuationRunId },
+      { authorType: "agent", authorizationReason: CHAT_RUN_PRESENTATION_AUTHORIZATION_REASON },
+    );
+    expect(await db.select().from(chatPublications).where(eq(chatPublications.commentId, approvalFinal.id))).toHaveLength(1);
     await expect(resolveChatRunPresentationAuthorizationReason(db, { ...presentation, companyId: randomUUID() })).resolves.toBe("internal_agent_write");
     await db.update(agentWakeupRequests).set({ payload: { ...approvalWake.mock.calls[0][1].payload, sourceRunId: randomUUID() } }).where(eq(agentWakeupRequests.runId, continuationRunId));
     await expect(resolveChatRunPresentationAuthorizationReason(db, presentation)).resolves.toBe("internal_agent_write");

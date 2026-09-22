@@ -24930,16 +24930,21 @@ export function heartbeatService(
                 livenessRun.id,
                 livenessRun.companyId,
               );
-            const externalChatPresentationContext =
-              isExternalChatPresentationContext(livenessRun.contextSnapshot);
+            const externalChatPresentationCandidate =
+              isExternalChatPresentationContext(livenessRun.contextSnapshot) ||
+              parseObject(livenessRun.contextSnapshot).source === "tool_action_review";
             const externalChatPresentationAuthorization =
-              issueId && externalChatPresentationContext
+              issueId && externalChatPresentationCandidate
                 ? await resolveChatRunPresentationAuthorizationReason(db, {
                     companyId: livenessRun.companyId,
                     issueId,
                     runId: livenessRun.id,
                   })
                 : null;
+            const externalChatPresentationContext = isExternalChatPresentationContext(
+              livenessRun.contextSnapshot,
+              externalChatPresentationAuthorization === CHAT_RUN_PRESENTATION_AUTHORIZATION_REASON,
+            );
             const resolved = resolveHeartbeatRunResponse({
               resultJson: persistedResultJson,
               conversationTurnFinished: isConversation(issueContext) &&
