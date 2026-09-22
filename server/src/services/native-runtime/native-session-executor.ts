@@ -1756,7 +1756,7 @@ const CLEANUP_CANONICAL_FILES = [
 ] as const;
 const CLEANUP_ACTIVATION_FILE = "cleanup-activation.json";
 
-function cleanupStateSnapshot(root: string) {
+function cleanupStateSnapshot(root: string, providerFile = "codex-provider-state.json") {
   if (
     ![root, resolve(root, "runner"), resolve(root, "control-plane")].every(
       isSafeNativeStateDirectory,
@@ -1764,7 +1764,8 @@ function cleanupStateSnapshot(root: string) {
   ) {
     throw new Error("native_cleanup_maintenance_unproven");
   }
-  const bytes = CLEANUP_CANONICAL_FILES.map((file) =>
+  const files = [...CLEANUP_CANONICAL_FILES.slice(0, 2), `runner/${providerFile}`];
+  const bytes = files.map((file) =>
     readBoundedNativeFile(
       resolve(root, file),
       NATIVE_RUNNER_STATE_MAX_BYTES,
@@ -2360,6 +2361,79 @@ export function rebaseRetainedNativeCleanupProviderHome(
   } finally {
     database.close();
   }
+}
+
+/** Physical cleanup for an explicitly authorized NEW conversation turn. Unlike
+ * automatic replacement, this does not certify or replay the interrupted actions.
+ * The caller holds the issue/controller/run locks and preserves their history.
+ * Retain the old durable root permanently; only the exact in-memory cleanup
+ * owner is retired, and the successor must use a fresh normalized session.
+ */
+export async function verifyStoppedNativeSessionForContinuation(
+  db: Db,
+  run: typeof heartbeatRuns.$inferSelect,
+): Promise<{ evidence: Record<string, unknown>; retire: () => boolean } | null> {
+  try {
+    if (run.runtimeMode !== "native" || !["failed", "cancelled", "interrupted", "timed_out"].includes(run.status) ||
+        !run.finishedAt || !run.nativeIssueId || !run.nativeSessionId || !run.runnerInstanceId) return null;
+    const execution = parseNativeExecutionInput(record(run.runnerProfileJson).nativeExecutionInput);
+    if (!(["codex", "acpx"] as string[]).includes(execution.provider.kind) ||
+        execution.binding.runId !== run.id || execution.binding.companyId !== run.companyId ||
+        execution.binding.agentId !== run.agentId || execution.binding.issueId !== run.nativeIssueId ||
+        nativeSessionKey(execution) !== run.nativeSessionId ||
+        record(run.runnerProfileJson).nativeToolContractFingerprint !== nativeToolContractFingerprintForTarget("local")) return null;
+    const scope = nativeSessionScopeKey(execution);
+    const idle = () => !activeNativeSessions.has(run.id) && !executingRunnerdSessionScopes.has(scope) &&
+      !initializingSessionToolAuthorities.has(scope) && !warmNativeSessions.has(scope);
+    if (!idle()) return null;
+    const leases = await db.select().from(environmentLeases).where(and(
+      eq(environmentLeases.companyId, run.companyId), eq(environmentLeases.heartbeatRunId, run.id)));
+    if (leases.some(lease => lease.provider !== "local" || !lease.releasedAt || lease.cleanupStatus === "failed")) return null;
+    const stopped = await readNativeLocalProcessStop(db, run.companyId, run.id);
+    if (!stopped) return null;
+    const root = scopedRunnerdStateRoot(execution);
+    const providerFile = runnerProviderStateFilename(execution);
+    const snapshot = cleanupStateSnapshot(root, providerFile);
+    const identity = record(snapshot.control.identity);
+    if (!durableIdentityMatchesExecution(identity, execution) || identity.runnerInstanceId !== run.runnerInstanceId ||
+        !["runnerInstanceId", "environmentLeaseId", "runId", "normalizedSessionId", "turnId", "itemId"].every(key =>
+          typeof identity[key] === "string" && identity[key] && snapshot.runner[key] === identity[key]) ||
+        !Array.isArray(snapshot.control.committedEvents)) return null;
+    const providerEvents = snapshot.control.committedEvents.map(entry => record(record(record(entry).envelope).payload))
+      .filter(event => ["session.started", "session.resumed"].includes(String(event.eventType)));
+    if (!providerEvents.length) return null;
+    const receipts = await db.select().from(heartbeatRunEvents).where(and(
+      eq(heartbeatRunEvents.companyId, run.companyId), eq(heartbeatRunEvents.runId, run.id),
+      eq(heartbeatRunEvents.sourceInstanceId, run.runnerInstanceId),
+      inArray(heartbeatRunEvents.eventType, ["session.started", "session.resumed"])));
+    const providerPids = new Set<number>();
+    for (const event of providerEvents) {
+      const provider = record(event.payload);
+      if (!validatePrpEvent(event).ok || event.sourceKind !== "runner" || event.sourceInstanceId !== run.runnerInstanceId ||
+          event.runId !== run.id || event.normalizedSessionId !== run.nativeSessionId ||
+          !cleanupProcessAbsent(provider.processId) || provider.processId === stopped.processPid) return null;
+      const receipt = receipts.find(row => row.sourceEventId === `${run.runnerInstanceId}:${run.id}:${event.sourceSeq}`);
+      const durable = record(record(receipt?.payload).prpEvent);
+      const durableProvider = record(durable.payload);
+      if (!receipt || !validatePrpEvent(durable).ok || durable.sourceInstanceId !== event.sourceInstanceId ||
+          durable.runId !== run.id || durable.normalizedSessionId !== run.nativeSessionId ||
+          receipt.sourcePayloadSha256 !== nativeSha256(durable) ||
+          (durableProvider.processId !== undefined && durableProvider.processId !== provider.processId) ||
+          (durableProvider.driverSessionId ?? durableProvider.providerSessionId) !== provider.providerSessionId) return null;
+      providerPids.add(provider.processId);
+    }
+    if (receipts.length !== providerEvents.length) return null;
+    const unchanged = () => idle() && cleanupProcessAbsent(stopped.processPid) &&
+      [...providerPids].every(cleanupProcessAbsent) && cleanupStateSnapshot(root, providerFile).fingerprint === snapshot.fingerprint;
+    return {
+      evidence: { schema: "paperclip.stopped_native_conversation.v1", runId: run.id,
+        nativeSessionId: run.nativeSessionId, runnerInstanceId: run.runnerInstanceId,
+        processPid: stopped.processPid, providerPids: [...providerPids], stateFingerprint: snapshot.fingerprint },
+      retire: () => unchanged() && completeTerminatedLocalNativeSessionCleanup({
+        companyId: run.companyId, runId: run.id, runnerInstanceId: run.runnerInstanceId!,
+      }),
+    };
+  } catch { return null; }
 }
 
 /** Prove that a crashed local Codex turn ended without external effects. No provider

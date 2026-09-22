@@ -29,6 +29,7 @@ import {
   createPrpSemanticToolResultEnvelope,
   validatePrpStructuredRunResult,
   validatePrpEvent,
+  parseNativeExecutionInput,
   type NativeExecutionInputV1,
   type PrpEvent,
 } from "@paperclipai/paperclip-runner";
@@ -253,6 +254,7 @@ import {
   assertRemoteRunnerBuildMetadata,
   nativeSessionFailureDisposition,
   nativeFailedRunRetryStateIsSafe,
+  verifyStoppedNativeSessionForContinuation,
   nativePreProviderRetryAfterCleanupStateIsSafe,
   reconcileRetainedNativeSessionCleanup,
   retainedNativeCleanupJournalMatches,
@@ -3849,6 +3851,75 @@ describe("retained native cleanup activation", () => {
       if (previous === undefined) delete process.env.PAPERCLIP_RUNNER_STATE_DIR;
       else process.env.PAPERCLIP_RUNNER_STATE_DIR = previous;
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("stopped native conversation physical cleanup", () => {
+  it.each(["codex", "acpx"].flatMap(provider => [
+    "stopped", "provider_alive", "worker_alive", "missing_receipt", "wrong_receipt", "new_launch",
+    "foreign_run", "foreign_company", "foreign_runner", "remote", "unreleased", "changed_state", "changed_pid", "symlink",
+  ].map(mode => ({ provider, mode }))))("$provider $mode", async ({ provider, mode }) => {
+    const base = await mkdtemp(join(tmpdir(), "native-conversation-cleanup-"));
+    const previous = process.env.PAPERCLIP_RUNNER_STATE_DIR;
+    process.env.PAPERCLIP_RUNNER_STATE_DIR = base;
+    const input = parseNativeExecutionInput({ ...execution,
+      provider: provider === "codex" ? execution.provider : { kind: "acpx", agent: "claude", model: "claude-sonnet-5", permissionPolicy: "interactive",
+        profile: { driverKind: "acpx_runtime", protocolVersion: 1, acpxVersion: "0.13.1", agent: "claude", agentProfileVersion: 1,
+          agentServerPackage: "@zed-industries/claude-agent-acp", agentServerVersion: "1", agentRuntimePackage: null,
+          agentRuntimeVersion: null, commandDigest: "fixture" } },
+      session: { ...execution.session, driverKind: provider === "codex" ? "codex_app_server" : "acpx_runtime" },
+    });
+    const canonical = (value: any): string => value && typeof value === "object" && !Array.isArray(value)
+      ? `{${Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k,v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`
+      : JSON.stringify(value);
+    const hash = (value: unknown) => createHash("sha256").update(canonical(value)).digest("hex");
+    const providerScope = input.provider.kind === "acpx" ? { kind: "acpx", agent: input.provider.agent, profile: input.provider.profile } : { kind: "codex" };
+    const root = join(base, hash({ schema: "paperclip.native-session-scope.v2", companyId: input.binding.companyId,
+      agentId: input.binding.agentId, workspace: { kind: "managed", executionWorkspaceId: input.binding.executionWorkspaceId },
+      provider: { driverKind: input.session.driverKind, identity: providerScope }, normalizedSessionId: input.session.normalizedSessionId }));
+    const identity = { runId: input.binding.runId, normalizedSessionId: input.session.normalizedSessionId,
+      runnerInstanceId: "runner-crashed", environmentLeaseId: "lease", turnId: "turn", itemId: "item" };
+    const event = { schema: "paperclip.prp.event.v1", schemaVersion: 1, sourceKind: "runner", sourceSeq: 1,
+      sourceEventId: "provider-identity", sourceInstanceId: identity.runnerInstanceId, runId: identity.runId,
+      normalizedSessionId: identity.normalizedSessionId, turnId: identity.turnId, itemId: identity.itemId,
+      priority: 0, emittedAt: new Date().toISOString(), eventType: "session.started",
+      payload: { providerSessionId: "provider-session", processId: mode === "provider_alive" ? process.pid : 99_999_998 } };
+    const receipt = { sourceEventId: `${identity.runnerInstanceId}:${identity.runId}:1`,
+      sourcePayloadSha256: mode === "wrong_receipt" ? "wrong" : hash(event), payload: { prpEvent: event } };
+    const stop = { eventType: mode === "new_launch" ? "native.process_start_requested" : "native.local_process_stopped",
+      payload: { processPid: mode === "worker_alive" ? process.pid : 99_999_999, processGroupId: mode === "worker_alive" ? process.pid : 99_999_999 } };
+    let queryIndex = 0;
+    const db = { select() { const rows = [
+      [{ provider: mode === "remote" ? "daytona" : "local", releasedAt: mode === "unreleased" ? null : new Date() }],
+      [stop], mode === "missing_receipt" ? [] : [receipt],
+    ][queryIndex++] ?? [];
+      const q: any = { from: () => q, where: () => q, orderBy: () => q, limit: () => q,
+        then: Promise.resolve(rows).then.bind(Promise.resolve(rows)) }; return q;
+    } } as unknown as Db;
+    const run = { id: input.binding.runId, companyId: mode === "foreign_company" ? "foreign" : input.binding.companyId,
+      agentId: input.binding.agentId, nativeIssueId: input.binding.issueId, runtimeMode: "native", status: "failed", finishedAt: new Date(),
+      nativeSessionId: input.session.normalizedSessionId, runnerInstanceId: mode === "foreign_runner" ? "foreign" : identity.runnerInstanceId,
+      runnerProfileJson: { nativeExecutionInput: input, nativeToolContractFingerprint: nativeToolContractFingerprintForTarget("local") } } as typeof heartbeatRuns.$inferSelect;
+    try {
+      await mkdir(join(root, "runner"), { recursive: true });
+      await mkdir(join(root, "control-plane"), { recursive: true });
+      const runnerPath = join(root, "runner/runner-state.json");
+      await writeFile(join(root, "control-plane/control-plane-state.json"), JSON.stringify({ ...durableControlPlaneState(identity), committedEvents: [{ envelope: { payload: event } }] }));
+      await writeFile(runnerPath, JSON.stringify(durableRunnerState({ ...identity, ...(mode === "foreign_run" ? { runId: "foreign" } : {}) }, "ready")));
+      await writeFile(join(root, `runner/${provider}-provider-state.json`), JSON.stringify({ lifecycle: "turn_active" }));
+      if (mode === "symlink") { await rename(runnerPath, join(base, "external")); await symlink(join(base, "external"), runnerPath); }
+      const proof = await verifyStoppedNativeSessionForContinuation(db, run);
+      if (["stopped", "changed_state", "changed_pid"].includes(mode)) {
+        expect(proof).not.toBeNull();
+        if (mode === "changed_state") await writeFile(runnerPath, "{}");
+        const kill = mode === "changed_pid" ? vi.spyOn(process, "kill").mockReturnValue(true) : null;
+        try { expect(proof!.retire()).toBe(mode === "stopped"); } finally { kill?.mockRestore(); }
+        expect(await readFile(join(root, `runner/${provider}-provider-state.json`), "utf8")).toBe('{"lifecycle":"turn_active"}');
+      } else expect(proof).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.PAPERCLIP_RUNNER_STATE_DIR; else process.env.PAPERCLIP_RUNNER_STATE_DIR = previous;
+      await rm(base, { recursive: true, force: true });
     }
   });
 });
