@@ -71,10 +71,10 @@ describe("runner E2E catalog", () => {
     expect(localIntegrityTasks).toHaveLength(2);
     expect(openRouterBreadthTasks).toHaveLength(3);
     expect(runnerSuites.map((suite) => suite.expectedMatrixSize)).toEqual([
-      10, 23, 38, 52, 28, 18, 6, 6, 48, 16, 10, 2,
+      16, 23, 38, 52, 28, 18, 6, 6, 48, 16, 10, 2,
     ]);
-    expect(validateRunnerCatalog()).toHaveLength(257);
-    expect(new Set(runnerMatrix.map((entry) => entry.id)).size).toBe(257);
+    expect(validateRunnerCatalog()).toHaveLength(263);
+    expect(new Set(runnerMatrix.map((entry) => entry.id)).size).toBe(263);
     expect(
       runnerMatrix.filter((entry) => entry.suite.id === "core-compatibility"),
     ).toHaveLength(48);
@@ -548,6 +548,16 @@ describe("runner E2E selectors", () => {
       "local-session-integrity.runner-codex.local.structured-question-resume",
       "local-session-integrity.runner-codex.local.structured-question-restart-resume",
     ]);
+  });
+
+  it("keeps Grok artifact and stop/resume qualification explicit in both environments", () => {
+    const selected = selectRunnerExecutions(parseRunnerSelectors(["--suite", "grok-qualification"]));
+    expect(selected).toHaveLength(16);
+    for (const environment of ["local", "daytona"]) {
+      for (const task of ["build-revise", "stop-new-resume", "continuity-restart"]) {
+        expect(selected.some(execution => execution.id === `grok-qualification.runner-acpx-grok.${environment}.${task}`)).toBe(true);
+      }
+    }
   });
 
   it("selects a suite without exploding its environment matrix", () => {

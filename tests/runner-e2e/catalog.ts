@@ -919,12 +919,16 @@ const everydayProfiles = [
 export const runnerSuites: readonly RunnerSuiteFixture[] = [
   {
     id: "grok-qualification", label: "Grok Build Qualification", manualOnly: true,
-    description: "Grok task replies, planning approval, questions and controller restart in local and Daytona environments.",
+    description: "Grok replies, planning approval, questions, downloadable artifacts, stop/resume and controller restart in local and Daytona environments.",
     groups: ["native"],
     profiles: runnerProfiles.filter(profile => profile.id === "runner-acpx-grok"),
     environments: [localEnvironment, daytonaWarmEnvironment],
-    tasks: [...runnerTasks, ...localIntegrityTasks], expectedMatrixSize: 10,
-    definitionMetadata: { version: 1, binary: "1.0.13", model: "grok-4.7", scheduling: "explicit-only", repetitionsRequired: 3 },
+    tasks: [
+      ...runnerTasks, ...localIntegrityTasks,
+      ...everydayTasks.filter(task => task.id === "build-revise"),
+      ...chatHardeningTasks.filter(task => ["stop-new-resume", "continuity-restart"].includes(task.id)),
+    ], expectedMatrixSize: 16,
+    definitionMetadata: { version: 2, binary: "1.0.13", model: "grok-4.7", scheduling: "explicit-only", repetitionsRequired: 3, artifactOracle: "independent-python-contract", stopBoundary: "provider-turn-started" },
   },
   {
     id: "continuation", label: "Task continuation",

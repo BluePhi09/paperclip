@@ -8,7 +8,9 @@ Grok Build speaks [ACP over stdio](https://github.com/xai-org/grok-build/blob/ma
 The runner owns `grok agent --no-leader stdio` through ACPX, including session
 identity, cancellation, recovery and the authenticated Paperclip MCP bridge.
 It does not add `--always-approve`. Restricted operations use the selected ACPX
-permission policy and return the existing approval-required outcome.
+permission policy and return the existing approval-required outcome. Isolated ask
+rules override project allow rules, and compatible always-approve settings are
+locked off. Compatible hook/MCP discovery and shell login capture are disabled.
 
 ## Installation and identity
 
@@ -46,7 +48,8 @@ lane remains disabled pending complete live qualification.
 
 Product E2E exposes `runner-acpx-grok` in core local/Daytona compatibility and
 local session integrity. The explicit `grok-qualification` suite covers replies,
-planning approvals, structured questions and continuation after controller restart
+planning approvals, structured questions, downloadable project revisions, stop/resume
+and continuation after controller restart
 in both environments. Run with `--suite grok-qualification`; it is excluded from
 scheduled `--all`. Use the canonical Product E2E dashboard and Evalbook reports.
 
