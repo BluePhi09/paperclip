@@ -168,9 +168,18 @@ jobs:
           status=0
           for check in 'pnpm -r typecheck' 'pnpm test:run' 'pnpm check:token-gates' 'pnpm test:e2e:runner:typecheck' 'pnpm test:e2e:runner:unit' 'pnpm build'; do
             label="$(echo "$check" | tr -cs 'a-zA-Z0-9' '-')"
+            echo "Starting $check"
             bash -c "$check" > "remote-verification/$label.log" 2>&1 || status=1
+            echo "Finished $check"
           done
           exit "$status"
+      - name: Build canonical eval report viewer
+        if: always() && inputs.verify_source
+        run: |
+          set -euo pipefail
+          pnpm --filter @paperclipai/paperclip-runner build:issue-thread > remote-verification/viewer-build.log 2>&1
+          tar -czf remote-verification/eval-viewer.tar.gz -C packages/paperclip-runner dist-issue-thread
+          sha256sum remote-verification/eval-viewer.tar.gz > remote-verification/eval-viewer.sha256
       - name: Retain source, image and verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
