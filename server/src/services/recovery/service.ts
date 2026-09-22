@@ -3109,7 +3109,10 @@ export function recoveryService(
         dispositionRepairFingerprint: input.fingerprint,
         dispositionRepairAttempt: input.attempt,
         dispositionRepairMaxAttempts: input.legacyEpisode?.maxAttempts ?? DISPOSITION_REPAIR_MAX_ATTEMPTS,
-        ...(input.legacyEpisode ? { legacyDispositionEpisode: { ...input.legacyEpisode, attempt: input.attempt } } : {}),
+        ...(input.legacyEpisode ? {
+          legacyDispositionEpisode: { ...input.legacyEpisode, attempt: input.attempt },
+          dispositionRepairSourceRunId: input.latestRun?.id ?? null,
+        } : {}),
         bypassContinuationSummaryPark: true,
         dispositionRepairInstruction:
           input.legacyEpisode ? LEGACY_DISPOSITION_REPAIR_INSTRUCTION : "Revalidate the issue and replace the invalid parked summary with a durable disposition. Continue productive work when appropriate.",
@@ -3655,7 +3658,8 @@ export function recoveryService(
         paused: pause, budgetBlocked: budget,
         pendingWait: state.hasDurableWaitingPath || durableWait || parseIssueExecutionState(issue.executionState)?.status === "pending" || Boolean(issue.monitorNextCheckAt),
         activeExecution: state.hasActiveExecutionPath || latest?.id !== (dispatchRunId ?? run.id),
-        ownedLifecycle: isPluginManagedIssueLifecycle(issue) || routine.length > 0 || workspaceChildren.length > 0 ||
+        ownedLifecycle: Boolean(readNonEmptyString(context.goalControlRequestId)) || context.resumeSessionGoalHeartbeat === true ||
+          isPluginManagedIssueLifecycle(issue) || routine.length > 0 || workspaceChildren.length > 0 ||
           Boolean(goal[0]?.status && goal[0].status !== "complete") || Boolean(active && !ownsRepair),
         conversation: Boolean(issue.conversationAgentId) || isWaitingConversation(issue),
         agentInvokable: Boolean(agent && await isAgentInvokable(agent) && isHeartbeatWakeOnDemandEnabled(agent)),
@@ -3669,7 +3673,9 @@ export function recoveryService(
     if (!run || !parseObject(context.legacyDispositionEpisode).id) return null;
     if (!["queued", "running", "scheduled_retry"].includes(run.status)) return "repair_not_active";
     const episode = legacyDispositionEpisode(run);
-    const sourceId = readNonEmptyString(context.retryOfRunId);
+    // Infrastructure retries retain the successful disposition source even
+    // though their immediate retryOfRunId points at a failed repair attempt.
+    const sourceId = readNonEmptyString(context.dispositionRepairSourceRunId) ?? readNonEmptyString(context.retryOfRunId);
     const issueId = readNonEmptyString(context.issueId);
     if (!sourceId || !issueId || episode.attempt < 1 || episode.attempt > episode.maxAttempts) return "invalid_repair_binding";
     const [source] = await db.select().from(heartbeatRuns).where(and(eq(heartbeatRuns.id, sourceId), eq(heartbeatRuns.companyId, run.companyId))).limit(1);

@@ -45,7 +45,8 @@ function continuation(
       activeExecution: false, ownedLifecycle: false, conversation: false, agentInvokable: true },
     ...overrides,
   });
-  // Narrative-bearing instructions and diagnostic labels are deliberately excluded.
+  // Compare the authority-bearing repair instruction and key as well as action.
+  // Only diagnostic classification is excluded from the equality check.
   const effect =
     decision.kind === "enqueue"
       ? {
