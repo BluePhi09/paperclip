@@ -132,7 +132,6 @@ function createTransportBackedNativeSessionBackend(
   }
 
   const constraints = [
-    "Work only inside the supplied working directory.",
     ...(supportsCollaborativePlanning &&
     "executionMode" in input &&
     input.executionMode === "plan"

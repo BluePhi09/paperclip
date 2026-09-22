@@ -567,7 +567,6 @@ describe("native backend factory", () => {
     ).toMatchObject({ conversationMode: "prepared" });
     expect(backend.preparedTaskConstraints).toEqual(
       expect.arrayContaining([
-        "Work only inside the supplied working directory.",
         expect.stringContaining("Obtain one accepted result"),
       ]),
     );
@@ -580,7 +579,6 @@ describe("native backend factory", () => {
     });
     expect(backend.preparedTaskConstraints).toEqual(
       expect.arrayContaining([
-        "Work only inside the supplied working directory.",
         expect.stringContaining("Obtain one accepted result"),
       ]),
     );

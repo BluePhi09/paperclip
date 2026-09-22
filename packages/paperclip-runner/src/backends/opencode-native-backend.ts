@@ -15,7 +15,6 @@ export function createOpenCodeNativeSessionBackend(
   }
   const preparedContext = input.schema === NATIVE_EXECUTION_INPUT_SCHEMA;
   const constraints = [
-      "Work only inside the supplied working directory.",
       ...nativeTaskConstraints(input),
       "Return one semantic completion result through paperclip_finish or paperclip_block.",
     ];
