@@ -145,7 +145,7 @@ export const SLACK_TOOLS = [
     "assistant.search.context",
     ["search:read.public", "search:read.files"],
     "read",
-    "Search authorized channels by text, author and time. Reports native search or bounded history scan and its coverage. Never claim a partial scan is exhaustive.",
+    "Search authorized channel history by text, author and time. Pass channels as an array of channel IDs, query as plain text, and limit from 1 to 20 (matches per channel, not messages scanned). Reports bounded scan coverage; never claim it is exhaustive.",
     {
       channels: z.array(channel).min(1).max(10),
       query: text,

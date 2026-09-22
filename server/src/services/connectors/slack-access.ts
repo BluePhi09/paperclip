@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { chatActions, chatEndpointResources, type Db } from "@paperclipai/db";
-import { forbidden, unprocessable } from "../../errors.js";
+import { HttpError, forbidden, unprocessable } from "../../errors.js";
 import type { SlackTaskAuthority } from "./slack-authority.js";
 import {
   nextCursor,
@@ -15,9 +15,21 @@ export async function authorizeSlackChannel(
   api: Api,
   channelId: string,
 ) {
-  const channel = object(
-    (await api("conversations.info", { channel: channelId })).channel,
-  );
+  let channel: SlackObject;
+  try {
+    channel = object(
+      (await api("conversations.info", { channel: channelId })).channel,
+    );
+  } catch (error) {
+    // Membership can disappear between listing and inspection. Slack also
+    // hides inaccessible conversations with channel_not_found. Treat only
+    // these definite access failures as denials; outages must still surface.
+    if (error instanceof HttpError && error.status === 422 &&
+      ["slack_channel_not_found", "slack_not_in_channel"].includes(String(object(error.details).code))) {
+      throw forbidden("This Slack channel is no longer accessible to the bot");
+    }
+    throw error;
+  }
   if (
     channel.id !== channelId ||
     (channel.is_member !== true && channel.is_im !== true)

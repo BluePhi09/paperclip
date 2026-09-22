@@ -38,6 +38,13 @@ history scan is not workspace-wide search and does not automatically inspect
 thread replies. Fetch further history/thread pages when needed. Report omitted
 history, rate limits, missing scopes and unavailable Slack features accurately.
 
+For example, to search the assigned channel, call `slack_search` with
+`{"channels":["C012AB3CD"],"query":"launch decision","limit":10}`, substituting
+the supplied channel ID. `channels` is an array; `limit` is at most 20 matches,
+not the history page size. Do not add Slack search syntax to a channel ID or
+pass unsupported fields. A schema rejection means the arguments need correcting;
+it does not mean another Slack connection is needed.
+
 ## Collaboration and delivery
 
 Use Slack messages, uploads, reactions, pins, bookmarks, topics, canvases and lists

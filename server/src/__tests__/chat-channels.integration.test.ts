@@ -4002,6 +4002,19 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     const read = await executeSlackTool(db, binding, "slack_history", { channel: "COTHER" }, fetched as typeof fetch);
     expect(read).toMatchObject({ sourceTrust: "untrusted", nextCursor: "older", hasMore: true });
     expect(JSON.stringify(read)).toContain("UUNLINKED");
+    const directoryFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = String(input).split("/").at(-1);
+      const args = Object.fromEntries(new URLSearchParams(String(init?.body ?? "")));
+      if (method === "conversations.list") return Response.json({ ok: true, channels: [{ id: "CGONE", is_member: true }, { id: "COTHER", is_member: true }], response_metadata: { next_cursor: "directory-next" } });
+      if (method === "conversations.info" && args.channel === "CGONE") return Response.json({ ok: false, error: "channel_not_found" });
+      return fetched(input, init);
+    });
+    await expect(executeSlackTool(db, binding, "slack_channels", {}, directoryFetch as typeof fetch)).resolves.toMatchObject({ channels: [{ id: "COTHER" }], nextCursor: "directory-next" });
+    await expect(executeSlackTool(db, binding, "slack_search", { channels: ["COTHER"], query: "ship Tuesday", limit: 10 }, fetched as typeof fetch)).resolves.toMatchObject({
+      mode: "bounded_history", exhaustive: false,
+      matches: [{ user: "UUNLINKED", ts: "7000.1" }],
+      inspected: [{ channel: "COTHER", count: 1, nextCursor: "older", hasMore: true }],
+    });
     await expect(executeSlackTool(db, binding, "slack_history", { channel: "GPRIVATE" }, fetched as typeof fetch)).rejects.toThrow("in a DM");
     vi.stubEnv("PAPERCLIP_TOOL_ACTION_SIGNING_SECRET", "slack-tools-integration-signing-secret");
     onTestFinished(() => vi.unstubAllEnvs());

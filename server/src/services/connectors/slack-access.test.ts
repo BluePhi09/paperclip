@@ -9,6 +9,7 @@ import { slackClient } from "./slack-client.js";
 import type { SlackTaskAuthority } from "./slack-authority.js";
 import type { Db } from "@paperclipai/db";
 import { SLACK_TOOLS } from "@paperclipai/shared";
+import { tooManyRequests, unprocessable } from "../../errors.js";
 const authority = {
   endpoint: {
     id: "endpoint",
@@ -48,6 +49,18 @@ const fakeDb = (rows: unknown[]) =>
     select: () => ({ from: () => ({ where: async () => rows }) }),
   }) as unknown as Db;
 describe("Slack access and publication boundaries", () => {
+  it("treats missing channels as access denials without hiding provider failures", async () => {
+    for (const code of ["slack_channel_not_found", "slack_not_in_channel"]) {
+      const api = apiFor({});
+      api.mockRejectedValue(unprocessable("Slack rejected the lookup", { code }));
+      await expect(authorizeSlackChannel(authority, api, "C1")).rejects.toMatchObject({ status: 403 });
+    }
+    for (const error of [tooManyRequests("Rate limited"), unprocessable("Missing scope", { code: "slack_missing_scope" })]) {
+      const api = apiFor({});
+      api.mockRejectedValue(error);
+      await expect(authorizeSlackChannel(authority, api, "C1")).rejects.toBe(error);
+    }
+  });
   it("reads a public shared channel without checking the enabled response destination", async () => {
     expect((await authorizeSlackChannel(authority, apiFor({}), "C1")).id).toBe(
       "C1",
