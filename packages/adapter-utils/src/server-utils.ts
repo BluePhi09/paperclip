@@ -2209,6 +2209,34 @@ export function selectPaperclipTaskMarkdown(
   return compact || full;
 }
 
+/**
+ * Select Paperclip-owned sections together, at the actual provider attempt.
+ * Assignment Markdown owns the brief; the wake renderer owns current events.
+ * Adapters choose carriers and templates, not a second task/context policy.
+ * Recompute with resumedSession=false when recovery starts a fresh attempt.
+ */
+export function selectPaperclipPromptSections(
+  context: Record<string, unknown> | null | undefined,
+  options: {
+    resumedSession?: boolean;
+    includeCommunicationGuidance?: boolean;
+    includeExecutionContract?: boolean;
+    nativeWakeReaderAvailable?: boolean;
+  } = {},
+): { taskContextNote: string; wakePrompt: string } {
+  const taskContextNote = selectPaperclipTaskMarkdown(context, options);
+  return {
+    taskContextNote,
+    wakePrompt: renderPaperclipWakePrompt(context?.paperclipWake, {
+      resumedSession: options.resumedSession,
+      includeExecutionContract: options.includeExecutionContract,
+      nativeWakeReaderAvailable: options.nativeWakeReaderAvailable,
+      conversationMode: context?.conversationMode === true,
+      suppressIssueDescription: taskContextNote.length > 0,
+    }),
+  };
+}
+
 // Runtime-only connector skills are supplied by the server after assignment resolution.
 // Shared-home adapters consume them here on fresh and resumed runs without installing
 // files into a user-wide skills directory. They are not part of serialized wake data.

@@ -20,7 +20,7 @@ import {
 import {
   isPaperclipExternalChatContractTurn,
   isPaperclipExternalChatQuestionResponseTurn,
-  renderPaperclipWakePrompt,
+  selectPaperclipPromptSections,
 } from "@paperclipai/adapter-utils/server-utils";
 
 const NATIVE_GITHUB_ATTACHMENT_RECOVERY_GUIDANCE = [
@@ -154,10 +154,15 @@ export function buildNativeExecutionInput(input: {
           },
         }
       : input.wakePayload;
-  const wakePrompt = renderPaperclipWakePrompt(wakePayload, {
+  // Build the full bootstrap through the same owner as legacy adapters.
+  // Verified native resume selection stays at the existing session boundary.
+  const { taskContextNote, wakePrompt } = selectPaperclipPromptSections({
+    paperclipTaskMarkdownAssignment: input.taskPrompt,
+    paperclipWake: wakePayload,
+    conversationMode: input.conversationMode,
+  }, {
     resumedSession: false,
-    conversationMode: input.conversationMode === true,
-    suppressIssueDescription: input.taskPrompt.trim().length > 0,
+    includeCommunicationGuidance: false,
     nativeWakeReaderAvailable: true,
   });
   const externalChatTurn =
@@ -171,7 +176,7 @@ export function buildNativeExecutionInput(input: {
     externalChatTurn && wake?.externalChatProvider === "github"
       ? NATIVE_GITHUB_ATTACHMENT_RECOVERY_GUIDANCE
       : "",
-    input.taskPrompt.trim(),
+    taskContextNote,
   ]
     .filter((section) => section.length > 0)
     .join("\n\n");

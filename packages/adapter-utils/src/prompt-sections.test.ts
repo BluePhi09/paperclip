@@ -1,19 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderPaperclipWakePrompt, selectPaperclipTaskMarkdown } from "./server-utils.js";
+import { selectPaperclipPromptSections as selectSections } from "./server-utils.js";
 import { createPromptContextFixture } from "./test-fixtures/prompt-context.js";
-
-// Characterize the existing correct ACP selection before extracting its owner.
-function selectSections(context: Record<string, unknown>, options: { resumedSession?: boolean } = {}) {
-  const taskContextNote = selectPaperclipTaskMarkdown(context, options);
-  return {
-    taskContextNote,
-    wakePrompt: renderPaperclipWakePrompt(context.paperclipWake, {
-      ...options,
-      conversationMode: context.conversationMode === true,
-      suppressIssueDescription: taskContextNote.length > 0,
-    }),
-  };
-}
 
 describe("task and event section ownership", () => {
   it("preserves user repetition and distinct same-body comments under their source owners", () => {
