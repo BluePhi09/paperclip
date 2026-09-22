@@ -1,3 +1,9 @@
+import { reassignTaskAction } from "./reassign-task.js";
+import { createSkillAction } from "./create-skill.js";
+import { createProjectAction } from "./create-project.js";
+import { listProjectRepositoriesAction } from "./list-project-repositories.js";
+import { searchApiAction } from "./search-api.js";
+import { callApiAction } from "./call-api.js";
 import { administerCompanyAction } from "./administer-company.js";
 import { answerStatusQuestionAction } from "./answer-status-question.js";
 import { blockTaskAction } from "./block-task.js";
@@ -42,6 +48,11 @@ import { writeDocumentAction } from "./write-document.js";
 import { deepFreezeProtocolAction } from "./freeze.js";
 
 export const PAPERCLIP_PROTOCOL_ACTIONS = deepFreezeProtocolAction([
+  createSkillAction,
+  createProjectAction,
+  listProjectRepositoriesAction,
+  searchApiAction,
+  callApiAction,
   administerCompanyAction,
   answerStatusQuestionAction,
   blockTaskAction,
@@ -80,6 +91,7 @@ export const PAPERCLIP_PROTOCOL_ACTIONS = deepFreezeProtocolAction([
   scheduleWakeAction,
   searchTasksAction,
   setDependenciesAction,
+  reassignTaskAction,
   syncCompanySkillsAction,
   upsertCaseAction,
   writeDocumentAction,

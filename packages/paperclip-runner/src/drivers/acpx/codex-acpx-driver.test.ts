@@ -21,6 +21,17 @@ import type {
 import type { AcpxRecoveryWorkspaceLease } from "./runtime-sandbox.js";
 
 describe("Codex ACPX harness driver", () => {
+  it.each([
+    ["claude", "claude-sonnet-5"], ["codex", "gpt-5.6-sol"],
+  ] as const)("launches %s in full auto when no mode is supplied", async (agent, model) => {
+    const fixture = driverFixture({ agent, model, permissionMode: undefined });
+    const session = await fixture.driver.openSession({
+      runId: "run-default-permissions", normalizedSessionId: "session-1", workingDirectory: "/workspace",
+    });
+    expect(fixture.hostOptions?.permissionMode).toBe("approve-all");
+    await session.close({ reason: "default permission verified" });
+  });
+
   it("rejects a pre-aborted open before starting host admission", async () => {
     const fixture = driverFixture();
     const controller = new AbortController();
@@ -232,7 +243,10 @@ describe("Codex ACPX harness driver", () => {
         arguments: completedResult(),
         signal: new AbortController().signal,
       }),
-    ).resolves.toEqual({ accepted: true });
+    ).resolves.toMatchObject({
+      accepted: true,
+      feedback: "Completion report accepted. Task status is committed after this turn and workspace finalization finish.",
+    });
     fixture.finishTurn({ status: "completed", stopReason: "end_turn" });
 
     const events = await terminalEvents;
@@ -254,6 +268,21 @@ describe("Codex ACPX harness driver", () => {
     ).toBeLessThan(
       events.findIndex((event) => event.eventType === "turn.completed"),
     );
+    const assistantEvents = events.filter(
+      (event) =>
+        (event.eventType === "item.delta" ||
+          event.eventType === "item.completed") &&
+        event.payload.kind === "agentMessage",
+    );
+    expect(assistantEvents).toHaveLength(2);
+    expect(assistantEvents.map((event) => event.itemId)).toEqual([
+      `${turnId}:assistant-message`,
+      `${turnId}:assistant-message`,
+    ]);
+    expect(assistantEvents.map((event) => event.payload.channel)).toEqual([
+      "unknown",
+      "final",
+    ]);
     await expect(session.snapshot()).resolves.toMatchObject({
       driverKind: "acpx_runtime",
       activeTurnId: null,
@@ -270,6 +299,101 @@ describe("Codex ACPX harness driver", () => {
     await session.close({ reason: "complete" });
     await session.close({ reason: "idempotent close" });
     expect(fixture.host.close).toHaveBeenCalledOnce();
+  });
+
+  it("checks server completion feedback before ACPX semantic admission", async () => {
+    const completionFeedback = vi.fn()
+      .mockRejectedValueOnce(new Error("Name the reviewer and decision."))
+      .mockResolvedValue("Completion report accepted.");
+    const fixture = driverFixture({ completionFeedback });
+    const session = await fixture.driver.openSession({
+      runId: "run-feedback",
+      normalizedSessionId: "session-1",
+      workingDirectory: "/workspace",
+    });
+    const terminalEvents = collectUntil(session.events(), "turn.completed");
+    await session.startTurn({ message: { role: "user", text: "Complete." } });
+    const bridgeHandler = fixture.hostOptions!.semanticTools!.handler;
+    const call = (callId: string) => bridgeHandler({
+      tool: PRP_COMPLETION_TOOL_NAME,
+      callId,
+      arguments: completedResult(),
+      signal: new AbortController().signal,
+    });
+    await expect(call("rejected")).resolves.toMatchObject({ accepted: false });
+    expect((await session.snapshot()).semanticResult).toBeNull();
+    await expect(call("corrected")).resolves.toMatchObject({
+      accepted: true,
+      feedback: "Completion report accepted.",
+    });
+    fixture.finishTurn({ status: "completed", stopReason: "end_turn" });
+    const events = await terminalEvents;
+    expect(events.filter((event) => event.eventType === "run.result.proposed")).toHaveLength(1);
+    expect(events.find((event) => event.eventType === "run.result.rejected")?.payload).toMatchObject({
+      recovery: { required: true, recoverable: true },
+    });
+    await session.close({ reason: "completion feedback verified" });
+  });
+
+  it("keeps ACPX reasoning and assistant identities stable through settlement", async () => {
+    const fixture = driverFixture(
+      { dynamicToolHandler: vi.fn(async () => ({ ok: true })) },
+      {
+        runtimeEvents: [
+          {
+            type: "text_delta" as const,
+            text: "Inspecting the task.",
+            stream: "thought" as const,
+          },
+          {
+            type: "text_delta" as const,
+            text: "Completed exactly once.",
+            stream: "output" as const,
+          },
+        ],
+      },
+    );
+    const session = await fixture.driver.openSession({
+      runId: "run-channel-identity",
+      normalizedSessionId: "session-1",
+      workingDirectory: "/workspace",
+    });
+    const terminalEvents = collectUntil(session.events(), "turn.completed");
+    const { turnId } = await session.startTurn({
+      message: { role: "user", text: "Keep the channels distinct." },
+    });
+    await fixture.hostOptions!.semanticTools!.handler({
+      tool: PRP_COMPLETION_TOOL_NAME,
+      callId: "finish-channel-identity",
+      arguments: completedResult(),
+      signal: new AbortController().signal,
+    });
+    fixture.finishTurn({ status: "completed", stopReason: "end_turn" });
+
+    const events = await terminalEvents;
+    const reasoning = events.find(
+      (event) =>
+        event.eventType === "item.delta" && event.payload.kind === "reasoning",
+    );
+    expect(reasoning).toMatchObject({
+      itemId: `${turnId}:reasoning`,
+      payload: {
+        channel: "summary",
+        text: "Inspecting the task.",
+      },
+    });
+    const assistant = events.filter(
+      (event) => event.payload.kind === "agentMessage",
+    );
+    expect(assistant.map((event) => event.itemId)).toEqual([
+      `${turnId}:assistant-message`,
+      `${turnId}:assistant-message`,
+    ]);
+    expect(assistant.map((event) => event.payload.channel)).toEqual([
+      "unknown",
+      "final",
+    ]);
+    await session.close({ reason: "channel identity verified" });
   });
 
   it("rejects terminal disposition drift and bounds interruption", async () => {
@@ -1105,7 +1229,10 @@ describe("Codex ACPX harness driver", () => {
         arguments: completedResult(),
         signal: new AbortController().signal,
       }),
-    ).resolves.toEqual({ accepted: true });
+    ).resolves.toMatchObject({
+      accepted: true,
+      feedback: "Completion report accepted. Task status is committed after this turn and workspace finalization finish.",
+    });
     fixture.finishTurn({ status: "completed", stopReason: "end_turn" });
 
     await vi.waitFor(async () => {
@@ -1704,8 +1831,8 @@ describe("Codex ACPX harness driver", () => {
     expect(fixture.hostOptions?.expectedIdentity).toEqual(
       snapshot.providerIdentity,
     );
-    const workspaceLease = (await fixture.readRecoveryWorkspace.mock
-      .results[0]!.value) as AcpxRecoveryWorkspaceLease;
+    const workspaceLease = (await fixture.readRecoveryWorkspace.mock.results[0]!
+      .value) as AcpxRecoveryWorkspaceLease;
     expect(fixture.hostOptions?.assertWorkspaceHeld).toBe(
       workspaceLease.assertHeld,
     );
@@ -1750,9 +1877,12 @@ describe("Codex ACPX harness driver", () => {
   it("aborts a blocked recovery workspace read without opening a host", async () => {
     const workspaceRead = deferred<AcpxRecoveryWorkspaceLease>();
     const lateWorkspaceLease = recoveryWorkspaceLease();
-    const fixture = driverFixture({}, {
-      readRecoveryWorkspace: () => workspaceRead.promise,
-    });
+    const fixture = driverFixture(
+      {},
+      {
+        readRecoveryWorkspace: () => workspaceRead.promise,
+      },
+    );
     const session = await fixture.driver.openSession({
       runId: "run-recovery-read-abort",
       normalizedSessionId: "session-1",
@@ -2563,7 +2693,7 @@ function recoveryWorkspaceLease(
 function fakeHost(createTurn: () => AcpxRuntimeTurn, onClose: () => void) {
   return {
     identity: () => ({
-      schema: "paperclip.runner.acpx-identity.v1" as const,
+      schema: "paperclip.runner.acpx-identity.v2" as const,
       normalizedSessionId: "session-1",
       acpxRecordId: "record-1",
       backendSessionId: "backend-1",
@@ -2573,6 +2703,7 @@ function fakeHost(createTurn: () => AcpxRuntimeTurn, onClose: () => void) {
       requestedModel: "gpt-5.6-sol",
       effectiveModel: "gpt-5.6-sol",
       permissionMode: "approve-reads" as const,
+      providerLifetimeFenceCandidates: [60_001, 60_002, 60_003] as const,
     }),
     binding: () => ({
       normalizedSessionId: "session-1",

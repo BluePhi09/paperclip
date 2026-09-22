@@ -9,13 +9,10 @@ import { useSidebar } from "@/context/SidebarContext";
 import { queryKeys } from "@/lib/queryKeys";
 import {
   APP_TABS,
-  BROKER_ONLY_APP_TABS,
-  CONNECTED_ONLY_APP_TABS,
   appApplicationTabHref,
   appTabHref,
   type AppTabKey,
 } from "@/pages/apps/app-tabs";
-import { isComposioBrokerConnection } from "@/pages/apps/composio-services";
 import { AppLogo } from "@/pages/apps/AppLogo";
 import {
   appApplicationSourceSlug,
@@ -64,7 +61,6 @@ export function AppDetailSidebar(props: AppDetailSidebarProps) {
   });
 
   const connection = connectionQuery.data;
-  const isBroker = isComposioBrokerConnection(connection);
   const applicationId = props.kind === "application" ? props.applicationId : connection?.applicationId;
   const application = (applicationsQuery.data?.applications ?? []).find((app) => app.id === applicationId) ?? null;
   const appConnections = props.kind === "application"
@@ -92,14 +88,14 @@ export function AppDetailSidebar(props: AppDetailSidebarProps) {
     <aside className="flex h-full min-h-0 w-full flex-col border-r border-border bg-background">
       <div className="flex shrink-0 flex-col gap-3 px-3 py-3">
         <Link
-          to="/apps/connections"
+          to="/apps"
           onClick={() => {
             if (isMobile) setSidebarOpen(false);
           }}
           className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
         >
           <ChevronLeft className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">All apps</span>
+          <span className="truncate">All connectors</span>
         </Link>
         <div className="flex min-w-0 items-center gap-2 px-2 py-1">
           <AppLogo
@@ -116,7 +112,7 @@ export function AppDetailSidebar(props: AppDetailSidebarProps) {
 
       <nav className="scrollbar-auto-hide min-h-0 flex-1 overflow-y-auto px-3 py-2">
         <div className="flex flex-col gap-0.5">
-          {APP_TABS.filter((tab) => visibleTab(tab.key, props.kind, isBroker)).map((tab) => (
+          {APP_TABS.map((tab) => (
             <SidebarNavItem
               key={tab.key}
               to={tabHref(props, tab.key)}
@@ -132,15 +128,6 @@ export function AppDetailSidebar(props: AppDetailSidebarProps) {
       </nav>
     </aside>
   );
-}
-
-function visibleTab(
-  tab: AppTabKey,
-  kind: AppDetailSidebarProps["kind"],
-  isBroker: boolean,
-): boolean {
-  if (kind !== "connection" && CONNECTED_ONLY_APP_TABS.has(tab)) return false;
-  return !BROKER_ONLY_APP_TABS.has(tab) || isBroker;
 }
 
 function tabHref(props: AppDetailSidebarProps, tab: AppTabKey): string {
