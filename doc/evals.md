@@ -223,7 +223,7 @@ E2E matcher calibration is separate from live execution; unrun live coverage
 remains explicitly unmeasured.
 
 The separate [live lifecycle baseline](../tests/runner-e2e/LIFECYCLE-BASELINE.md)
-defines 40 real-provider Product E2E cells, including paired narrative probes and
+defines 42 real-provider Product E2E cells, including paired narrative probes and
 named existing controls on legacy and native Codex. Discover it with
 `pnpm test:e2e:runner -- --list --suite lifecycle-baseline`. Authoring validation
 has passed; live execution remains unmeasured.

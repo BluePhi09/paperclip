@@ -8091,6 +8091,12 @@ export async function buildPaperclipWakePayload(input: {
       : [],
     childIssueSummaryTruncated:
       input.contextSnapshot.childIssueSummaryTruncated === true,
+    dispositionRepair: input.contextSnapshot.legacyDispositionEpisode ? {
+      attempt: input.contextSnapshot.dispositionRepairAttempt,
+      maxAttempts: input.contextSnapshot.dispositionRepairMaxAttempts,
+      sourceRunId: input.contextSnapshot.retryOfRunId,
+      instruction: input.contextSnapshot.dispositionRepairInstruction,
+    } : null,
     livenessContinuation:
       readNonEmptyString(input.contextSnapshot.livenessContinuationState) ||
       readNonEmptyString(
@@ -22174,6 +22180,19 @@ export function heartbeatService(
           ))
         )
           return { dispatched: false };
+        const repairBlock = await recovery.legacyRepairDispatchBlock(run.id);
+        if (repairBlock) {
+          const cancelled = await setRunStatusIfRunning(run.id, "cancelled", {
+            finishedAt: new Date(), errorCode: "legacy_disposition_repair_suppressed",
+            error: `Disposition repair suppressed: ${repairBlock}`,
+          });
+          if (cancelled.updated) {
+            await setWakeupStatus(run.wakeupRequestId, "skipped", { finishedAt: new Date(), error: repairBlock });
+            await releaseIssueExecutionAndPromote(cancelled.run!, { suppressImmediateRecovery: true });
+            await finalizeAgentStatus(run.agentId, "cancelled");
+          }
+          return { dispatched: false };
+        }
         if (
           !issueId ||
           (!isResolvedInteractionContinuationWakeContext(context) &&
@@ -25116,18 +25135,19 @@ export function heartbeatService(
                 .resumeSessionGoalHeartbeat === true,
           });
           if (!conversationSettled) {
-          await handleRunLivenessContinuation(livenessRun);
-          await handleIssueReviewPathDisposition(livenessRun);
-          await handleSuccessfulRunHandoff(
-            issueCommentPolicyResult.outcome === "retry_queued" ||
-              issueCommentPolicyResult.outcome === "retry_exhausted"
-              ? {
-                  ...livenessRun,
-                  issueCommentStatus: issueCommentPolicyResult.outcome,
-                }
-              : livenessRun,
-            agent,
-          );
+            await handleIssueReviewPathDisposition(livenessRun);
+            if (livenessRun.runtimeMode !== "native") {
+              await recovery.reconcileLegacyContinuation(livenessRun.id);
+            } else {
+              await handleRunLivenessContinuation(livenessRun);
+              await handleSuccessfulRunHandoff(
+                issueCommentPolicyResult.outcome === "retry_queued" ||
+                  issueCommentPolicyResult.outcome === "retry_exhausted"
+                  ? { ...livenessRun, issueCommentStatus: issueCommentPolicyResult.outcome }
+                  : livenessRun,
+                agent,
+              );
+            }
           }
           if (
             outcome === "succeeded" &&

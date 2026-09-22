@@ -3,7 +3,7 @@ import {
   classifyRunLiveness,
   type RunLivenessClassificationInput,
 } from "../../server/src/services/run-liveness.js";
-import { decideRunLivenessContinuation } from "../../server/src/services/run-continuations.js";
+import { decideLegacyContinuation, legacyDispositionEpisode } from "../../server/src/services/recovery/legacy-continuation.js";
 import { arbitrateNativeStatus } from "../../server/src/services/native-runtime/status-arbiter.js";
 import type { NativeEvidenceAssessment } from "../../server/src/services/native-runtime/evidence-classifier.js";
 import { narratives } from "./narratives.js";
@@ -19,33 +19,30 @@ const legacyBase: RunLivenessClassificationInput = {
   },
   resultJson: { summary: future },
 };
-type DecisionInput = Parameters<typeof decideRunLivenessContinuation>[0];
+type DecisionInput = Parameters<typeof decideLegacyContinuation>[0];
 function continuation(
   input: RunLivenessClassificationInput,
   overrides: Partial<DecisionInput> = {},
 ) {
   const classification = classifyRunLiveness(input);
-  const decision = decideRunLivenessContinuation({
+  const decision = decideLegacyContinuation({
     run: {
       id: "run",
       companyId: "company",
       agentId: "agent",
-      continuationAttempt: input.continuationAttempt ?? 0,
+      status: input.runStatus,
+      runtimeMode: "legacy",
     } as DecisionInput["run"],
     issue: {
       id: "issue",
       companyId: "company",
-      identifier: "BASE-1",
-      title: input.issue!.title,
       status: input.issue!.status,
       assigneeAgentId: "agent",
-      executionState: null,
-      projectId: null,
     },
     agent: { id: "agent", companyId: "company", status: "idle" },
-    ...classification,
-    budgetBlocked: false,
-    idempotentWakeExists: false,
+    episode: legacyDispositionEpisode({ id: "run", continuationAttempt: input.continuationAttempt ?? 0 }),
+    gates: { stopped: false, paused: false, budgetBlocked: false, pendingWait: false,
+      activeExecution: false, ownedLifecycle: false, conversation: false, agentInvokable: true },
     ...overrides,
   });
   // Narrative-bearing instructions and diagnostic labels are deliberately excluded.
@@ -55,6 +52,7 @@ function continuation(
           kind: decision.kind,
           nextAttempt: decision.nextAttempt,
           idempotencyKey: decision.idempotencyKey,
+          instruction: decision.instruction,
         }
       : { kind: decision.kind };
   return { classification, decision, effect };
@@ -101,6 +99,7 @@ describe("LCA narrative authority baseline", () => {
         const before = continuation(build(future));
         const after = continuation(build(text));
         observe("LCA-02", `legacy:${channel}:${variant}`, { before, after });
+        expect(before.effect.kind).toBe("enqueue");
         expect(after.effect).toEqual(before.effect);
       },
     );
@@ -149,8 +148,8 @@ describe("LCA narrative authority baseline", () => {
     },
   );
   it.each([
-    ["budget", { budgetBlocked: true }],
-    ["duplicate", { idempotentWakeExists: true }],
+    ["budget", { gate: "budgetBlocked" }],
+    ["duplicate", { gate: "activeExecution" }],
     [
       "wrong-company",
       { agent: { id: "agent", companyId: "other", status: "idle" } },
@@ -162,7 +161,11 @@ describe("LCA narrative authority baseline", () => {
   ] as const)(
     "LCA-10 LCA-12 legacy gate %s survives encouraging prose",
     (variant, overrides) => {
-      const actual = continuation(legacyBase, overrides);
+      const actual = continuation(legacyBase, "gate" in overrides ? {
+      gates: { stopped: false, paused: false, budgetBlocked: false, pendingWait: false,
+        activeExecution: false, ownedLifecycle: false, conversation: false, agentInvokable: true,
+        [overrides.gate]: true },
+    } : overrides);
       observe("LCA-10", variant, actual);
       expect(actual.effect.kind).toBe("skip");
     },

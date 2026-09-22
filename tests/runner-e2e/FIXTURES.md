@@ -177,3 +177,9 @@ workspaces, task documents, and ordering. They pass through the normal sanitizer
 Screenshots are allowlisted to the exact disposable agent chat. Cleanup cancels
 all active runs in the isolated company, including handed-off work; usage from
 failed and cancelled runs must not disappear from campaign totals.
+
+The lifecycle suite also includes two legacy disposition-repair probes. Their
+first provider turn intentionally omits task disposition, and their second turn
+must be an automatic, causally bound repair that records completion. They use
+public task comments/status APIs and run-detail evidence; no private runtime
+hooks or database mutations are used by the fixture.

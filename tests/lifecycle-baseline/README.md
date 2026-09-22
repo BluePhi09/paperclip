@@ -83,9 +83,11 @@ Troublesome combinations included in the inventory and reused suites:
 
 ## Narrative pairs and positive controls
 
-`authority.test.ts` composes the real legacy classifier with its actual
-continuation consumer, so assertions compare scheduling decisions rather than
-requiring diagnostic labels to be identical. Native pairs exercise the actual
+`authority.test.ts` records the legacy classifier for diagnostic comparison and
+executes the production structured continuation decision. Assertions compare
+scheduling decisions rather than requiring diagnostic labels to be identical.
+The persisted legacy authority tests cover replay, restart, exhaustion and
+dispatch gates; they also run in the ordinary server suite. Native pairs exercise the actual
 status arbiter. The heartbeat cases cross the real persistence/finalization
 boundary for both runtimes, including explicit native continuation and the legacy
 missing-disposition path. Observations precede cleanup; a second queue/drain pass

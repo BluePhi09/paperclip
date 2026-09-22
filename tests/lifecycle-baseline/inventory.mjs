@@ -5,6 +5,7 @@ export const lanes = {
   unit: {
     files: [
       "tests/lifecycle-baseline/authority.test.ts",
+      "server/src/services/recovery/legacy-continuation.test.ts",
       `${native}status-arbiter.test.ts`,
       `${native}native-replacement-evidence.test.ts`,
       `${server}run-continuations.test.ts`,
@@ -23,6 +24,7 @@ export const lanes = {
   integration: {
     files: [
       "server/test-baselines/lifecycle-heartbeat.test.ts",
+      `${server}legacy-continuation-authority.test.ts`,
       `${server}native-status-arbiter-corpus.test.ts`,
       `${server}heartbeat-issue-liveness-escalation.test.ts`,
       `${server}heartbeat-retry-scheduling.test.ts`,
@@ -197,6 +199,8 @@ export const scenarios = [
     coverage: [
       runnerPairs("LCA-09"),
       unit("LCA-09"),
+      integ("legacy-continuation-authority"),
+      ref("unit", "server/src/services/recovery/legacy-continuation.test.ts"),
       ref(
         "integration",
         "server/test-baselines/lifecycle-heartbeat.test.ts",
@@ -210,7 +214,7 @@ export const scenarios = [
         "exhausted|another run id",
       ),
     ],
-    live: [],
+    live: ["lifecycle-baseline:lifecycle-repair-neutral", "lifecycle-baseline:lifecycle-repair-challenge"],
   },
   {
     id: "LCA-10",

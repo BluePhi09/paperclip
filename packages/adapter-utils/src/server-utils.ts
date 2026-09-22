@@ -821,6 +821,7 @@ type PaperclipWakePayload = {
   continuationSummary: PaperclipWakeContinuationSummary | null;
   planReviewContext: PaperclipWakePlanReviewContext | null;
   documentReviewContext: PaperclipWakeDocumentReviewContext | null;
+  dispositionRepair: PaperclipWakeLivenessContinuation | null;
   livenessContinuation: PaperclipWakeLivenessContinuation | null;
   taskWatchdog: PaperclipWakeTaskWatchdogContext | null;
   interactionId: string | null;
@@ -1761,6 +1762,7 @@ export function normalizePaperclipWakePayload(
           Boolean(entry),
         )
     : [];
+  const dispositionRepair = normalizePaperclipWakeLivenessContinuation(payload.dispositionRepair);
   const livenessContinuation = normalizePaperclipWakeLivenessContinuation(
     payload.livenessContinuation,
   );
@@ -1839,6 +1841,7 @@ export function normalizePaperclipWakePayload(
     !continuationSummary &&
     !planReviewContext &&
     !documentReviewContext &&
+    !dispositionRepair &&
     !livenessContinuation &&
     !taskWatchdog &&
     !checkboxSelection &&
@@ -1882,6 +1885,7 @@ export function normalizePaperclipWakePayload(
     planReviewContext,
     documentReviewContext,
     annotationDeltas,
+    dispositionRepair,
     livenessContinuation,
     taskWatchdog,
     interactionId: asString(payload.interactionId, "").trim() || null,
@@ -1986,6 +1990,7 @@ function hasNormalizedPaperclipExternalChatContext(
     normalized.continuationSummary?.bodyTruncated ||
     normalized.planReviewContext ||
     normalized.documentReviewContext ||
+    normalized.dispositionRepair ||
     normalized.livenessContinuation ||
     normalized.taskWatchdog ||
     normalized.skillTest ||
@@ -2067,6 +2072,7 @@ function isNormalizedPaperclipExternalChatQuestionResponseTurn(
     normalized.continuationSummary?.bodyTruncated ||
     normalized.planReviewContext ||
     normalized.documentReviewContext ||
+    normalized.dispositionRepair ||
     normalized.livenessContinuation ||
     normalized.taskWatchdog ||
     normalized.skillTest ||
@@ -2930,6 +2936,14 @@ function renderPaperclipWakePromptBody(
     if (normalized.continuationSummary.bodyTruncated) {
       lines.push("[continuation summary truncated]");
     }
+  }
+
+  if (normalized.dispositionRepair) {
+    const repair = normalized.dispositionRepair;
+    lines.push("", "Task disposition repair:",
+      `- attempt: ${repair.attempt}/${repair.maxAttempts}`,
+      `- source run: ${repair.sourceRunId}`,
+      `- instruction: ${repair.instruction}`);
   }
 
   if (normalized.livenessContinuation) {
