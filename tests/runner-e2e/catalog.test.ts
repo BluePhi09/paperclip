@@ -9,6 +9,7 @@ import {
   openRouterBreadthExcludedModelIds,
   openRouterBreadthProfiles,
   openRouterBreadthTasks,
+  contextIntegrityProfiles,
   localIntegrityTasks,
   runnerProfiles,
   runnerSuites,
@@ -16,9 +17,11 @@ import {
   daytonaWarmContinuityTask,
   daytonaWarmEnvironment,
   isImmutableDaytonaImage,
+  pendingContextIntegrityProfiles,
   suiteDefinitionHash,
   validateRunnerCatalog,
 } from "./catalog.js";
+import { assertRunnerE2EPrerequisites, UNQUALIFIED_PROFILE_GAPS } from "./prerequisites.js";
 import {
   buildMatrixJobs,
   parseRunnerSelectors,
@@ -88,10 +91,10 @@ describe("runner E2E catalog", () => {
     expect(localIntegrityTasks).toHaveLength(2);
     expect(openRouterBreadthTasks).toHaveLength(3);
     expect(runnerSuites.map((suite) => suite.expectedMatrixSize)).toEqual([
-      23, 38, 14, 52, 28, 18, 6, 6, 42, 14, 10, 2,
+      23, 38, 20, 52, 28, 18, 6, 6, 42, 14, 10, 2,
     ]);
-    expect(validateRunnerCatalog()).toHaveLength(253);
-    expect(new Set(runnerMatrix.map((entry) => entry.id)).size).toBe(253);
+    expect(validateRunnerCatalog()).toHaveLength(259);
+    expect(new Set(runnerMatrix.map((entry) => entry.id)).size).toBe(259);
     expect(
       runnerMatrix.filter((entry) => entry.suite.id === "core-compatibility"),
     ).toHaveLength(42);
@@ -377,6 +380,47 @@ describe("runner E2E catalog", () => {
           entry.requiredCredentials.includes("DAYTONA_API_KEY"),
         ),
     ).toBe(true);
+  });
+
+  it("lists pending Kimi and Grok context profiles without treating them as qualified", () => {
+    expect(pendingContextIntegrityProfiles.map((profile) => profile.id)).toEqual([
+      "legacy-kimi-cli",
+      "legacy-kimi-acp",
+      "legacy-grok",
+    ]);
+    expect(contextIntegrityProfiles.map((profile) => profile.id)).toEqual(
+      expect.arrayContaining(pendingContextIntegrityProfiles.map((profile) => profile.id)),
+    );
+    expect(UNQUALIFIED_PROFILE_GAPS.pi).toMatch(/no qualified model source/);
+  });
+
+  it("blocks pending profiles before provider admission", () => {
+    const pending = runnerMatrix.filter((entry) =>
+      pendingContextIntegrityProfiles.some((profile) => profile.id === entry.profile.id),
+    );
+    expect(pending.length).toBeGreaterThan(0);
+    expect(() => assertRunnerE2EPrerequisites(pending)).toThrow(/No provider credentials were loaded or sent/);
+  });
+
+  it("binds pending provider credentials through secret references only", () => {
+    for (const profile of pendingContextIntegrityProfiles) {
+      const payload = profile.buildAgent({
+        environmentId: "fixture-company",
+        environmentFixtureId: "local",
+        workspacePath: "/tmp/runner-e2e-workspace",
+        secretRefs: {
+          [profile.credential]: {
+            type: "secret_ref",
+            secretId: "22222222-2222-4222-8222-222222222222",
+            version: "latest",
+          },
+        },
+        executionId: `pending-${profile.id}`,
+      });
+      expect(payload.adapterConfig).toMatchObject({
+        env: { [profile.credential]: { type: "secret_ref" } },
+      });
+    }
   });
 
   it("pins legacy Codex and Claude to their classic CLI engines", () => {

@@ -34,11 +34,11 @@ function recording(id: "ordered-comment-continuation" | "assigned-skill-explicit
 }
 
 describe("context integrity Product E2E contract", () => {
-  it("is explicit-only and covers the seven selected legacy/native profiles", () => {
+  it("is explicit-only and covers the selected legacy/native profiles", () => {
     const cells = runnerMatrix.filter((execution) => execution.suite.id === "context-integrity");
-    expect(cells).toHaveLength(14);
+    expect(cells).toHaveLength(20);
     expect(new Set(cells.map((execution) => execution.profile.id))).toEqual(new Set([
-      "legacy-codex", "legacy-claude", "legacy-acp-codex", "legacy-acp-claude", "runner-codex", "runner-opencode", "runner-acpx-claude",
+      "legacy-codex", "legacy-claude", "legacy-acp-codex", "legacy-acp-claude", "legacy-kimi-cli", "legacy-kimi-acp", "legacy-grok", "runner-codex", "runner-opencode", "runner-acpx-claude",
     ]));
     expect(cells.every((execution) => execution.suite.manualOnly)).toBe(true);
     expect(runnerMatrix.filter((execution) => execution.suite.id === "context-integrity" && execution.suite.manualOnly).every((execution) => !execution.suite.groups.includes("core"))).toBe(true);
