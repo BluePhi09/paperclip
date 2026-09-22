@@ -727,6 +727,9 @@ for (const execution of executions) {
         });
       }
     });
+    page.on("pageerror", (error) => {
+      consoleDiagnostics.push({ type: "pageerror", text: error.message, stack: error.stack });
+    });
     page.on("requestfailed", (requestEvent) => {
       networkDiagnostics.push({
         method: requestEvent.method(),
