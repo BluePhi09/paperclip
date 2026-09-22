@@ -39,6 +39,11 @@ API. Legacy agents must persist its ID as a dependency; native agents retain the
 typed external blocker. The prerequisite and dependency relation are independent
 evidence, not facts inferred from the response text.
 
+Approval fixtures explicitly name the proposal document `plan` and require confirmation
+of its current revision. This keeps the pre-approval output oracle independent of
+how an agent happens to name an approach; an arbitrary deliverable targeted for
+confirmation must still fail.
+
 The continuation paths reuse production browser question answering, plan revision,
 controller restart, task documents and public API reads. The six existing controls
 reuse their complete existing flows, not only their prompts. Setup and cleanup

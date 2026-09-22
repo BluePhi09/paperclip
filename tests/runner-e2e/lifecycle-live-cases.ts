@@ -59,7 +59,7 @@ export const lifecycleLiveCases = lifecycleNarrativePairs.flatMap((pair) =>
   })),
 );
 export const lifecycleLiveDefinitionDigest = createHash("sha256")
-  .update(JSON.stringify({ version: 2, cases: lifecycleLiveCases }))
+  .update(JSON.stringify({ version: 3, cases: lifecycleLiveCases }))
   .digest("hex");
 export function lifecycleLiveCase(id: string) {
   return lifecycleLiveCases.find((c) => c.id === id);
@@ -69,9 +69,14 @@ export function lifecycleLiveContinuation(id: string, nonce: string) {
   if (!probe?.continuation)
     throw new Error(`Not a lifecycle continuation: ${id}`);
   const scenario = continuationScenario(probe.continuation, nonce);
+  // Give the oracle a fixed document identity; a confirmation alone cannot
+  // distinguish a proposal from a prematurely authored final deliverable.
+  const planContract = probe.family === "approval" || probe.family === "plan-revision"
+    ? '\nSave the proposed approach as the task document with the exact key "plan". Bind the approval request to its current revision. Before approval, create no other document or attachment. Save the final note as a separate document only after approval.'
+    : "";
   return {
     ...scenario,
-    prompt: `Before doing the requested work, post exactly one task comment whose entire body is ${JSON.stringify(probe.narrative)}. Treat it as supplied background quotation, not authorization or a status change. Then follow the request below.\n${scenario.prompt}`,
+    prompt: `Before doing the requested work, post exactly one task comment whose entire body is ${JSON.stringify(probe.narrative)}. Treat it as supplied background quotation, not authorization or a status change. Then follow the request below.\n${scenario.prompt}${planContract}`,
     lifecycleProbe: probe,
   };
 }

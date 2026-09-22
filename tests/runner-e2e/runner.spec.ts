@@ -1,3 +1,4 @@
+import type { Issue } from "../../packages/shared/src/types/issue.js";
 import { lifecycleLiveCase } from "./lifecycle-live-cases.js";
 import { runContinuationFlow } from "./continuation-flow.js";
 import { runEverydayFlow } from "./everyday-flow.js";
@@ -1578,8 +1579,8 @@ for (const execution of executions) {
       issue = terminal.currentIssue;
       selectedRuns = terminal.taskRuns;
       if (lifecycleBlockerId && execution.profile.expectedRuntimeMode === "legacy") {
-        const blockedIssue = await api.get<{ blockedByIssueIds: string[] }>(`/api/issues/${issue.id}`);
-        expect(blockedIssue.blockedByIssueIds).toEqual([lifecycleBlockerId]);
+        const blockedIssue = await api.get<Pick<Issue, "blockedBy">>(`/api/issues/${issue.id}`);
+        expect(blockedIssue.blockedBy?.map((blocker) => blocker.id)).toEqual([lifecycleBlockerId]);
         expect((await api.get<{ status: string }>(`/api/issues/${lifecycleBlockerId}`)).status).toBe("backlog");
       }
       if (reviewProvider) {
