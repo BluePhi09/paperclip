@@ -63,17 +63,17 @@ describe("buildCodexLocalConfig", () => {
     });
   });
 
-  it("persists the exact GPT-6 Astra model and supported controls", () => {
+  it.each(["gpt-6-astra", "gpt-6-sol"])("persists the exact %s model and supported controls", (model) => {
     const config = buildCodexLocalConfig(
       makeValues({
-        model: "gpt-6-astra",
+        model,
         thinkingEffort: "ultra",
         fastMode: true,
       }),
     );
 
     expect(config).toMatchObject({
-      model: "gpt-6-astra",
+      model,
       modelReasoningEffort: "ultra",
       fastMode: true,
     });

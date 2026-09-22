@@ -508,14 +508,14 @@ describe("codex_local ACP lane", () => {
     });
   });
 
-  it("forwards GPT-6 Astra controls to the ACPX Codex target", () => {
+  it.each(["gpt-6-astra", "gpt-6-sol"])("forwards %s controls to the ACPX Codex target", (model) => {
     expect(buildCodexAcpConfig({
       engine: "acp",
-      model: "gpt-6-astra",
+      model,
       modelReasoningEffort: "ultra",
       fastMode: true,
     })).toMatchObject({
-      model: "gpt-6-astra",
+      model,
       modelReasoningEffort: "ultra",
       fastMode: true,
     });

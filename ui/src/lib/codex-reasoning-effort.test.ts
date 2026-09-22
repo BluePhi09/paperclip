@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { codexReasoningEffortOptions } from "./codex-reasoning-effort";
 
 describe("codexReasoningEffortOptions", () => {
-  it("exposes only the supported GPT-6 Astra reasoning efforts", () => {
-    expect(codexReasoningEffortOptions("gpt-6-astra")).toEqual([
+  it.each(["gpt-6-astra", "gpt-6-sol"])("exposes only the supported %s reasoning efforts", (model) => {
+    expect(codexReasoningEffortOptions(model)).toEqual([
       { value: "", label: "Default" },
       { value: "low", label: "Low" },
       { value: "medium", label: "Medium" },
