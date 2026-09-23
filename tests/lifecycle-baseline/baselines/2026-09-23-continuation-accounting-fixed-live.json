@@ -1,0 +1,2846 @@
+{
+  "schema": "paperclip.continuation-accounting-verification/v1",
+  "measurementDateLocal": "2026-09-23",
+  "timezone": "America/Los_Angeles",
+  "source": {
+    "sha": "841b836be232e6624776ee4e3f7641271d954914",
+    "ref": "refs/heads/codex/lifecycle-behavior-baseline-20260921",
+    "workflowRunUrl": "https://github.com/paperclipai/paperclip/actions/runs/35876252684",
+    "eventName": "workflow_dispatch"
+  },
+  "campaignId": "gha-35876252684-1",
+  "artifactSha256": "3a1a80557740371e4900da327e97b46a4e794db980b7d30c411902b28095df9c",
+  "totals": {
+    "selected": 8,
+    "executed": 8,
+    "passed": 8,
+    "failed": 0,
+    "incomplete": 0,
+    "retries": 0,
+    "cleanupPassed": true
+  },
+  "billing": {
+    "testCount": 8,
+    "agentRunDurationMs": 867112,
+    "leaseDurationMs": 0,
+    "llm": {
+      "runCount": 32,
+      "runsWithTokenUsage": 31,
+      "runsWithReportedCost": 10,
+      "inputTokens": 17145022,
+      "outputTokens": 111778,
+      "cachedInputTokens": 15845922,
+      "totalTokens": 33102722,
+      "reportedCostUsd": 0,
+      "costStatus": "partial"
+    },
+    "reportedLlmCostUsd": 0,
+    "estimatedRuntimeCostUsd": 0,
+    "observedAndEstimatedCostUsd": 0,
+    "testsWithCompleteBilling": 2
+  },
+  "definitionHashes": [
+    "6485ad6c67bc744e6b2a294e0eac7a6b14d2f6d6bbfac4a0012e4812f9605f9e"
+  ],
+  "cells": [
+    {
+      "executionId": "continuation-accounting.legacy-codex.local.accounting-productive-neutral",
+      "caseId": "accounting-productive-neutral",
+      "profileId": "legacy-codex",
+      "environmentId": "local",
+      "runtimeMode": "legacy",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "status": "passed",
+      "failureClass": null,
+      "error": null,
+      "attempt": 1,
+      "startedAt": "2026-09-23T14:50:59.872Z",
+      "finishedAt": "2026-09-23T14:55:11.671Z",
+      "durationMs": 251799,
+      "evidenceValid": true,
+      "evidenceErrors": [],
+      "cleanup": "passed",
+      "billing": {
+        "llm": {
+          "runCount": 5,
+          "runsWithTokenUsage": 5,
+          "runsWithReportedCost": 0,
+          "inputTokens": 6668962,
+          "outputTokens": 36054,
+          "cachedInputTokens": 6303183,
+          "totalTokens": 13008199,
+          "reportedCostUsd": 0,
+          "costStatus": "unpriced"
+        },
+        "runtime": {
+          "provider": "local",
+          "agentRunDurationMs": 204234,
+          "leaseDurationMs": null,
+          "leaseCount": 0,
+          "costStatus": "not_metered",
+          "costSource": "local_not_metered"
+        },
+        "reportedCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "complete": false
+      },
+      "usage": {
+        "runs": [
+          {
+            "runId": "09cd875d-2d87-45f3-8b45-452d28f648d9",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 2264193,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 11403,
+              "sessionReused": true,
+              "rawInputTokens": 2264193,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:48cbafafcd91947e282f4e05d1fecad28d1ff2fa13b7f86a2dff628a73f21d3d",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:50dc383671f9a7c929f96a536ffe7bd04996069080a0843ca2376f29bb9ca1d1",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 11403,
+              "cachedInputTokens": 2170320,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-caa6-75b1-ad6b-6f346bdfa559",
+              "rawCachedInputTokens": 2170320,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "7ea59ac5-4ae1-42ab-895f-6436defbf118",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 1801294,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 9663,
+              "sessionReused": true,
+              "rawInputTokens": 1801294,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:48cbafafcd91947e282f4e05d1fecad28d1ff2fa13b7f86a2dff628a73f21d3d",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:50dc383671f9a7c929f96a536ffe7bd04996069080a0843ca2376f29bb9ca1d1",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 9663,
+              "cachedInputTokens": 1713722,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-caa6-75b1-ad6b-6f346bdfa559",
+              "rawCachedInputTokens": 1713722,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "f244718e-fbac-4812-aabb-8c096850fbb5",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 1370614,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 7385,
+              "sessionReused": true,
+              "rawInputTokens": 1370614,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:48cbafafcd91947e282f4e05d1fecad28d1ff2fa13b7f86a2dff628a73f21d3d",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:50dc383671f9a7c929f96a536ffe7bd04996069080a0843ca2376f29bb9ca1d1",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 7385,
+              "cachedInputTokens": 1289570,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-caa6-75b1-ad6b-6f346bdfa559",
+              "rawCachedInputTokens": 1289570,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "70cf391a-a67e-4e38-a28c-64dc7b1b68d4",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 904593,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 5040,
+              "sessionReused": true,
+              "rawInputTokens": 904593,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:48cbafafcd91947e282f4e05d1fecad28d1ff2fa13b7f86a2dff628a73f21d3d",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:50dc383671f9a7c929f96a536ffe7bd04996069080a0843ca2376f29bb9ca1d1",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 5040,
+              "cachedInputTokens": 839252,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-caa6-75b1-ad6b-6f346bdfa559",
+              "rawCachedInputTokens": 839252,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "7105de82-4762-4931-ad43-3917b60db734",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 328268,
+              "usageSource": "per_run",
+              "freshSession": true,
+              "outputTokens": 2563,
+              "sessionReused": false,
+              "rawInputTokens": 328268,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": true,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:48cbafafcd91947e282f4e05d1fecad28d1ff2fa13b7f86a2dff628a73f21d3d",
+                  "changedCategories": [],
+                  "taskSessionReused": false,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": false,
+                  "storedFingerprintPresent": false
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:50dc383671f9a7c929f96a536ffe7bd04996069080a0843ca2376f29bb9ca1d1",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 2563,
+              "cachedInputTokens": 290319,
+              "taskSessionReused": false,
+              "persistedSessionId": "01a0cebf-caa6-75b1-ad6b-6f346bdfa559",
+              "rawCachedInputTokens": 290319,
+              "sessionRotationReason": null
+            }
+          }
+        ]
+      },
+      "runtimeUsage": {
+        "provider": "local",
+        "agentRunDurationMs": 204234,
+        "leaseDurationMs": null,
+        "leaseCount": 0,
+        "costStatus": "not_metered",
+        "costSource": "local_not_metered"
+      },
+      "runCount": 5,
+      "runIds": [
+        "09cd875d-2d87-45f3-8b45-452d28f648d9",
+        "7ea59ac5-4ae1-42ab-895f-6436defbf118",
+        "f244718e-fbac-4812-aabb-8c096850fbb5",
+        "70cf391a-a67e-4e38-a28c-64dc7b1b68d4",
+        "7105de82-4762-4931-ad43-3917b60db734"
+      ],
+      "failedMatchers": []
+    },
+    {
+      "executionId": "continuation-accounting.legacy-codex.local.accounting-productive-noisy",
+      "caseId": "accounting-productive-noisy",
+      "profileId": "legacy-codex",
+      "environmentId": "local",
+      "runtimeMode": "legacy",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "status": "passed",
+      "failureClass": null,
+      "error": null,
+      "attempt": 1,
+      "startedAt": "2026-09-23T14:51:05.704Z",
+      "finishedAt": "2026-09-23T14:54:41.186Z",
+      "durationMs": 215482,
+      "evidenceValid": true,
+      "evidenceErrors": [],
+      "cleanup": "passed",
+      "billing": {
+        "llm": {
+          "runCount": 5,
+          "runsWithTokenUsage": 5,
+          "runsWithReportedCost": 0,
+          "inputTokens": 5181029,
+          "outputTokens": 33205,
+          "cachedInputTokens": 4884673,
+          "totalTokens": 10098907,
+          "reportedCostUsd": 0,
+          "costStatus": "unpriced"
+        },
+        "runtime": {
+          "provider": "local",
+          "agentRunDurationMs": 166170,
+          "leaseDurationMs": null,
+          "leaseCount": 0,
+          "costStatus": "not_metered",
+          "costSource": "local_not_metered"
+        },
+        "reportedCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "complete": false
+      },
+      "usage": {
+        "runs": [
+          {
+            "runId": "c6f65245-9fbb-49d5-8392-1999f9b5fc2a",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 1668813,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 9601,
+              "sessionReused": true,
+              "rawInputTokens": 1668813,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:11572f85dc354fc7ec6fdf29bee115fdae89bdde5fa2a5e84c1c1e70d67a0d17",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:61a590a70628ff6a3c54338c94eb45b75f19c068e63fa95f9a8734e45d714cf7",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 9601,
+              "cachedInputTokens": 1587649,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-e2b2-7bf1-90af-b5cc5399d33f",
+              "rawCachedInputTokens": 1587649,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "99674a51-8624-4edc-b36e-ae28e7e4c976",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 1354031,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 8297,
+              "sessionReused": true,
+              "rawInputTokens": 1354031,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:11572f85dc354fc7ec6fdf29bee115fdae89bdde5fa2a5e84c1c1e70d67a0d17",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:61a590a70628ff6a3c54338c94eb45b75f19c068e63fa95f9a8734e45d714cf7",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 8297,
+              "cachedInputTokens": 1284425,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-e2b2-7bf1-90af-b5cc5399d33f",
+              "rawCachedInputTokens": 1284425,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "e7d7a435-1352-43f4-98af-32262b9c15c3",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 1016252,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 6762,
+              "sessionReused": true,
+              "rawInputTokens": 1016252,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:11572f85dc354fc7ec6fdf29bee115fdae89bdde5fa2a5e84c1c1e70d67a0d17",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:61a590a70628ff6a3c54338c94eb45b75f19c068e63fa95f9a8734e45d714cf7",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 6762,
+              "cachedInputTokens": 957280,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-e2b2-7bf1-90af-b5cc5399d33f",
+              "rawCachedInputTokens": 957280,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "2fa54436-7794-4b2d-8538-c8367bcf1bd2",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 730667,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 5162,
+              "sessionReused": true,
+              "rawInputTokens": 730667,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:11572f85dc354fc7ec6fdf29bee115fdae89bdde5fa2a5e84c1c1e70d67a0d17",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:61a590a70628ff6a3c54338c94eb45b75f19c068e63fa95f9a8734e45d714cf7",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 5162,
+              "cachedInputTokens": 681129,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-e2b2-7bf1-90af-b5cc5399d33f",
+              "rawCachedInputTokens": 681129,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "c5cde5a1-d7c4-43bc-9dc1-f9eb5ab151a3",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 411266,
+              "usageSource": "per_run",
+              "freshSession": true,
+              "outputTokens": 3383,
+              "sessionReused": false,
+              "rawInputTokens": 411266,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": true,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:11572f85dc354fc7ec6fdf29bee115fdae89bdde5fa2a5e84c1c1e70d67a0d17",
+                  "changedCategories": [],
+                  "taskSessionReused": false,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": false,
+                  "storedFingerprintPresent": false
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:61a590a70628ff6a3c54338c94eb45b75f19c068e63fa95f9a8734e45d714cf7",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 3383,
+              "cachedInputTokens": 374190,
+              "taskSessionReused": false,
+              "persistedSessionId": "01a0cebf-e2b2-7bf1-90af-b5cc5399d33f",
+              "rawCachedInputTokens": 374190,
+              "sessionRotationReason": null
+            }
+          }
+        ]
+      },
+      "runtimeUsage": {
+        "provider": "local",
+        "agentRunDurationMs": 166170,
+        "leaseDurationMs": null,
+        "leaseCount": 0,
+        "costStatus": "not_metered",
+        "costSource": "local_not_metered"
+      },
+      "runCount": 5,
+      "runIds": [
+        "c6f65245-9fbb-49d5-8392-1999f9b5fc2a",
+        "99674a51-8624-4edc-b36e-ae28e7e4c976",
+        "e7d7a435-1352-43f4-98af-32262b9c15c3",
+        "2fa54436-7794-4b2d-8538-c8367bcf1bd2",
+        "c5cde5a1-d7c4-43bc-9dc1-f9eb5ab151a3"
+      ],
+      "failedMatchers": []
+    },
+    {
+      "executionId": "continuation-accounting.legacy-codex.local.accounting-exhaustion-neutral",
+      "caseId": "accounting-exhaustion-neutral",
+      "profileId": "legacy-codex",
+      "environmentId": "local",
+      "runtimeMode": "legacy",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "status": "passed",
+      "failureClass": null,
+      "error": null,
+      "attempt": 1,
+      "startedAt": "2026-09-23T14:51:00.132Z",
+      "finishedAt": "2026-09-23T14:53:42.722Z",
+      "durationMs": 162590,
+      "evidenceValid": true,
+      "evidenceErrors": [],
+      "cleanup": "passed",
+      "billing": {
+        "llm": {
+          "runCount": 3,
+          "runsWithTokenUsage": 3,
+          "runsWithReportedCost": 0,
+          "inputTokens": 608238,
+          "outputTokens": 5202,
+          "cachedInputTokens": 519391,
+          "totalTokens": 1132831,
+          "reportedCostUsd": 0,
+          "costStatus": "unpriced"
+        },
+        "runtime": {
+          "provider": "local",
+          "agentRunDurationMs": 71143,
+          "leaseDurationMs": null,
+          "leaseCount": 0,
+          "costStatus": "not_metered",
+          "costSource": "local_not_metered"
+        },
+        "reportedCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "complete": false
+      },
+      "usage": {
+        "runs": [
+          {
+            "runId": "a7ec1d3f-2e4e-432a-90d2-aa5127358da1",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 297863,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 2409,
+              "sessionReused": true,
+              "rawInputTokens": 297863,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:5852ab3e065bf5d4006e0c2c68f22d4696964ff6a9517618cfee2a808c63f6b1",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:e178e76c2b9a38001ed302c7d67e46185c309aac6fe92fea142773cbf01fc168",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 2409,
+              "cachedInputTokens": 264505,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-cb15-7fd3-be1a-69ec27d5a5a6",
+              "rawCachedInputTokens": 264505,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "1edd95c3-4728-428e-9132-b193460c7933",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 199012,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 1785,
+              "sessionReused": true,
+              "rawInputTokens": 199012,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:5852ab3e065bf5d4006e0c2c68f22d4696964ff6a9517618cfee2a808c63f6b1",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:e178e76c2b9a38001ed302c7d67e46185c309aac6fe92fea142773cbf01fc168",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 1785,
+              "cachedInputTokens": 169342,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-cb15-7fd3-be1a-69ec27d5a5a6",
+              "rawCachedInputTokens": 169342,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "0257a596-67a6-4959-bd33-20ae237b84dd",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 111363,
+              "usageSource": "per_run",
+              "freshSession": true,
+              "outputTokens": 1008,
+              "sessionReused": false,
+              "rawInputTokens": 111363,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": true,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:5852ab3e065bf5d4006e0c2c68f22d4696964ff6a9517618cfee2a808c63f6b1",
+                  "changedCategories": [],
+                  "taskSessionReused": false,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": false,
+                  "storedFingerprintPresent": false
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:e178e76c2b9a38001ed302c7d67e46185c309aac6fe92fea142773cbf01fc168",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 1008,
+              "cachedInputTokens": 85544,
+              "taskSessionReused": false,
+              "persistedSessionId": "01a0cebf-cb15-7fd3-be1a-69ec27d5a5a6",
+              "rawCachedInputTokens": 85544,
+              "sessionRotationReason": null
+            }
+          }
+        ]
+      },
+      "runtimeUsage": {
+        "provider": "local",
+        "agentRunDurationMs": 71143,
+        "leaseDurationMs": null,
+        "leaseCount": 0,
+        "costStatus": "not_metered",
+        "costSource": "local_not_metered"
+      },
+      "runCount": 3,
+      "runIds": [
+        "a7ec1d3f-2e4e-432a-90d2-aa5127358da1",
+        "1edd95c3-4728-428e-9132-b193460c7933",
+        "0257a596-67a6-4959-bd33-20ae237b84dd"
+      ],
+      "failedMatchers": []
+    },
+    {
+      "executionId": "continuation-accounting.legacy-codex.local.accounting-exhaustion-noisy",
+      "caseId": "accounting-exhaustion-noisy",
+      "profileId": "legacy-codex",
+      "environmentId": "local",
+      "runtimeMode": "legacy",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "status": "passed",
+      "failureClass": null,
+      "error": null,
+      "attempt": 1,
+      "startedAt": "2026-09-23T14:51:14.204Z",
+      "finishedAt": "2026-09-23T14:53:42.026Z",
+      "durationMs": 147822,
+      "evidenceValid": true,
+      "evidenceErrors": [],
+      "cleanup": "passed",
+      "billing": {
+        "llm": {
+          "runCount": 3,
+          "runsWithTokenUsage": 3,
+          "runsWithReportedCost": 0,
+          "inputTokens": 429183,
+          "outputTokens": 5278,
+          "cachedInputTokens": 336058,
+          "totalTokens": 770519,
+          "reportedCostUsd": 0,
+          "costStatus": "unpriced"
+        },
+        "runtime": {
+          "provider": "local",
+          "agentRunDurationMs": 50822,
+          "leaseDurationMs": null,
+          "leaseCount": 0,
+          "costStatus": "not_metered",
+          "costSource": "local_not_metered"
+        },
+        "reportedCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "complete": false
+      },
+      "usage": {
+        "runs": [
+          {
+            "runId": "f7beddcc-6181-4a23-889a-f564284285ed",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 223706,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 2500,
+              "sessionReused": true,
+              "rawInputTokens": 223706,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:dfca16d5954c5729fa7a5584eb3bdddf20f122fb929b319e93a23e96b601cadb",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:0b6ba4b71e7e854e538ff41d861b385fb1c4d7dea7bea3b8d2e73e4026300c44",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 2500,
+              "cachedInputTokens": 185789,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-03eb-7e12-ae14-d97589f14ff5",
+              "rawCachedInputTokens": 185789,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "ac6ab86c-0786-4864-a55e-a42ab3672d18",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 148610,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 1888,
+              "sessionReused": true,
+              "rawInputTokens": 148610,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:dfca16d5954c5729fa7a5584eb3bdddf20f122fb929b319e93a23e96b601cadb",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:0b6ba4b71e7e854e538ff41d861b385fb1c4d7dea7bea3b8d2e73e4026300c44",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 1888,
+              "cachedInputTokens": 114880,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-03eb-7e12-ae14-d97589f14ff5",
+              "rawCachedInputTokens": 114880,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "373e0218-a87e-48fc-858e-37bb5723df12",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 56867,
+              "usageSource": "per_run",
+              "freshSession": true,
+              "outputTokens": 890,
+              "sessionReused": false,
+              "rawInputTokens": 56867,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": true,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:dfca16d5954c5729fa7a5584eb3bdddf20f122fb929b319e93a23e96b601cadb",
+                  "changedCategories": [],
+                  "taskSessionReused": false,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": false,
+                  "storedFingerprintPresent": false
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:0b6ba4b71e7e854e538ff41d861b385fb1c4d7dea7bea3b8d2e73e4026300c44",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 890,
+              "cachedInputTokens": 35389,
+              "taskSessionReused": false,
+              "persistedSessionId": "01a0cec0-03eb-7e12-ae14-d97589f14ff5",
+              "rawCachedInputTokens": 35389,
+              "sessionRotationReason": null
+            }
+          }
+        ]
+      },
+      "runtimeUsage": {
+        "provider": "local",
+        "agentRunDurationMs": 50822,
+        "leaseDurationMs": null,
+        "leaseCount": 0,
+        "costStatus": "not_metered",
+        "costSource": "local_not_metered"
+      },
+      "runCount": 3,
+      "runIds": [
+        "f7beddcc-6181-4a23-889a-f564284285ed",
+        "ac6ab86c-0786-4864-a55e-a42ab3672d18",
+        "373e0218-a87e-48fc-858e-37bb5723df12"
+      ],
+      "failedMatchers": []
+    },
+    {
+      "executionId": "continuation-accounting.legacy-codex.local.accounting-repair-stop",
+      "caseId": "accounting-repair-stop",
+      "profileId": "legacy-codex",
+      "environmentId": "local",
+      "runtimeMode": "legacy",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "status": "passed",
+      "failureClass": null,
+      "error": null,
+      "attempt": 1,
+      "startedAt": "2026-09-23T14:50:58.885Z",
+      "finishedAt": "2026-09-23T14:53:17.865Z",
+      "durationMs": 138980,
+      "evidenceValid": true,
+      "evidenceErrors": [],
+      "cleanup": "passed",
+      "billing": {
+        "llm": {
+          "runCount": 3,
+          "runsWithTokenUsage": 2,
+          "runsWithReportedCost": 0,
+          "inputTokens": 317966,
+          "outputTokens": 3823,
+          "cachedInputTokens": 260011,
+          "totalTokens": 581800,
+          "reportedCostUsd": 0,
+          "costStatus": "unpriced"
+        },
+        "runtime": {
+          "provider": "local",
+          "agentRunDurationMs": 41881,
+          "leaseDurationMs": null,
+          "leaseCount": 0,
+          "costStatus": "not_metered",
+          "costSource": "local_not_metered"
+        },
+        "reportedCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "complete": false
+      },
+      "usage": {
+        "runs": [
+          {
+            "runId": "faafb584-f253-4980-8182-8dba99059fc9",
+            "usage": null
+          },
+          {
+            "runId": "e943beb2-af0b-4fea-852b-76b96910eae1",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 205180,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 2318,
+              "sessionReused": true,
+              "rawInputTokens": 205180,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:dbed89b45c953450d0cad04aa6d161a91150129cfa5629a3136f239e04de0e8c",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:8d589b12cd4968eb1825a809b35228762430501bf6ffab22d7894d53e7de90e7",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 2318,
+              "cachedInputTokens": 173747,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-c415-7f50-81da-91633037a694",
+              "rawCachedInputTokens": 173747,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "c3b10a4a-9104-4db0-8355-3b3d96d860d3",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 112786,
+              "usageSource": "per_run",
+              "freshSession": true,
+              "outputTokens": 1505,
+              "sessionReused": false,
+              "rawInputTokens": 112786,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": true,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:dbed89b45c953450d0cad04aa6d161a91150129cfa5629a3136f239e04de0e8c",
+                  "changedCategories": [],
+                  "taskSessionReused": false,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": false,
+                  "storedFingerprintPresent": false
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:8d589b12cd4968eb1825a809b35228762430501bf6ffab22d7894d53e7de90e7",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 1505,
+              "cachedInputTokens": 86264,
+              "taskSessionReused": false,
+              "persistedSessionId": "01a0cebf-c415-7f50-81da-91633037a694",
+              "rawCachedInputTokens": 86264,
+              "sessionRotationReason": null
+            }
+          }
+        ]
+      },
+      "runtimeUsage": {
+        "provider": "local",
+        "agentRunDurationMs": 41881,
+        "leaseDurationMs": null,
+        "leaseCount": 0,
+        "costStatus": "not_metered",
+        "costSource": "local_not_metered"
+      },
+      "runCount": 3,
+      "runIds": [
+        "faafb584-f253-4980-8182-8dba99059fc9",
+        "e943beb2-af0b-4fea-852b-76b96910eae1",
+        "c3b10a4a-9104-4db0-8355-3b3d96d860d3"
+      ],
+      "failedMatchers": []
+    },
+    {
+      "executionId": "continuation-accounting.legacy-codex.local.accounting-repair-approval",
+      "caseId": "accounting-repair-approval",
+      "profileId": "legacy-codex",
+      "environmentId": "local",
+      "runtimeMode": "legacy",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "status": "passed",
+      "failureClass": null,
+      "error": null,
+      "attempt": 1,
+      "startedAt": "2026-09-23T14:51:08.163Z",
+      "finishedAt": "2026-09-23T14:53:52.129Z",
+      "durationMs": 163966,
+      "evidenceValid": true,
+      "evidenceErrors": [],
+      "cleanup": "passed",
+      "billing": {
+        "llm": {
+          "runCount": 3,
+          "runsWithTokenUsage": 3,
+          "runsWithReportedCost": 0,
+          "inputTokens": 1313161,
+          "outputTokens": 11127,
+          "cachedInputTokens": 1212753,
+          "totalTokens": 2537041,
+          "reportedCostUsd": 0,
+          "costStatus": "unpriced"
+        },
+        "runtime": {
+          "provider": "local",
+          "agentRunDurationMs": 129890,
+          "leaseDurationMs": null,
+          "leaseCount": 0,
+          "costStatus": "not_metered",
+          "costSource": "local_not_metered"
+        },
+        "reportedCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "complete": false
+      },
+      "usage": {
+        "runs": [
+          {
+            "runId": "0e9098e5-ed17-4943-8a89-e2196a4f20b8",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 696729,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 5600,
+              "sessionReused": true,
+              "rawInputTokens": 696729,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:ea7d2549478fd0f7ec7a9b1e3c4e456ec53028a4c3063e7df313beee74ca71e5",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:4ef3aa820504a77005d1d8192edc90aee8416f0bda9f6831c65289fced96fe79",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 5600,
+              "cachedInputTokens": 657052,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-f221-7873-9468-fda38a5b5bfe",
+              "rawCachedInputTokens": 657052,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "67e624a7-e59c-48d7-a6f6-259765e7d471",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 502637,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 4399,
+              "sessionReused": true,
+              "rawInputTokens": 502637,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:ea7d2549478fd0f7ec7a9b1e3c4e456ec53028a4c3063e7df313beee74ca71e5",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:4ef3aa820504a77005d1d8192edc90aee8416f0bda9f6831c65289fced96fe79",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 4399,
+              "cachedInputTokens": 468365,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cebf-f221-7873-9468-fda38a5b5bfe",
+              "rawCachedInputTokens": 468365,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "075aeca3-ab78-4128-9761-85dfaf39c7ef",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "provider": "openai",
+              "costStatus": "unpriced",
+              "billingType": "metered_api",
+              "inputTokens": 113795,
+              "usageSource": "per_run",
+              "freshSession": true,
+              "outputTokens": 1128,
+              "sessionReused": false,
+              "rawInputTokens": 113795,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": true,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:ea7d2549478fd0f7ec7a9b1e3c4e456ec53028a4c3063e7df313beee74ca71e5",
+                  "changedCategories": [],
+                  "taskSessionReused": false,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": false,
+                  "storedFingerprintPresent": false
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:4ef3aa820504a77005d1d8192edc90aee8416f0bda9f6831c65289fced96fe79",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 1128,
+              "cachedInputTokens": 87336,
+              "taskSessionReused": false,
+              "persistedSessionId": "01a0cebf-f221-7873-9468-fda38a5b5bfe",
+              "rawCachedInputTokens": 87336,
+              "sessionRotationReason": null
+            }
+          }
+        ]
+      },
+      "runtimeUsage": {
+        "provider": "local",
+        "agentRunDurationMs": 129890,
+        "leaseDurationMs": null,
+        "leaseCount": 0,
+        "costStatus": "not_metered",
+        "costSource": "local_not_metered"
+      },
+      "runCount": 3,
+      "runIds": [
+        "0e9098e5-ed17-4943-8a89-e2196a4f20b8",
+        "67e624a7-e59c-48d7-a6f6-259765e7d471",
+        "075aeca3-ab78-4128-9761-85dfaf39c7ef"
+      ],
+      "failedMatchers": []
+    },
+    {
+      "executionId": "continuation-accounting.runner-codex.local.accounting-productive-neutral",
+      "caseId": "accounting-productive-neutral",
+      "profileId": "runner-codex",
+      "environmentId": "local",
+      "runtimeMode": "native",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "status": "passed",
+      "failureClass": null,
+      "error": null,
+      "attempt": 1,
+      "startedAt": "2026-09-23T14:51:21.675Z",
+      "finishedAt": "2026-09-23T14:53:37.807Z",
+      "durationMs": 136132,
+      "evidenceValid": true,
+      "evidenceErrors": [],
+      "cleanup": "passed",
+      "billing": {
+        "llm": {
+          "runCount": 5,
+          "runsWithTokenUsage": 5,
+          "runsWithReportedCost": 5,
+          "inputTokens": 1032000,
+          "outputTokens": 6949,
+          "cachedInputTokens": 894006,
+          "totalTokens": 1932955,
+          "reportedCostUsd": 0,
+          "costStatus": "reported"
+        },
+        "runtime": {
+          "provider": "local",
+          "agentRunDurationMs": 91058,
+          "leaseDurationMs": null,
+          "leaseCount": 0,
+          "costStatus": "not_metered",
+          "costSource": "local_not_metered"
+        },
+        "reportedCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "complete": true
+      },
+      "usage": {
+        "runs": [
+          {
+            "runId": "3aaa629c-857e-407d-9faf-2ee65a3cd70d",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 438196,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 2556,
+              "sessionReused": true,
+              "rawInputTokens": 438196,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:7a50a53bb8976781571d76557ee50b434ca3f1410175c4b70a3aff1b24347fdb",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:ff73df6627f5986bd82f8b3195534d589f922075ae3abf365f2ce1a25220f393",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 2556,
+              "cachedInputTokens": 402322,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-1fea-7e52-aba8-6d952b9ae0dc",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 402322,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "7f83f4ef-47d2-4897-a41a-b64a712b652a",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 268253,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 1814,
+              "sessionReused": true,
+              "rawInputTokens": 268253,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:7a50a53bb8976781571d76557ee50b434ca3f1410175c4b70a3aff1b24347fdb",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:ff73df6627f5986bd82f8b3195534d589f922075ae3abf365f2ce1a25220f393",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 1814,
+              "cachedInputTokens": 237158,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-1fea-7e52-aba8-6d952b9ae0dc",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 237158,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "b8475df8-e6f4-47cc-b596-5f64af913033",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 181266,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 1371,
+              "sessionReused": true,
+              "rawInputTokens": 181266,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:7a50a53bb8976781571d76557ee50b434ca3f1410175c4b70a3aff1b24347fdb",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:ff73df6627f5986bd82f8b3195534d589f922075ae3abf365f2ce1a25220f393",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 1371,
+              "cachedInputTokens": 154265,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-1fea-7e52-aba8-6d952b9ae0dc",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 154265,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "49988108-3d07-4c58-b324-34273f217d6b",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 105292,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 895,
+              "sessionReused": true,
+              "rawInputTokens": 105292,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:7a50a53bb8976781571d76557ee50b434ca3f1410175c4b70a3aff1b24347fdb",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:ff73df6627f5986bd82f8b3195534d589f922075ae3abf365f2ce1a25220f393",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 895,
+              "cachedInputTokens": 81563,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-1fea-7e52-aba8-6d952b9ae0dc",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 81563,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "9051f6f3-0e59-4742-b74a-d10b4f529c03",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 38993,
+              "usageSource": "per_run",
+              "freshSession": true,
+              "outputTokens": 313,
+              "sessionReused": false,
+              "rawInputTokens": 38993,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": true,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:7a50a53bb8976781571d76557ee50b434ca3f1410175c4b70a3aff1b24347fdb",
+                  "changedCategories": [],
+                  "taskSessionReused": false,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": false,
+                  "storedFingerprintPresent": false
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:ff73df6627f5986bd82f8b3195534d589f922075ae3abf365f2ce1a25220f393",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 313,
+              "cachedInputTokens": 18698,
+              "taskSessionReused": false,
+              "persistedSessionId": "01a0cec0-1fea-7e52-aba8-6d952b9ae0dc",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 18698,
+              "sessionRotationReason": null
+            }
+          }
+        ]
+      },
+      "runtimeUsage": {
+        "provider": "local",
+        "agentRunDurationMs": 91058,
+        "leaseDurationMs": null,
+        "leaseCount": 0,
+        "costStatus": "not_metered",
+        "costSource": "local_not_metered"
+      },
+      "runCount": 5,
+      "runIds": [
+        "3aaa629c-857e-407d-9faf-2ee65a3cd70d",
+        "7f83f4ef-47d2-4897-a41a-b64a712b652a",
+        "b8475df8-e6f4-47cc-b596-5f64af913033",
+        "49988108-3d07-4c58-b324-34273f217d6b",
+        "9051f6f3-0e59-4742-b74a-d10b4f529c03"
+      ],
+      "failedMatchers": []
+    },
+    {
+      "executionId": "continuation-accounting.runner-codex.local.accounting-productive-noisy",
+      "caseId": "accounting-productive-noisy",
+      "profileId": "runner-codex",
+      "environmentId": "local",
+      "runtimeMode": "native",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "status": "passed",
+      "failureClass": null,
+      "error": null,
+      "attempt": 1,
+      "startedAt": "2026-09-23T14:51:29.643Z",
+      "finishedAt": "2026-09-23T14:54:07.996Z",
+      "durationMs": 158353,
+      "evidenceValid": true,
+      "evidenceErrors": [],
+      "cleanup": "passed",
+      "billing": {
+        "llm": {
+          "runCount": 5,
+          "runsWithTokenUsage": 5,
+          "runsWithReportedCost": 5,
+          "inputTokens": 1594483,
+          "outputTokens": 10140,
+          "cachedInputTokens": 1435847,
+          "totalTokens": 3040470,
+          "reportedCostUsd": 0,
+          "costStatus": "reported"
+        },
+        "runtime": {
+          "provider": "local",
+          "agentRunDurationMs": 111914,
+          "leaseDurationMs": null,
+          "leaseCount": 0,
+          "costStatus": "not_metered",
+          "costSource": "local_not_metered"
+        },
+        "reportedCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "complete": true
+      },
+      "usage": {
+        "runs": [
+          {
+            "runId": "08129dbd-b7dd-46fc-9b64-12f5b40746e0",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 697815,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 3613,
+              "sessionReused": true,
+              "rawInputTokens": 697815,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:a0f3e9fa58213dcfaf7915e28f8108c9ed24b50171eba23ce15aae370d5e517d",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:63dc598d40fb5db4d339adf0f9cdb486c65a46d30ab7ac8a21062be0cfa1c178",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 3613,
+              "cachedInputTokens": 653142,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-3e49-77c0-bf8a-9b69296174f1",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 653142,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "ddfa2fbd-dec0-499d-972a-3a0d6dd72f69",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 407161,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 2613,
+              "sessionReused": true,
+              "rawInputTokens": 407161,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:a0f3e9fa58213dcfaf7915e28f8108c9ed24b50171eba23ce15aae370d5e517d",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:63dc598d40fb5db4d339adf0f9cdb486c65a46d30ab7ac8a21062be0cfa1c178",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 2613,
+              "cachedInputTokens": 370918,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-3e49-77c0-bf8a-9b69296174f1",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 370918,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "36ac97ad-2d19-4324-8124-499be02dc9d1",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 271558,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 2013,
+              "sessionReused": true,
+              "rawInputTokens": 271558,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:a0f3e9fa58213dcfaf7915e28f8108c9ed24b50171eba23ce15aae370d5e517d",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:63dc598d40fb5db4d339adf0f9cdb486c65a46d30ab7ac8a21062be0cfa1c178",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 2013,
+              "cachedInputTokens": 240822,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-3e49-77c0-bf8a-9b69296174f1",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 240822,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "27c052a7-6f80-49e0-813b-e3d8bea74617",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 156810,
+              "usageSource": "per_run",
+              "freshSession": false,
+              "outputTokens": 1371,
+              "sessionReused": true,
+              "rawInputTokens": 156810,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": false,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:a0f3e9fa58213dcfaf7915e28f8108c9ed24b50171eba23ce15aae370d5e517d",
+                  "changedCategories": [],
+                  "taskSessionReused": true,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": true,
+                  "storedFingerprintPresent": true
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:63dc598d40fb5db4d339adf0f9cdb486c65a46d30ab7ac8a21062be0cfa1c178",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 1371,
+              "cachedInputTokens": 131051,
+              "taskSessionReused": true,
+              "persistedSessionId": "01a0cec0-3e49-77c0-bf8a-9b69296174f1",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 131051,
+              "sessionRotationReason": null
+            }
+          },
+          {
+            "runId": "59b352e1-9d08-461e-b858-f7e936fb9e09",
+            "usage": {
+              "model": "gpt-5.6-sol",
+              "biller": "openai",
+              "costUsd": 0,
+              "provider": "openai",
+              "costStatus": "reported",
+              "billingType": "unknown",
+              "inputTokens": 61139,
+              "usageSource": "per_run",
+              "freshSession": true,
+              "outputTokens": 530,
+              "sessionReused": false,
+              "rawInputTokens": 61139,
+              "sessionRotated": false,
+              "configFreshness": {
+                "session": {
+                  "reset": true,
+                  "categories": [
+                    "adapter",
+                    "adapterConfig",
+                    "agentRuntimeConfig",
+                    "instructions",
+                    "issueOverrides",
+                    "workspaceConfig",
+                    "environment",
+                    "envBindings",
+                    "secrets",
+                    "runtimeSkills"
+                  ],
+                  "resetReasons": [],
+                  "nextFingerprint": "v1:sha256:a0f3e9fa58213dcfaf7915e28f8108c9ed24b50171eba23ce15aae370d5e517d",
+                  "changedCategories": [],
+                  "taskSessionReused": false,
+                  "fingerprintVersion": 1,
+                  "taskSessionAvailable": false,
+                  "storedFingerprintPresent": false
+                },
+                "version": 1,
+                "workspace": {
+                  "action": "create",
+                  "reasons": [],
+                  "categories": [
+                    "mode",
+                    "projectWorkspace",
+                    "strategy",
+                    "repo",
+                    "lifecycleCommands",
+                    "runtimeServices",
+                    "environment",
+                    "realization"
+                  ],
+                  "reuseRequested": false,
+                  "nextFingerprint": "v1:sha256:63dc598d40fb5db4d339adf0f9cdb486c65a46d30ab7ac8a21062be0cfa1c178",
+                  "workspaceReused": false,
+                  "activeWorkspaceId": null,
+                  "changedCategories": [],
+                  "storedFingerprint": null,
+                  "fingerprintVersion": 1,
+                  "inferredFingerprint": null,
+                  "previousWorkspaceId": null,
+                  "configSnapshotRefreshed": false,
+                  "storedFingerprintPresent": false
+                }
+              },
+              "rawOutputTokens": 530,
+              "cachedInputTokens": 39914,
+              "taskSessionReused": false,
+              "persistedSessionId": "01a0cec0-3e49-77c0-bf8a-9b69296174f1",
+              "cacheAdjustedCostUsd": 0,
+              "rawCachedInputTokens": 39914,
+              "sessionRotationReason": null
+            }
+          }
+        ]
+      },
+      "runtimeUsage": {
+        "provider": "local",
+        "agentRunDurationMs": 111914,
+        "leaseDurationMs": null,
+        "leaseCount": 0,
+        "costStatus": "not_metered",
+        "costSource": "local_not_metered"
+      },
+      "runCount": 5,
+      "runIds": [
+        "08129dbd-b7dd-46fc-9b64-12f5b40746e0",
+        "ddfa2fbd-dec0-499d-972a-3a0d6dd72f69",
+        "36ac97ad-2d19-4324-8124-499be02dc9d1",
+        "27c052a7-6f80-49e0-813b-e3d8bea74617",
+        "59b352e1-9d08-461e-b858-f7e936fb9e09"
+      ],
+      "failedMatchers": []
+    }
+  ]
+}
