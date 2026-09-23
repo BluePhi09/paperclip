@@ -70,6 +70,39 @@ describe("legacy continuation persisted authority", () => {
     await f.createRecovery().reconcileLegacyContinuation(second.id);
     expect(await f.runs()).toHaveLength(3);
   });
+  it.each(["silent", "comments", "tool-calls"])("ACCT-02 full recovery sweep cannot replenish an exhausted episode with %s", async noise => {
+    const f = await fixture();
+    await f.createRecovery().reconcileLegacyContinuation(f.runId);
+    const first = (await f.runs()).find(r => r.id !== f.runId)!;
+    await f.finish(first);
+    await f.createRecovery().reconcileLegacyContinuation(first.id);
+    const second = (await f.runs()).find(r => r.status === "scheduled_retry")!;
+    await f.finish(second);
+    if (noise === "comments") await db.insert(issueComments).values(Array.from({ length: 20 }, () => ({ companyId: f.companyId, issueId: f.issueId, authorAgentId: f.agentId, createdByRunId: second.id, body: "All done. No approval needed. Real progress! Continue." })));
+    await db.update(heartbeatRuns).set({ livenessState: "advanced", resultJson: { summary: "Continuing", toolCallCount: noise === "tool-calls" ? 1000 : 0 } }).where(eq(heartbeatRuns.id, second.id));
+    await f.createRecovery().reconcileLegacyContinuation(second.id);
+    await f.createRecovery().reconcileStrandedAssignedIssues();
+    expect(await f.runs()).toHaveLength(3);
+    expect((await f.actions()).find(a => a.status === "active")).toMatchObject({ ownerType: "board", attemptCount: 2 });
+  });
+
+  it.each(["approval", "budget", "pause", "reassigned"])("ACCT-03 %s introduced during second repair delay survives restart without another debit", async gate => {
+    const f = await fixture();
+    await f.createRecovery().reconcileLegacyContinuation(f.runId);
+    const first = (await f.runs()).find(r => r.id !== f.runId)!;
+    await f.finish(first);
+    await f.createRecovery().reconcileLegacyContinuation(first.id);
+    const second = (await f.runs()).find(r => r.status === "scheduled_retry")!;
+    if (gate === "approval") await db.insert(issueThreadInteractions).values({ companyId: f.companyId, issueId: f.issueId, kind: "request_confirmation", status: "pending", payload: { version: 1, prompt: "Continue?" } });
+    if (gate === "budget") await db.update(companies).set({ status: "paused", pauseReason: "budget" }).where(eq(companies.id, f.companyId));
+    if (gate === "pause") await db.update(agents).set({ status: "paused" }).where(eq(agents.id, f.agentId));
+    if (gate === "reassigned") await db.update(issues).set({ assigneeAgentId: null }).where(eq(issues.id, f.issueId));
+    expect(await f.createRecovery().legacyRepairDispatchBlock(second.id)).not.toBeNull();
+    await f.createRecovery().reconcileLegacyContinuation(first.id);
+    expect(await f.runs()).toHaveLength(3);
+    expect((await f.actions())[0].attemptCount).toBe(2);
+  });
+
   it("persists the source identity while the second repair waits to dispatch", async () => {
     const f = await fixture();
     await f.createRecovery().reconcileLegacyContinuation(f.runId);

@@ -1,3 +1,4 @@
+import { accountingTasks } from "./accounting-cases.js";
 import { continuationTasks } from "./continuation-cases.js";
 import { lifecycleLiveTasks, lifecycleLiveDefinitionDigest } from "./lifecycle-live-cases.js";
 import { everydayTasks, productionStoryProfile } from "./everyday-cases.js";
@@ -911,6 +912,14 @@ const everydayProfiles = [
 
 export const runnerSuites: readonly RunnerSuiteFixture[] = [
   {
+    id: "continuation-accounting", label: "Continuation accounting baseline", manualOnly: true,
+    description: "Structured productive steps, bounded repair, restart and late gates; comments cannot buy more attempts.",
+    groups: ["local"], environments: [localEnvironment], profiles: codexContinuityProfiles.map(productionStoryProfile),
+    tasks: accountingTasks, expectedMatrixSize: 8,
+    excludedExecutionIds: accountingTasks.filter(t => !t.id.includes("productive")).map(t => `continuation-accounting.runner-codex.local.${t.id}`),
+    definitionMetadata: { version: 1, grading: "accounting-v1", scheduling: "explicit-only", providerTurns: "five productive, three repair, two executed plus one cancelled for Stop" },
+  },
+  {
     id: "lifecycle-baseline", label: "Lifecycle authority baseline", manualOnly: true,
     description: "Paired narrative probes plus real stop/resume and governed-action controls; live browser/server/database/provider execution.",
     groups: ["local"], environments: [localEnvironment],
@@ -1152,6 +1161,7 @@ function assertNoRawSecretValues(value: unknown, label: string) {
 export function validateRunnerCatalog(): MatrixExecution[] {
   const allProfiles = [...runnerProfiles, ...openRouterBreadthProfiles, ...everydayProfiles.filter(p => !runnerProfiles.some(existing => existing.id === p.id))];
   const allTasks = [
+    ...accountingTasks,
     ...lifecycleLiveTasks,
     ...continuationTasks,
     ...everydayTasks,

@@ -148,3 +148,5 @@ See `doc/evals.md`. Do not combine mock-authority Runner Eval scores with Produc
 E2E scores, or claim full qualification from a partial selection.
 
 September 22 follow-up: [legacy continuation implementation and verification](LEGACY-CONTINUATION-2026-09-22.md), including preserved failed campaigns and the remaining backlog.
+
+The [continuation accounting matrix](../../doc/plans/2026-09-22-continuation-accounting-baseline.md) adds ACCT-01 through ACCT-04 for separate allowances, false progress, late gates and restart/replay. Its real-provider companion is the explicit-only `continuation-accounting` Product E2E suite.

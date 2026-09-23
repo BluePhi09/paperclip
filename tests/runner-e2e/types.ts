@@ -12,6 +12,7 @@ export type RunnerTaskWorkMode = "standard" | "planning" | "ask";
 export type RunnerTaskFlow =
   | "everyday_workflow"
 
+  | "continuation_accounting"
   | "continuation"
   | "first_task"
   | "agent_chat"
@@ -129,7 +130,7 @@ export interface RunnerTaskFixture {
   minimumExpectedRunCount?: number;
   attemptTimeoutMs: Readonly<Record<RunnerEnvironmentId, number>>;
   expectedTerminalState: {
-    issue: "done" | "in_review" | "blocked";
+    issue: "done" | "in_review" | "blocked" | "in_progress";
     run: "succeeded" | "failed";
   };
   buildTitle(nonce: string): string;

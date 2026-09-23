@@ -83,7 +83,7 @@ pnpm test:e2e:runner -- --suite daytona-warm-continuity
 pnpm test:e2e:runner -- --all
 ```
 
-The catalog contains twelve suites, including the explicit-only everyday and
+The catalog contains thirteen suites, including the explicit-only everyday and
 [lifecycle baseline](LIFECYCLE-BASELINE.md) suites. The latter adds 46 real-provider
 cells pairing narrative variants and exercising durable lifecycle boundaries;
 it is excluded from `--all`. `core-compatibility` (**Core Runner
@@ -1018,3 +1018,5 @@ artifact verifier run on the existing EC2 fleet; no developer laptop Docker
 service is required. Set the optional `max_parallel` dispatch input to `1` for
 keys with low request limits. It can only lower the configured campaign limit.
 Keep subscription qualification separate from API-key results.
+
+The explicit-only eight-cell [continuation accounting baseline](CONTINUATION-ACCOUNTING.md) tests productive work, bounded repair, restart and late gates with real providers.
