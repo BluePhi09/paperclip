@@ -60,6 +60,11 @@ describe("ACCT calibrated live accounting evidence", () => {
     expect(cells.every(c => c.requiredCredentials.includes("OPENAI_API_KEY"))).toBe(true);
   });
   it.each(accountingCases)("accepts a complete $id recording", c => expect(failures(recording(c.id))).toEqual([]));
+  it("rejects a serialized array in place of the exact neutral comment", () => {
+    const r = recording(), f = r.checkpoints.at(-1)!;
+    for (const comment of f.comments) comment.body = JSON.stringify([comment.body]);
+    expect(failures(r)).toEqual(["perturbation"]);
+  });
   it.each(["accounting-productive-neutral", "accounting-exhaustion-noisy", "accounting-repair-stop", "accounting-repair-approval"])("rejects missing final evidence for %s", id => {
     const r = recording(id); r.checkpoints.pop(); expect(failures(r)).toContain("evidence");
   });
