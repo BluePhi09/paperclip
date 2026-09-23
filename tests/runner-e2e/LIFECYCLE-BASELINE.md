@@ -79,7 +79,7 @@ fixture exercised by the real LLM through production tool transport.
 
 ## Status and remaining boundaries
 
-**Executed on GitHub Actions.** See the [live measurement record](../lifecycle-baseline/LIVE-BASELINE-2026-09-21.md)
+**Executed on GitHub Actions.** See the [live measurement record](https://github.com/paperclipai/paperclip-evals/blob/ce3e5afcd4a1184650f586a2b5b8be5874c66c8b/experiments/2026-09-lifecycle-authority/LIVE-BASELINE-2026-09-21.md)
 for the 40-cell Product E2E results, eight protocol eval results, test corrections,
 source revisions and retained failures. The initial 831-test report predates this
 suite; its count is not an LLM/E2E pass count.

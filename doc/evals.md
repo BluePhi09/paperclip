@@ -138,6 +138,14 @@ analytical label.
 
 ## Evidence, provenance, and history
 
+Retained result snapshots and dated measurement reports belong in
+`paperclip-evals`; application tests, Product E2E fixtures/graders, and executable
+scenario inventories remain in this repository. Keep a compact results index
+with immutable archive links and public report links, as in the
+[lifecycle baseline](../tests/lifecycle-baseline/README.md#recorded-results-moved-to-paperclip-evals).
+The private archive is not a dependency of app test execution. Keep large logs,
+traces, and videos in the existing campaign artifact storage.
+
 An Evalbook report is a presentation of immutable attempt records, not the
 source of truth. Keep the campaign ID, Paperclip commit, `paperclip-evals`
 commit, catalog/roster or definition fingerprint, model/profile, environment,
