@@ -222,6 +222,7 @@ import {
   materializeNativeInteractionResponses,
   nativeCompletionRequestsWithSources,
   nativeCompletionSource,
+  nativeImmediateObjectiveSource,
   NativeCancellationPendingRecoveryError,
   NativeControllerDetachedForRestartError,
   nativeToolContractFingerprintForTarget,
@@ -23139,6 +23140,15 @@ export function heartbeatService(
                     nativeReviewRequest ?? (currentHumanResponseId
                       ? null
                       : executionContinuation?.objective ?? safeWakeCommentContext?.body ?? null),
+                  // The ordinary initial objective is selected by the server-owned
+                  // continuation envelope. Carry its explicit description source
+                  // through the singular-request compatibility path; do not infer
+                  // provenance for review requests, answers, or wake fallbacks.
+                  immediateRequestSource: nativeImmediateObjectiveSource({
+                    issueId: issueRef.id,
+                    objectiveSource: executionContinuation?.objectiveSource,
+                    excluded: Boolean(nativeReviewRequest || currentHumanResponseId),
+                  }),
                   humanResponseId: currentHumanResponseId,
                   immediateRequests: immediateCompletion.requests,
                   immediateRequestSources: immediateCompletion.sources,

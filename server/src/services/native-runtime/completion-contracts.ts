@@ -20,6 +20,22 @@ export function nativeCompletionSource(kind: NativeCompletionSource["kind"], id:
   return { kind, id, revision: createHash("sha256").update(content.trim()).digest("hex") };
 }
 
+/** Select only the server-owned description source for the ordinary objective path. */
+export function nativeImmediateObjectiveSource(input: {
+  issueId: string;
+  objectiveSource?: {
+    kind: "comment" | "description" | "title";
+    id: string;
+    revision: string | null;
+  } | null;
+  excluded: boolean;
+}): NativeCompletionSource | null {
+  const source = input.objectiveSource;
+  return !input.excluded && source?.kind === "description" && source.id === input.issueId && source.revision
+    ? { kind: "description", id: source.id, revision: source.revision }
+    : null;
+}
+
 /** The same source operation produces both the requirement and its provenance. */
 export function nativeCompletionRequestsWithSources(
   comments: readonly CompletionComment[],
@@ -116,6 +132,8 @@ export async function ensureNativeCompletionContract(input: {
   };
   actorId: string;
   immediateRequest?: string | null;
+  /** Provenance for a singular server-selected request, when explicitly known. */
+  immediateRequestSource?: NativeCompletionSource | null;
   immediateRequests?: readonly string[] | null;
   immediateRequestSources?: readonly (NativeCompletionSource | null)[];
   humanResponseId?: string | null;
@@ -190,12 +208,18 @@ export async function ensureNativeCompletionContract(input: {
 export function buildNativeCompletionContractSources(input: {
   issue: { id: string; description: string | null };
   immediateRequest?: string | null;
+  immediateRequestSource?: NativeCompletionSource | null;
   immediateRequests?: readonly string[] | null;
   immediateRequestSources?: readonly (NativeCompletionSource | null)[];
   humanResponseId?: string | null;
 }): Array<{ id: string; source: NativeCompletionSource }> {
   const requests = (input.immediateRequests ?? (input.immediateRequest == null ? [] : [input.immediateRequest]))
-    .map((body, index) => ({ body: body.trim(), source: input.immediateRequests ? input.immediateRequestSources?.[index] : null }))
+    .map((body, index) => ({
+      body: body.trim(),
+      source: input.immediateRequests
+        ? input.immediateRequestSources?.[index]
+        : input.immediateRequestSource,
+    }))
     .filter((entry) => entry.body.length > 0);
   if (requests.length > 0) {
     return requests.flatMap((entry, index) => entry.source ? [{

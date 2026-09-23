@@ -5,6 +5,7 @@ import {
   buildNativeCompletionContractSources,
   nativeCompletionRequestsWithSources,
   nativeCompletionSource,
+  nativeImmediateObjectiveSource,
   nativeCompletionRequestsForComments,
   resolveNativeCompletionPolicy,
 } from "./completion-contracts.js";
@@ -181,6 +182,14 @@ describe("resolveNativeCompletionPolicy", () => {
 
 
 describe("completion source ownership", () => {
+  it("selects only an explicitly bound initial description objective", () => {
+    const source = nativeCompletionSource("description", "task", "Same text");
+    expect(nativeImmediateObjectiveSource({ issueId: "task", objectiveSource: source, excluded: false })).toEqual(source);
+    expect(nativeImmediateObjectiveSource({ issueId: "other-task", objectiveSource: source, excluded: false })).toBeNull();
+    expect(nativeImmediateObjectiveSource({ issueId: "task", objectiveSource: source, excluded: true })).toBeNull();
+    expect(nativeImmediateObjectiveSource({ issueId: "task", objectiveSource: nativeCompletionSource("comment", "comment", "Same text"), excluded: false })).toBeNull();
+  });
+
   it("preserves separate identical comment sources and their criterion order", () => {
     const comments = [{ id: "first", body: " Repeat. Repeat. " }, { id: "second", body: " Repeat. Repeat. " }];
     const { requests, sources } = nativeCompletionRequestsWithSources(comments);
@@ -200,6 +209,11 @@ describe("completion source ownership", () => {
     const issue = { id: "task", title: "Task", description: "Same text" };
     expect(buildNativeCompletionContractSources({ issue, immediateRequests: ["Same text"] })).toEqual([]);
     expect(buildNativeCompletionContractSources({ issue, immediateRequest: "Same text" })).toEqual([]);
+    expect(buildNativeCompletionContractSources({
+      issue,
+      immediateRequest: "Same text",
+      immediateRequestSource: nativeCompletionSource("description", "task", "Same text"),
+    })).toEqual([{ id: "objective", source: nativeCompletionSource("description", "task", "Same text") }]);
     expect(buildNativeCompletionContractSources({ issue })).toEqual([{ id: "objective", source: nativeCompletionSource("description", "task", "Same text") }]);
     expect(buildNativeCompletionContractSources({ issue, humanResponseId: "answer" })).toEqual([]);
   });
