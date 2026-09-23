@@ -44,10 +44,30 @@ import {
   isOpenRouterDeepSeekHelloTerminalVariance,
   numberedPlanStepCount,
   providerSessionContinuityFailures,
+  reasoningProjectionFailures,
 } from "./run-observations.js";
 import { runnerE2EWebServerCommand } from "./web-server-command.js";
 
 const cleanupDirectories: string[] = [];
+
+it("rejects reasoning mislabeled as assistant text without echoing private content", () => {
+  const reasoning = {
+    eventType: "item.delta",
+    payload: { prpEvent: {
+      eventType: "item.delta",
+      payload: { kind: "agentMessage", text: "PRIVATE_THOUGHT", update: { kind: "reasoning" } },
+    } },
+  };
+  expect(reasoningProjectionFailures([reasoning])).toEqual([
+    "provider reasoning was projected as assistant text in 1 durable events",
+  ]);
+  const correctlyTyped = structuredClone(reasoning);
+  correctlyTyped.payload.prpEvent.payload.kind = "reasoning";
+  expect(reasoningProjectionFailures([correctlyTyped])).toEqual([]);
+  const assistant = structuredClone(reasoning);
+  assistant.payload.prpEvent.payload.update.kind = "agentMessage";
+  expect(reasoningProjectionFailures([assistant])).toEqual([]);
+});
 afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
