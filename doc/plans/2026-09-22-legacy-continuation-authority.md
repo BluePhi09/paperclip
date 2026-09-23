@@ -118,13 +118,14 @@ Keep this section even if this slice incidentally resolves some assertions.
 
 | Finding | Recorded count | Disposition |
 |---|---:|---|
-| Narrative changes continuation | 36 | Current focus |
-| Title/description words select work mode | 4 | Retain for explicit work-mode follow-up; no title/body field in the new authority contract |
+| Narrative changes continuation | 36 | Fixed by the persisted-disposition authority slice; see verification above |
+| Title/description words select work mode | 4 | Heuristic removed in [explicit work-mode follow-up](2026-09-22-explicit-work-mode-authority.md). Clarification: this was a liveness diagnostic exemption, not a stored mode mutation. Deterministic checks and 4/4 corrected live wording cases pass; both explicit planning controls pass |
 | Commentary counts as progress | 1 | Retain for progress-evidence audit; no comment-count budget resets in this slice |
 | Wording selects liveness versus handoff path in heartbeat | 1 | Retain separately in results; must be covered while closing the current shared authority boundary |
 | Native autonomous continuation compatibility probes | 2 | Replace with reachable public-contract tests; `same_agent` injection is not a current model-facing defect |
 | Productive continuation versus repair/failure budgets | Coverage boundary | Separate audit after this slice; do not infer progress from text/event counts |
 | Blank task route after reload | New live observation | Investigate browser bootstrap/rendering; seen after successful persisted lifecycle in both runtimes; campaigns 35744074887 and 35747200170 |
+| Duplicate legacy response | One later live observation | Campaign 35805477715 legacy work-mode neutral: provider issued two successful PATCH calls, second escaping an underscore. Retain as model behavior evidence; exact-once matcher rejected it |
 | Missing-comment policy ownership | Coverage boundary | Existing typed retry policy remains; review separately if consolidating all post-run compliance into one disposition contract |
 | Maintain CI and prepare App/Evals review | Pending | Promote fixed invariants into maintained cheap gates; paid suites remain explicit |
 

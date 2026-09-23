@@ -32,5 +32,13 @@ attempts and final results before declaring verification complete.
 
 ## Verification
 
-In progress. The historical remaining-findings inventory is retained in
+Deterministic baseline: 990/992 pass, with only the two previously recorded native
+compatibility probes failing. All work-mode assertions pass; E2E support,
+typechecks and build pass. Both explicit planning controls passed in campaign
+35805477715; its four new wording cases exposed a Markdown/browser fixture
+mismatch, with one additional duplicate model response. Those failures remain
+recorded. After a fixture-only plain-text correction, both wording pairs passed
+in campaign 35806360797 (4/4). See the
+[measurement report](../../tests/lifecycle-baseline/EXPLICIT-WORK-MODE-2026-09-22.md).
+The historical remaining-findings inventory is retained in
 [the continuation plan](2026-09-22-legacy-continuation-authority.md).
