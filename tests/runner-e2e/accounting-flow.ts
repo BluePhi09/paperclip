@@ -47,7 +47,7 @@ export async function runAccountingFlow(input: {
         const key = accept(s) ? JSON.stringify([s.issue.status, s.runs.map(r => [r.id, r.status]), s.interactions.map(i => [i.id, i.status]), s.comments.length]) : "";
         const ready = !!key && key === stable; stable = key; return ready;
       },
-      reject: s => s.runs.length > execution.task.expectedRunCount ? "Unexpected additional run exceeds the declared accounting allowance" : s.runs.some(r => ["failed", "timed_out"].includes(r.status)) ? "Provider run failed; inspect retained evidence" : undefined,
+      reject: s => s.runs.length > execution.task.expectedRunCount ? "Unexpected additional run exceeds the declared accounting allowance" : s.runs.some(r => ["failed", "timed_out", "cancelled"].includes(r.status)) ? `Unexpected terminated run: ${s.runs.filter(r => ["failed", "timed_out", "cancelled"].includes(r.status)).map(r => `${r.status}:${r.errorCode ?? "no-code"}`).join(", ")}` : undefined,
     });
   }
   async function checkpoint(phase: string, screenshot = false) {
@@ -117,7 +117,7 @@ export async function runAccountingFlow(input: {
   } finally {
     checks = gradeAccounting({ probe, nonce, agentId: fixtures.agent.id, runtime: execution.profile.expectedRuntimeMode, checkpoints });
     if (issue) input.observe(issue, state?.runs ?? [], checks);
-    await input.evidence("continuation.json", { probe, checkpoints, checks });
+    await input.evidence("continuation.json", { probe, checkpoints, checks, lastObserved: state });
   }
   const failed = checks.filter(c => !c.passed);
   if (failed.length) throw new Error(`Accounting assertions failed: ${failed.map(c => c.id).join(", ")}`);
