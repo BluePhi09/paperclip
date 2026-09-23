@@ -53,7 +53,12 @@ and suggest up to three small fixes, with source links and uncertainty. Specify
 discovery only: no editing, delegation, new tasks, PR or merge.
 
 Expect one Connect Slack card in Slack and the canonical Paperclip task. The
-link hands off through the authenticated task to personal OAuth. After the user
+link hands off automatically through the authenticated task to personal OAuth;
+it must not require a second Connect Slack click in Paperclip. Sign-in is still
+required if the browser has no session. The credential-free interaction suffix
+must survive UUID-to-identifier and company-prefix redirects. Consume it once
+before starting OAuth; settled requests, different addressees and ordinary task
+visits must not start authorization. After the user
 approves, the existing durable intent delivery resumes the original request.
 The answer keeps its original audience. On legacy v1 tasks, the normal Paperclip
 composer stays internal and Reply via Slack opts in to that turn's Slack reply.
@@ -95,6 +100,27 @@ Disable `READ_ENABLED` to stop M2 without disabling M1. This does not revoke a
 Slack grant. Do not rotate/revoke the existing bot token to reset a read test.
 
 ## Verification
+
+September 23 handoff correction: the task's canonical-URL redirect was dropping
+`/connect-slack-read/:interactionId` from the actual UUID-based Slack link. The
+redirect now preserves an unconsumed suffix and does not restore one already
+consumed by the card. Regression tests reproduce the old failure and exercise
+UUID/wrong-company resolution followed by the real card's automatic start,
+remount/StrictMode deduplication, ineligible audiences/states and explicit retry
+after failure. All 154 tests in IssueDetail and ConnectionIntentInteractionBody,
+UI TypeScript, token gates and the UI production build pass. Provider scopes,
+OAuth state/session binding and continuation handling are unchanged. A new live
+OAuth run is not claimed by these tests; do not reset a working grant just to
+exercise this fix without the user's approval.
+
+Deployed only to the isolated port-3210 pilot after rebuilding its UI. Live
+browser smoke: TES-10's actual unprefixed UUID/interaction URL resolved to
+`/TES/issues/TES-10/connect-slack-read/:interactionId` with the suffix intact.
+Its already-accepted card stayed connected and did not start another OAuth flow.
+The browser was returned to the ordinary TES-10 URL; no grant was reset.
+Subsequently, at the user's explicit request, only the personal channel-read
+connection was removed through Paperclip to prepare a fresh-consent retest.
+The CEO chat connection remained active; the user-led fresh OAuth test is pending.
 
 See [the implementation plan](../plans/2026-09-22-slack-ceo-read-discovery.md)
 for the current automated/live split and provider references. Run

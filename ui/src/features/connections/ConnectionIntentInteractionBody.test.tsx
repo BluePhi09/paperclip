@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act as reactAct, useState, type ReactNode } from "react";
+import { act as reactAct, StrictMode, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type {
@@ -211,6 +211,52 @@ describe("ConnectionIntentInteractionBody states and audience", () => {
     await flush();
     expect(slackReadMock).toHaveBeenCalledWith(interaction.id);
     expect(document.querySelector("[data-testid=shared-connection-setup]")).toBeNull();
+  });
+  it("starts a pending Slack handoff only once under StrictMode", async () => {
+    const interaction = { ...pendingConnectionIntentInteraction, payload: {
+      ...pendingConnectionIntentInteraction.payload, capabilityProfile: "slack-public-read-v1" as const,
+    } };
+    window.history.replaceState(null, "", `/TES/issues/TES-10/connect-slack-read/${interaction.id}`);
+    renderNode(<StrictMode><ConnectionIntentInteractionBody interaction={interaction}
+      currentUserId={interaction.addresseeUserId} addresseeLabel="Carol" /></StrictMode>);
+    await flush();
+    expect(slackReadMock).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/TES/issues/TES-10");
+  });
+  it.each([
+    { user: null, status: "pending", matching: true },
+    { user: "another-user", status: "pending", matching: true },
+    { user: pendingConnectionIntentInteraction.addresseeUserId, status: "accepted", matching: true },
+    { user: pendingConnectionIntentInteraction.addresseeUserId, status: "rejected", matching: true },
+    { user: pendingConnectionIntentInteraction.addresseeUserId, status: "expired", matching: true },
+    { user: pendingConnectionIntentInteraction.addresseeUserId, status: "pending", matching: false },
+  ] as const)("does not auto-start an ineligible handoff: %j", async ({ user, status, matching }) => {
+    const interaction = { ...pendingConnectionIntentInteraction, status, payload: {
+      ...pendingConnectionIntentInteraction.payload, capabilityProfile: "slack-public-read-v1" as const,
+    } } as ConnectionIntentInteraction;
+    const pathname = `/TES/issues/TES-10/connect-slack-read/${matching ? interaction.id : "another-interaction"}`;
+    window.history.replaceState(null, "", pathname);
+    renderBody(interaction, user);
+    await flush();
+    expect(slackReadMock).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe(pathname);
+  });
+  it("leaves a failed automatic handoff on the task for explicit retry without looping", async () => {
+    const interaction = { ...pendingConnectionIntentInteraction, payload: {
+      ...pendingConnectionIntentInteraction.payload, capabilityProfile: "slack-public-read-v1" as const,
+    } };
+    slackReadMock.mockRejectedValue(new Error("Please sign in again"));
+    window.history.replaceState(null, "", `/TES/issues/TES-10/connect-slack-read/${interaction.id}`);
+    renderBody(interaction);
+    await waitForAssertion(() => expect(document.querySelector("[role=alert]")?.textContent).toContain("Please sign in again"));
+    expect(window.location.pathname).toBe("/TES/issues/TES-10");
+    await act(() => root?.unmount()); host?.remove(); root = null; host = null;
+    renderBody(interaction);
+    await flush();
+    expect(slackReadMock).toHaveBeenCalledTimes(1);
+    await act(async () => button("Connect Slack")!.click());
+    await flush();
+    expect(slackReadMock).toHaveBeenCalledTimes(2);
   });
   it("shows an actionable Slack authorization failure and permits declining", async () => {
     slackReadMock.mockRejectedValue(new Error("Source channel configuration changed"));

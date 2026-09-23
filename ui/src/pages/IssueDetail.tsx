@@ -2848,7 +2848,9 @@ export function IssueDetail({ tasksTab }: { tasksTab?: TaskSidePanelProps["tasks
 export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskSidePanelProps["tasksTab"]; conversation?: {
   agent: Agent; issue: Issue | null; ensureIssue: () => Promise<Issue>;
 } }) {
-  const { issueId: routeIssueId, companyPrefix } = useParams<{ issueId: string; companyPrefix: string }>();
+  const { issueId: routeIssueId, companyPrefix, interactionId: slackReadInteractionId } = useParams<{
+    issueId: string; companyPrefix: string; interactionId?: string;
+  }>();
   const issueId = conversation ? conversation.issue?.id : routeIssueId;
   const [draftWorkMode, setDraftWorkMode] = useState<IssueWorkMode>("standard");
   const draftIssue = useMemo(() => conversation ? agentChatDraft(conversation.agent, draftWorkMode) : undefined, [conversation?.agent, draftWorkMode]);
@@ -5473,7 +5475,17 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         nextState,
         location.search,
       );
-      const taskPath = createIssueDetailPath(canonicalRef);
+      const handoffSuffix = slackReadInteractionId
+        ? `/connect-slack-read/${slackReadInteractionId}`
+        : "";
+      // Slack publishes UUID task links. Keep its credential-free handoff when
+      // resolving the canonical task/company so the card can start OAuth without
+      // another click. Consult live history: the card may already have consumed
+      // the suffix while router state/company data is still catching up.
+      const pendingHandoff = handoffSuffix && window.location.pathname.endsWith(handoffSuffix)
+        ? handoffSuffix
+        : "";
+      const taskPath = `${createIssueDetailPath(canonicalRef)}${pendingHandoff}`;
       navigate(
         {
           pathname: taskCompany
@@ -5493,6 +5505,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     loadedIssue,
     loadedIssueCompany,
     companyPrefix,
+    slackReadInteractionId,
     issueId,
     navigate,
     location.state,

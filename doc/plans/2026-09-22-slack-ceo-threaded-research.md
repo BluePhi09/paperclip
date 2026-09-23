@@ -8,6 +8,15 @@ commit: `91339784ce9a740c149b34f013a1e29e7e7febdc`.
 
 ## Current checkpoint: threaded-DM preview
 
+September 23 direct-consent correction: preserve the credential-free Slack
+handoff suffix during task UUID/company canonicalization. The existing addressed
+card then automatically starts the session-bound personal OAuth request, without
+a second Paperclip Connect click. Already-consumed handoffs are not restored;
+ordinary visits and settled/non-addressed cards do not auto-start. This is a
+routing-only fix, not a permission or research-scope expansion. The two relevant
+UI suites pass all 154 tests; UI TypeScript, token gates and the production build
+pass. Fresh live OAuth approval remains a separate test, not inferred from mocks.
+
 The user's immediate request is to test a new Slack DM with a receipt, its own
 thread and editable status. The isolated port-3210 pilot now runs this narrower
 preview. Its database was backed up privately before applying migration 0284;

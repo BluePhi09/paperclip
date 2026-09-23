@@ -41,6 +41,9 @@ import {
 } from "../lib/issueDetailBreadcrumb";
 import { getRecentTasksStorageKey, readRecentTasks } from "../lib/recent-tasks";
 import { ApiError } from "../api/client";
+import { connectionIntentsApi } from "../api/connection-intents";
+import { ConnectionIntentInteractionBody } from "../features/connections/ConnectionIntentInteractionBody";
+import { pendingConnectionIntentInteraction } from "../fixtures/issueThreadInteractionFixtures";
 import type { issuesApi } from "../api/issues";
 
 const mockIssuesApi = vi.hoisted(() => ({
@@ -133,6 +136,7 @@ const mockPanelState = vi.hoisted(() => ({ panelVisible: true }));
 const mockRouteParams = vi.hoisted(() => ({
   issueId: "PAP-1",
   companyPrefix: "PAP",
+  interactionId: undefined as string | undefined,
 }));
 const mockSidebarState = vi.hoisted(() => ({ isMobile: false }));
 const mockIssuePropertiesRender = vi.hoisted(() => vi.fn());
@@ -1407,6 +1411,8 @@ describe("IssueDetail", () => {
     mockLocation.state = null;
     mockRouteParams.issueId = "PAP-1";
     mockRouteParams.companyPrefix = "PAP";
+    mockRouteParams.interactionId = undefined;
+    window.history.replaceState(null, "", "/issues/PAP-1");
   });
 
   afterEach(async () => {
@@ -1431,6 +1437,77 @@ describe("IssueDetail", () => {
     await flushReact();
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockIssuesApi.markRead).toHaveBeenCalledWith(canonical.id);
+  });
+
+  it.each(["PAP", "OTHER"])("preserves the Slack OAuth handoff when canonicalizing a UUID link under %s", async (prefix) => {
+    const issue = createIssue({ id: "7c2da70e-d1a2-491f-9f5d-f82e0f88f1d2" });
+    const interaction = {
+      ...pendingConnectionIntentInteraction,
+      id: "06df12d7-86e8-44aa-af1f-6cb9bfb32af5",
+      issueId: issue.id,
+      payload: {
+        ...pendingConnectionIntentInteraction.payload,
+        capabilityProfile: "slack-public-read-v1" as const,
+        sourceChannelId: "CAPPROVED",
+      },
+    };
+    const handoff = `/connect-slack-read/${interaction.id}`;
+    // Slack publishes /issues/<UUID>/connect-slack-read/<interaction>. The
+    // unprefixed board redirect adds the selected company's prefix unchanged.
+    window.history.replaceState(null, "", `/issues/${issue.id}${handoff}`);
+    mockLocation.pathname = `/${prefix}${window.location.pathname}`;
+    window.history.replaceState(null, "", mockLocation.pathname);
+    mockRouteParams.issueId = issue.id;
+    mockRouteParams.companyPrefix = prefix;
+    mockRouteParams.interactionId = interaction.id;
+    mockIssuesApi.get.mockResolvedValue(issue);
+    mockIssuesApi.listInteractions.mockResolvedValue([interaction]);
+    const start = vi.spyOn(connectionIntentsApi, "startSlackRead").mockResolvedValue({
+      status: "CONNECTED", connectionId: "read-connection",
+    });
+    await act(async () => {
+      root.render(<QueryClientProvider client={queryClient}><IssueDetail /></QueryClientProvider>);
+    });
+    await waitForAssertion(() => expect(mockNavigate).toHaveBeenCalledWith(
+      { pathname: `/PAP/issues/PAP-1${handoff}`, search: "", hash: "" },
+      { replace: true, state: null },
+    ));
+    // No interactive card is exposed on the outgoing UUID/wrong-company view.
+    expect(start).not.toHaveBeenCalled();
+    const destination = mockNavigate.mock.calls.at(-1)?.[0] as { pathname: string };
+    window.history.replaceState(null, "", destination.pathname);
+    // Mount the real card on the destination. It must start without a second
+    // Connect click, consume the suffix, and stay consumed across a remount.
+    for (const key of ["first-mount", "remount"]) {
+      await act(async () => {
+        root.render(<QueryClientProvider client={queryClient}>
+          <ConnectionIntentInteractionBody key={key} interaction={interaction}
+            currentUserId={interaction.addresseeUserId} addresseeLabel="Carol" />
+        </QueryClientProvider>);
+      });
+      await flushReact();
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(start).toHaveBeenCalledWith(interaction.id);
+      expect(window.location.pathname).toBe("/PAP/issues/PAP-1");
+    }
+  });
+
+  it("does not restore an already consumed Slack handoff during a later company redirect", async () => {
+    const interactionId = pendingConnectionIntentInteraction.id;
+    mockRouteParams.companyPrefix = "OTHER";
+    mockRouteParams.interactionId = interactionId;
+    mockLocation.pathname = `/OTHER/issues/PAP-1/connect-slack-read/${interactionId}`;
+    // The card consumes the handoff synchronously in browser history. Router
+    // state can still contain the old suffix while company data finishes loading.
+    window.history.replaceState(null, "", "/OTHER/issues/PAP-1");
+    mockIssuesApi.get.mockResolvedValue(createIssue());
+    await act(async () => {
+      root.render(<QueryClientProvider client={queryClient}><IssueDetail /></QueryClientProvider>);
+    });
+    await waitForAssertion(() => expect(mockNavigate).toHaveBeenCalledWith(
+      { pathname: "/PAP/issues/PAP-1", search: "", hash: "" },
+      { replace: true, state: null },
+    ));
   });
 
   it.each(["message", "attachment"])("creates an unused conversation only for the first %s and updates its canonical cache", async (kind) => {
