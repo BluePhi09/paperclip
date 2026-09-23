@@ -84,5 +84,9 @@
     }
   ],
   "docsUrl": "https://enterpret.support.site/article/enterpret-mcp-server",
-  "redirectConstraints": "https-or-loopback-http"
+  "redirectConstraints": "https-or-loopback-http",
+  "availability": {
+    "available": false,
+    "reason": "Enterpret is not validated yet. Paperclip turns on this connection after it tests sign-in and tool discovery with a real Enterpret account."
+  }
 }

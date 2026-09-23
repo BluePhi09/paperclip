@@ -472,9 +472,12 @@ describe("AppDefinition catalog", () => {
       "mcp-api-key",
     ]);
     expect(app.redirectConstraints).toBe("https-or-loopback-http");
-    // No live account has exercised the nine production-validation scenarios,
-    // so the card stays connectable but withheld from Browse.
+    // No live account has exercised the nine production-validation scenarios.
+    // Hiding the slug from Browse is not enough on its own, because a hidden
+    // slug is still directly connectable, so the definition refuses setup too.
     expect(APP_STORE_HIDDEN_SLUGS.has("enterpret")).toBe(true);
+    expect(app.availability?.available).toBe(false);
+    expect(app.availability?.reason).toBeTruthy();
     expect(app.methods[0]).toMatchObject({
       transport: "mcp_remote",
       auth: "oauth",

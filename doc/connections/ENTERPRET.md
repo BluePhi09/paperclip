@@ -7,8 +7,9 @@ to the source records.
 This document follows the template in
 [Connection Authoring Runbook](./CONNECTOR-PLAYBOOK.md) and records exactly what
 was and was not verified. **The connector has never been exercised against a
-real Enterpret account.** It is registered as connectable but withheld from the
-Apps store for that reason; see [Validation Hook](#validation-hook).
+real Enterpret account.** It ships unavailable for that reason — withheld from
+the Apps store *and* refusing setup — so nothing can start a flow that has never
+been tested. See [Validation Hook](#validation-hook).
 
 Authored against Paperclip App `fff410dfe777ae0427385e8297df992ba9aed4ce`, with
 `CONNECTOR-PLAYBOOK.md` blob `5efd4cca05a1c94bb47d619833ba347f416bbbed` as the
@@ -223,9 +224,16 @@ revocation.
 - setupPrerequisite: not used; the account requirement is carried in method
   warnings.
 - redirectConstraints: `https-or-loopback-http` (unprobed).
-- availability: unset — the definition is connectable. Store visibility is
-  withheld through `APP_STORE_HIDDEN_SLUGS` instead, so existing connections
-  would keep working if one existed.
+- availability: `{ available: false, reason }`. Two separate guards, because
+  they do different jobs. `APP_STORE_HIDDEN_SLUGS` removes the card from Browse
+  but leaves the slug directly connectable by URL or slug lookup.
+  `availability.available === false` is what actually refuses setup:
+  `preflightGalleryAppMetadata` returns `App not found`
+  (`server/src/services/tool-access.ts:16560`), and the setup flow and Browse
+  both render the reason instead of a Connect action
+  (`ui/src/features/connections/ConnectionSetupFlow.tsx:2857,2935,3464`,
+  `ui/src/pages/apps/Browse.tsx:243`). Neither guard deletes the definition, so
+  an existing connection would keep working if one existed.
 
 ## Actions
 
@@ -356,10 +364,12 @@ Labels as defined in the connector skills' shared matrix.
 3. Authorization to attempt DCR against `oauth.enterpret.com`, or a decision to
    validate the auth-token method only.
 4. The nine scenarios re-run and recorded here.
-5. Remove `"enterpret"` from `APP_STORE_HIDDEN_SLUGS` in
-   `packages/shared/src/app-definitions.ts` and from the sorted list in
-   `packages/shared/src/app-definitions.test.ts`, set `catalogVisible: true` in
-   `ui/public/brands/apps/manifest.json`, and bump `APP_STORE_DEFINITIONS`
-   from 52 to 53.
+5. Clear `availability` in the Enterpret tuple in
+   `scripts/ingest-app-definitions.mjs`, remove `"enterpret"` from
+   `APP_STORE_HIDDEN_SLUGS` in `packages/shared/src/app-definitions.ts` and from
+   the sorted list in `packages/shared/src/app-definitions.test.ts`, set
+   `catalogVisible: true` in `ui/public/brands/apps/manifest.json`, drop the two
+   `availability` assertions from the focused test, and bump
+   `APP_STORE_DEFINITIONS` from 52 to 53.
 
 Steps 1 and 3 are authorization decisions, not engineering work.
