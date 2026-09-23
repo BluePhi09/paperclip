@@ -1,3 +1,4 @@
+import { executionRetryAccounting } from "../execution-recovery-attempt.js";
 import {
   decideLegacyContinuation, legacyDispositionEpisode, legacyDispositionFingerprint,
   LEGACY_DISPOSITION_REPAIR_INSTRUCTION, type LegacyDispositionEpisode,
@@ -3095,7 +3096,7 @@ export function recoveryService(
     if (!agentId) return null;
     // Preserve the initiating identity on the durable row, including while a
     // delayed repair is waiting to dispatch. Never substitute the issue owner.
-    const sourceRun = input.latestRun?.id ? await db.select({ responsibleUserId: heartbeatRuns.responsibleUserId })
+    const sourceRun = input.latestRun?.id ? await db.select()
       .from(heartbeatRuns).where(and(eq(heartbeatRuns.id, input.latestRun.id), eq(heartbeatRuns.companyId, input.issue.companyId)))
       .limit(1).then(rows => rows[0]) : null;
     const timing = dispositionRepairDelayMs(input.attempt, input.fingerprint);
@@ -3109,6 +3110,7 @@ export function recoveryService(
         wakeReason: ISSUE_DISPOSITION_REPAIR_RETRY_REASON,
         retryReason: ISSUE_DISPOSITION_REPAIR_RETRY_REASON,
         source: "issue.deliberate_wait_disposition_repair",
+        executionRetryAccounting: executionRetryAccounting(sourceRun ?? {}),
         retryOfRunId: input.latestRun?.id ?? null,
         recoveryActionId: input.action.id,
         dispositionRepairFingerprint: input.fingerprint,

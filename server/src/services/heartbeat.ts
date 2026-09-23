@@ -28,7 +28,7 @@ import {
   registerAdapterExecutionControl,
   waitForAdapterStop,
 } from "./adapter-execution-control.js";
-import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
+import { executionFailureRetryCount, executionRetryAttemptCount, accountingForScheduledRetry } from "./execution-recovery-attempt.js";
 import { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 export { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 import { buildExecutionContinuation } from "./execution-continuation.js";
@@ -15192,12 +15192,8 @@ export function heartbeatService(
         opts?.maxAttempts ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
       ),
     );
-    const nextAttempt =
-      (retryReason === WORKSPACE_BUSY_RETRY_REASON ||
-      retryReason === AI_CONNECTION_BUSY_RETRY_REASON ||
-      retryReason === MAX_TURN_CONTINUATION_RETRY_REASON
-        ? (run.scheduledRetryAttempt ?? 0)
-        : executionFailureRetryCount(run)) + 1;
+    const consumedAttempts = executionRetryAttemptCount(run, retryReason);
+    const nextAttempt = consumedAttempts + 1;
     const computedBaseSchedule =
       opts?.delayMs != null
         ? nextAttempt <= maxAttempts
@@ -15237,14 +15233,14 @@ export function heartbeatService(
     if (!baseSchedule) {
       const exhaustion = {
         retryReason,
-        scheduledRetryAttempt: run.scheduledRetryAttempt ?? 0,
+        scheduledRetryAttempt: consumedAttempts,
         maxAttempts,
       };
       await appendRunEvent(run, {
         eventType: "lifecycle",
         stream: "system",
         level: "warn",
-        message: `Bounded retry exhausted after ${run.scheduledRetryAttempt ?? 0} scheduled attempts; no further automatic retry will be queued`,
+        message: `Bounded retry exhausted after ${consumedAttempts} scheduled attempts; no further automatic retry will be queued`,
         payload: exhaustion,
         retryExhaustion: exhaustion,
       });
@@ -15253,7 +15249,7 @@ export function heartbeatService(
           run,
           issueId,
           attempt: Math.min(
-            run.scheduledRetryAttempt ?? maxAttempts,
+            consumedAttempts,
             maxAttempts,
           ),
           maxAttempts,
@@ -15384,6 +15380,7 @@ export function heartbeatService(
     const retryContextSnapshot: Record<string, unknown> = withRecoveryContext(
       {
         ...contextSnapshot,
+        executionRetryAccounting: accountingForScheduledRetry(run, retryReason, schedule.attempt),
         retryOfRunId: run.id,
         wakeReason,
         retryReason,

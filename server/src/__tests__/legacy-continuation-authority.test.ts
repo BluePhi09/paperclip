@@ -101,6 +101,8 @@ describe("legacy continuation persisted authority", () => {
     if (gate === "pause") await db.update(agents).set({ status: "paused" }).where(eq(agents.id, f.agentId));
     if (gate === "reassigned") await db.update(issues).set({ assigneeAgentId: null }).where(eq(issues.id, f.issueId));
     expect(await f.createRecovery().legacyRepairDispatchBlock(second.id)).not.toBeNull();
+    expect((await heartbeatService(db).promoteDueScheduledRetries(new Date(second.scheduledRetryAt!.getTime() + 1))).runIds).not.toContain(second.id);
+    expect((await f.runs()).find(r => r.id === second.id)?.status).toBe("cancelled");
     await f.createRecovery().reconcileLegacyContinuation(first.id);
     expect(await f.runs()).toHaveLength(3);
     expect((await f.actions())[0].attemptCount).toBe(2);
@@ -119,6 +121,38 @@ describe("legacy continuation persisted authority", () => {
     expect.soft(promoted.runIds).toContain(second.id);
     expect((await f.runs()).find(r => r.id === second.id)).toMatchObject({ status: "queued", errorCode: null });
     expect((await f.actions())[0].attemptCount).toBe(2);
+  });
+
+  it("ACCT-01 repairs preserve prior infrastructure and productive debits", async () => {
+    const f = await fixture();
+    const accounting = { version: 1, failureRetries: 2, maxTurnContinuations: 1 };
+    await db.update(heartbeatRuns).set({ contextSnapshot: { issueId: f.issueId, executionRetryAccounting: accounting } }).where(eq(heartbeatRuns.id, f.runId));
+    await f.createRecovery().reconcileLegacyContinuation(f.runId);
+    const first = (await f.runs()).find(r => r.id !== f.runId)!;
+    expect(first.contextSnapshot?.executionRetryAccounting).toEqual(accounting);
+    await f.finish(first);
+    await f.createRecovery().reconcileLegacyContinuation(first.id);
+    expect((await f.runs()).find(r => r.status === "scheduled_retry")?.contextSnapshot?.executionRetryAccounting).toEqual(accounting);
+  });
+
+  it.each(["foreign-source", "changed-episode", "exhausted-slot"])("ACCT-04 rejects a delayed repair with %s", async mutation => {
+    const f = await fixture();
+    await f.createRecovery().reconcileLegacyContinuation(f.runId);
+    const first = (await f.runs()).find(r => r.id !== f.runId)!;
+    await f.finish(first);
+    await f.createRecovery().reconcileLegacyContinuation(first.id);
+    const second = (await f.runs()).find(r => r.status === "scheduled_retry")!;
+    const context = structuredClone(second.contextSnapshot!) as Record<string, any>;
+    if (mutation === "foreign-source") {
+      const foreign = await fixture();
+      context.dispositionRepairSourceRunId = foreign.runId;
+      await db.update(issues).set({ status: "done" }).where(eq(issues.id, foreign.issueId));
+    }
+    if (mutation === "changed-episode") context.legacyDispositionEpisode.id = randomUUID();
+    if (mutation === "exhausted-slot") context.legacyDispositionEpisode.attempt = 3;
+    await db.update(heartbeatRuns).set({ contextSnapshot: context }).where(eq(heartbeatRuns.id, second.id));
+    expect((await heartbeatService(db).promoteDueScheduledRetries(new Date(second.scheduledRetryAt!.getTime() + 1))).runIds).not.toContain(second.id);
+    expect((await f.runs()).find(r => r.id === second.id)).toMatchObject({ status: "cancelled", errorCode: "issue_disposition_repair_superseded" });
   });
 
   it("persists the source identity while the second repair waits to dispatch", async () => {

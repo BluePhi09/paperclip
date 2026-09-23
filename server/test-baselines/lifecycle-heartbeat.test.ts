@@ -30,6 +30,9 @@ import {
   CONTROL_PLANE_CONFORMANCE_TERMINAL,
 } from "../src/vendor/paperclip-runner/testing.js";
 import { observe } from "../../tests/lifecycle-baseline/observe.js";
+import { PaperclipRunnerToolAuthority } from "../src/services/native-runtime/paperclip-runner-tool-authority.js";
+import { issueThreadInteractionService } from "../src/services/issue-thread-interactions.js";
+import { questionResponseDeliveryService } from "../src/services/question-response-delivery.js";
 const execute = vi.hoisted(() => vi.fn());
 vi.mock("../src/adapters/index.js", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -38,6 +41,7 @@ vi.mock("../src/adapters/index.js", async (importOriginal) => ({
 vi.mock("../src/telemetry.js", () => ({
   getTelemetryClient: () => ({
     track: vi.fn(),
+    trackDynamic: vi.fn(),
     hashPrivateRef: (value: string) => value,
   }),
 }));
@@ -133,7 +137,7 @@ describe("LCA full heartbeat observation", () => {
       input: NativeExecutionInput,
     ): NativeSessionBackend => {
       const capabilities = {
-        resume: false,
+        resume: true,
         typedEvents: true,
         steering: false,
         interruption: true,
@@ -174,7 +178,7 @@ describe("LCA full heartbeat observation", () => {
           },
         ];
         result.continuation = {
-          kind: "same_agent",
+          kind: "response_wake",
           summary: "Perform the second fixture step",
           idempotencyKey: `step:${issueId}:${providerTurns + 1}`,
         };
@@ -185,6 +189,20 @@ describe("LCA full heartbeat observation", () => {
         async startTurn() {
           providerTurns++;
           operations++;
+          if (result.reportedWorkDisposition === "yielded") {
+            await new PaperclipRunnerToolAuthority(db, input.binding).execute({
+              tool: "request_human_input", callId: `step-${providerTurns}`,
+              arguments: {
+                interactionKind: "questions", idempotencyKey: `step-${providerTurns}`,
+                title: `Input for step ${providerTurns + 1}`, prompt: "Choose the next step",
+                continuationPolicy: "wake_assignee",
+                payload: { version: 1, questions: [{
+                  id: "next", prompt: "Choose the next step", selectionMode: "single", required: true,
+                  options: [{ id: "continue", label: "Continue" }, { id: "revise", label: "Revise" }],
+                }] },
+              },
+            });
+          }
           start();
           return { turnId };
         },
@@ -243,6 +261,7 @@ describe("LCA full heartbeat observation", () => {
           },
         }),
         openSession: async () => session,
+        recoverSession: async () => ({ recovered: true, session }),
       };
     };
     const heartbeat = heartbeatService(db, {
@@ -294,6 +313,27 @@ describe("LCA full heartbeat observation", () => {
         };
       };
       const first = await collect();
+      if (mode === "native" && !complete) {
+        for (let step = 1; step < requiredTurns; step++) {
+          const pending = (await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.issueId, issueId)))
+            .filter(interaction => interaction.status === "pending");
+          expect(pending).toHaveLength(1);
+          expect(providerTurns).toBe(step);
+          // A real persisted response, not summary text, owns the next run.
+          await heartbeat.dispatchPendingNativeStatusWakeups({ companyId });
+          await heartbeat.drainActiveRunExecutions();
+          expect(providerTurns).toBe(step);
+          await issueThreadInteractionService(db).answerQuestions({ id: issueId, companyId }, pending[0].id,
+            { answers: [{ questionId: "next", optionIds: ["continue"] }] }, { userId: "fixture-owner" });
+          const delivery = questionResponseDeliveryService(db, { heartbeat });
+          const delivered = await delivery.deliver(pending[0].id);
+          await heartbeat.drainActiveRunExecutions();
+          // Replayed delivery cannot create a duplicate successor.
+          await delivery.deliver(pending[0].id);
+          await heartbeat.drainActiveRunExecutions();
+          expect(providerTurns, JSON.stringify({ delivered, state: await collect() })).toBe(step + 1);
+        }
+      }
       await heartbeat.dispatchPendingNativeStatusWakeups({ companyId });
       await heartbeat.resumeQueuedRuns();
       await heartbeat.drainActiveRunExecutions();
@@ -334,7 +374,7 @@ describe("LCA full heartbeat observation", () => {
       expect(misleading.wakes).toEqual(neutral.wakes);
     },
   );
-  it("LCA-02 native explicit continuation survives misleading approval prose", async () => {
+  it("LCA-02 native answered-question continuation survives misleading approval prose", async () => {
     const neutral = await run("native", "First step recorded.", false);
     const misleading = await run(
       "native",
@@ -386,7 +426,7 @@ describe("LCA full heartbeat observation", () => {
       .sort((a, b) => Number(a.repairAttempt) - Number(b.repairAttempt));
     expect(effects(challenge)).toEqual(effects(neutral));
   });
-  it("LCA-02 native productive workflow continues beyond the failure retry allowance", async () => {
+  it("LCA-02 native answered-question workflow continues beyond the failure retry allowance", async () => {
     const steps = BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS.length + 2;
     const observed = await run(
       "native",

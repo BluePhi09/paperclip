@@ -662,6 +662,42 @@ describeEmbeddedPostgres("heartbeat bounded retry scheduling", () => {
     expect(scheduled).toMatchObject({ outcome: "scheduled", attempt: 1 });
   });
 
+  it("ACCT-01 alternating failures, productive continuations and waits preserve both allowances after restart", async () => {
+    const f = await seedMaxTurnFixture();
+    let current = (await heartbeat.getRun(f.runId))!;
+    for (const [reason, attempt, failures, continuations] of [
+      ["transient_failure", 1, 1, 0],
+      [MAX_TURN_CONTINUATION_RETRY_REASON, 1, 1, 1],
+      ["workspace_busy", 1, 1, 1],
+      ["transient_failure", 2, 2, 1],
+      [MAX_TURN_CONTINUATION_RETRY_REASON, 2, 2, 2],
+      ["ai_connection_busy", 1, 2, 2],
+    ] as const) {
+      // Exercise the typed terminal outcome that requests each lane.
+      const waiting = reason === "workspace_busy" || reason === "ai_connection_busy";
+      await db.update(heartbeatRuns).set({
+        status: waiting ? "cancelled" : "failed", errorCode: waiting ? reason : "adapter_failed",
+        resultJson: { ...(reason === MAX_TURN_CONTINUATION_RETRY_REASON ? { stopReason: "max_turns_exhausted" } : {}),
+          executionRecovery: { kind: waiting ? (reason === "workspace_busy" ? "workspace_wait" : "ai_connection_wait") : "bootstrap", providerWorkStarted: false } },
+      }).where(eq(heartbeatRuns.id, current.id));
+      const restarted = heartbeatService(db);
+      const result = await restarted.scheduleBoundedRetry(current.id, { now: f.now, retryReason: reason, maxAttempts: 2, delayMs: 1 });
+      expect(result, JSON.stringify({ reason, result })).toMatchObject({ outcome: "scheduled", attempt });
+      if (result.outcome !== "scheduled") throw new Error("Missing successor");
+      expect(result.run.contextSnapshot?.executionRetryAccounting).toEqual({ version: 1, failureRetries: failures, maxTurnContinuations: continuations });
+      await db.update(heartbeatRuns).set({ status: "failed", finishedAt: f.now,
+        resultJson: { executionRecovery: { kind: "bootstrap", providerWorkStarted: false } },
+      }).where(eq(heartbeatRuns.id, result.run.id));
+      await db.update(issues).set({ executionRunId: result.run.id }).where(eq(issues.id, f.issueId));
+      current = (await restarted.getRun(result.run.id))!;
+    }
+    for (const retryReason of ["transient_failure", MAX_TURN_CONTINUATION_RETRY_REASON]) {
+      expect(await heartbeatService(db).scheduleBoundedRetry(current.id, { now: f.now, retryReason, maxAttempts: 2, delayMs: 1 }))
+        .toMatchObject({ outcome: "retry_exhausted", attempt: 3 });
+    }
+    expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, f.companyId))).toHaveLength(7);
+  });
+
   it.each(["silent", "comments-and-tools"])("ACCT-02 exhausted infrastructure retries remain exhausted after %s and restart", async variant => {
     const f = await seedMaxTurnFixture({ scheduledRetryAttempt: BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS.length });
     await db.update(heartbeatRuns).set({ scheduledRetryReason: "transient_failure",
