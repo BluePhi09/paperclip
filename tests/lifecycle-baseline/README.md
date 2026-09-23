@@ -10,6 +10,8 @@ failures, representative observations and unmeasured coverage. The separate
 [live Actions baseline](LIVE-BASELINE-2026-09-21.md) records actual LLM/browser runs,
 assertion corrections and retained behavior failures. The [fix report](LIVE-FIXES-2026-09-21.md)
 records the later cancellation fix, corrected fixtures and fresh campaigns.
+The [explicit work-mode report](EXPLICIT-WORK-MODE-2026-09-22.md) records the
+title/description heuristic removal and its layered verification.
 
 ## Run and inspect
 
