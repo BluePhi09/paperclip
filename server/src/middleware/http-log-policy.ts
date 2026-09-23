@@ -37,6 +37,10 @@ function normalizePath(url: string): string {
   return pathname.length > 0 ? pathname : "/";
 }
 
+export function isInternalNoteHttpRequest(url: string | undefined): boolean {
+  return Boolean(url && /\/api\/issues\/[^/]+\/internal-notes(?:\/|$)/i.test(normalizePath(url)));
+}
+
 const SECRET_SENSITIVE_HTTP_PATHS = [
   /^\/api\/chat-endpoints\/[^/]+\/setup(?:-secret)?(?:\/|$)/,
 ];
@@ -77,6 +81,7 @@ export function isSecretSensitiveHttpRequest(
   url: string | undefined,
 ): boolean {
   if (isPrivateWebhookHttpRequest(method, url)) return true;
+  if (isInternalNoteHttpRequest(url)) return true;
   if (!method || !url) return false;
   if (!SECRET_SENSITIVE_HTTP_METHODS.has(method.toUpperCase())) return false;
   const pathname = normalizePath(url);

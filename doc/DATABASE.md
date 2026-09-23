@@ -331,6 +331,27 @@ chat handoff. An agent's external file selection must match the attachment's
 company, task, agent, and originating run. Editing or recreating a work-product
 record cannot reassign that authority to a later run.
 
+## Human-only task Internal notes
+
+`issue_internal_notes` stores notes separately from `issue_comments`. Its
+composite company/task foreign key prevents cross-company task attachment;
+`(issue_id, author_user_id, client_request_id)` makes a human save retry-safe.
+The company/task/timestamp/id index supports bounded, stable pagination without
+rounding database timestamp precision through JavaScript dates. Task deletion
+cascades notes. No historical ordinary comments are backfilled or reclassified.
+
+The dedicated API requires a signed-in human browser session and current active
+company membership; viewers can read but not write. Agent credentials, API keys
+and local-implicit actors are denied. Notes are deliberately excluded from task
+comments, search, references, agent context, activity bodies, wakes and external
+chat publications. A transactional, content-free activity row records creation
+once without an activity-stream/plugin publication. HTTP failure logging must
+not serialize note bodies. There is no edit/delete API in this initial slice.
+
+Notes are ordinary protected database data and are included in logical backups.
+This is not a secrets vault or a host-level sandbox: a process with direct
+database/filesystem access is outside the API/context isolation guarantee.
+
 ## Question-response delivery receipts
 
 `issue_question_response_deliveries` is the retry-safe, content-free outbox for

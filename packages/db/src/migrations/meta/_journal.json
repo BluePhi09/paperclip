@@ -1982,6 +1982,13 @@
       "when": 1790143464911,
       "tag": "0284_amusing_bloodaxe",
       "breakpoints": true
+    },
+    {
+      "idx": 285,
+      "version": "7",
+      "when": 1790147738042,
+      "tag": "0285_abandoned_mentallo",
+      "breakpoints": true
     }
   ]
 }

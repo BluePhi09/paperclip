@@ -1,7 +1,7 @@
 # Slack CEO M2b: threaded, repository-backed research
 
 Status: narrow threaded-DM preview deployed and activated; live roots, follow-up,
-explicit shared reply and coarse tool progress verified. Full
+shared normal composer, isolated human-only notes and coarse tool progress verified. Full
 M2b remains incomplete. Continue `codex/slack-ceo-poc1`,
 not the independent `codex/connection-capability-092226` checkout. Starting
 commit: `91339784ce9a740c149b34f013a1e29e7e7febdc`.
@@ -32,12 +32,17 @@ runner now emits a payload-free tool activity signal, coalesced at 20 seconds.
 Short turns can go straight from working to the final answer. Never promise
 individual grep/command names or expose raw arguments, reasoning or paths.
 
-For v2, explicit **Reply via Slack** shares the request before waking the CEO,
-then shares the answer. The banner explicitly calls this a preview: normal
-Paperclip composer messages still remain internal. Shared-default composer plus
-isolated human-only notes, explicit child-task announcement/binding, historical
-scan storage and screenshot inspection remain future M2b work. Their absence
-does not prevent the narrow new-DM test, but this is not full M2b acceptance.
+For v2, the normal Paperclip composer now uses the existing shared-request outbox:
+the labelled request reaches the exact Slack thread before the CEO wakes, and
+its answer returns there. The composer discloses sharing and is text-only; task
+file attachments are not yet supported. Its new, audience-specific draft key
+does not restore earlier internal drafts. The redundant v2 **Reply via Slack**
+box is removed; legacy TES-2 retains its original explicit-reply behavior.
+Separate **Internal notes** are available to signed-in company members, never
+through agent/API-key access or normal task context/search/publication. Existing
+ordinary comments are not migrated into this store and remain agent-readable;
+they are not retroactively posted to Slack. Explicit child-task binding,
+historical scan storage and screenshot inspection remain future M2b work.
 
 Verification: 291 tests across 11 focused suites; 34 selected chat integration
 checks; server/UI/adapter-utils TypeScript checks; token gates and UI build pass.
@@ -88,12 +93,53 @@ retry and created TES-5 after the admission correction.
   13 channel posts and 12 replies across three threads; this is reported coverage,
   not an independent audit of those upstream reads. Attachments were not examined.
 
-Remaining immediate UX fixes: keep Idle Slack conversations discoverable in the
-Tasks list without making them active work; route the normal composer through the
-existing shared-request outbox for v2 tasks; add separately stored human-only
-Internal notes. Never retroactively publish existing internal comments. Historical
-channel reading, screenshots and explicit child-task thread linkage remain later
-work; the narrow preview does not claim those capabilities.
+These checks exposed three immediate UX fixes, completed in the following checkpoint.
+
+### Shared composer, Internal notes and Idle visibility (September 23, 00:28 PDT)
+
+Pushed the prior threaded work as `fbcae3cd88da9decbea089e2c37eccc57f4145b1` to
+`origin/codex/slack-ceo-poc1`, without a PR, before starting these fixes. The new
+UX changes are local and running on the isolated pilot. A private logical backup
+preceded generated migration `0285_abandoned_mentallo.sql` and server restart.
+
+- The general Tasks list opts into Idle Slack conversations. Existing dashboard,
+  review-attention and execution counts retain their prior default exclusions.
+  Live Tasks inspection shows TES-2, TES-4 and TES-5 as Idle.
+- Normal v2 composer submission uses the durable board-reply path, including
+  request IDs, confirmed-send-before-wake and authoritative audience checks.
+  Ambiguous responses preserve the request identity for retry; they never fall
+  back to an ordinary internal comment. File attachments/reassignment are rejected.
+- `issue_internal_notes` is a separate company/task-scoped table with idempotent
+  human creation and paginated reads. Only an authenticated browser session plus
+  current active membership can read it; viewers cannot write. Agents, board API
+  keys and local-implicit actors cannot use the endpoint. Notes create no comment,
+  task mutation, wake, activity-body copy, SSE payload or chat publication. One
+  transactional content-free audit row records creation without a live event. HTTP
+  logs/errors use content-free projections. This is an API/context boundary, not
+  isolation from a host administrator or process with direct database access;
+  database backups contain notes. Do not use this feature as a secrets vault.
+
+Live normal-composer test on TES-4 at 00:26 PDT: run
+`4824bbc0-3c38-4bc7-83f0-48bbf2d518fd` succeeded and the task returned to Idle.
+Request publication `6a449038-d7a7-4e0c-8041-27845b264b0c` and final publication
+`211b11b1-5388-482e-9699-8d3f071082bd` each succeeded in one attempt. The real
+Slack UI showed the labelled request and “Shared composer test passed.” under
+the original TES-4 root. A harmless Internal-note canary saved beforehand remained
+absent from comments, publications, wakes and activity after that shared run.
+Saving it alone did not start any run.
+
+Verification: 186 tests across eight focused suites passed, including real
+temporary-database note isolation, tenant boundaries, viewer/agent denial,
+idempotence, timestamp-precise pagination, ordinary composer retries and lifecycle
+regressions. Server/UI TypeScript, migration checks, token gates, UI build and
+Storybook build passed. Live UI inspection covered the notes dialog, shared
+composer and Tasks list. Full visual-baseline acceptance was not run; the broader
+baseline failures below remain. This is not a full-release or full-M2b claim.
+
+Next: durable explicit new-task announcement/binding, then resumable historical
+reads and actual screenshot inspection, followed by pinned read-only repository
+assessment. TES-3 remains unlinked; do not infer authority from its prose source
+link. No implementation, delegation, PR or merge workflow is enabled here.
 
 ## Current evidence and immediate repair
 

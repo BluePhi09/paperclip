@@ -1767,6 +1767,8 @@ export interface IssueFilters {
   originKindPrefix?: string;
   originId?: string;
   includeRoutineExecutions?: boolean;
+  /** Browse resting Slack conversations without treating them as active work. */
+  includeIdleSlackConversations?: boolean;
   excludeRoutineExecutions?: boolean;
   includePluginOperations?: boolean;
   includeBlockedBy?: boolean;
@@ -7795,7 +7797,7 @@ export function issueService(db: Db) {
       ];
       if (!filters?.q?.trim()) {
         conditions.push(isNull(issues.conversationAgentId));
-        if (!filters?.touchedByUserId && !filters?.unreadForUserId && !filters?.inboxArchivedByUserId) {
+        if (!filters?.includeIdleSlackConversations && !filters?.touchedByUserId && !filters?.unreadForUserId && !filters?.inboxArchivedByUserId) {
           conditions.push(nonIdleSlackIssueCondition());
         }
       }
@@ -8129,7 +8131,7 @@ export function issueService(db: Db) {
       const conditions = [eq(issues.companyId, companyId), visibleIssueCondition()];
       if (!filters?.q?.trim()) {
         conditions.push(isNull(issues.conversationAgentId));
-        if (!filters?.touchedByUserId && !filters?.unreadForUserId && !filters?.inboxArchivedByUserId) {
+        if (!filters?.includeIdleSlackConversations && !filters?.touchedByUserId && !filters?.unreadForUserId && !filters?.inboxArchivedByUserId) {
           conditions.push(nonIdleSlackIssueCondition());
         }
       }

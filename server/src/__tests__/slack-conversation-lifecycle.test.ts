@@ -139,6 +139,10 @@ const support = await getEmbeddedPostgresTestSupport();
     expect(await db.select().from(issues).where(and(eq(issues.id, f.issueId), executionIssueCondition()))).toHaveLength(0);
     expect((await issueService(db).getById(f.issueId))?.externalConversationState).toBe("waiting");
     expect(await issueService(db).list(f.companyId)).toHaveLength(0);
+    expect(await issueService(db).list(f.companyId, { includeIdleSlackConversations: true }))
+      .toEqual([expect.objectContaining({ id: f.issueId, externalConversationState: "waiting" })]);
+    expect(await issueService(db).count(f.companyId, { includeIdleSlackConversations: true })).toBe(1);
+    expect(await issueService(db).count(f.companyId)).toBe(0);
     expect((await dashboardService(db).summary(f.companyId)).tasks.open).toBe(0);
     expect((await attentionService(db).list(f.companyId)).items.filter((item) => item.issueId === f.issueId)).toHaveLength(0);
     const results = await companySearchService(db).search(f.companyId, companySearchQuerySchema.parse({ q: "you there" }));
@@ -157,7 +161,7 @@ const support = await getEmbeddedPostgresTestSupport();
     });
     app.use("/api", issueRoutes(db, {} as any));
     const response = await request(app).get(`/api/companies/${f.companyId}/issues`)
-      .query({ view: "compact", q: "you there" });
+      .query({ view: "compact", includeIdleSlackConversations: "true" });
     expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect(response.body).toEqual([expect.objectContaining({ id: f.issueId, status: "in_review", externalConversationState: "waiting" })]);
   });

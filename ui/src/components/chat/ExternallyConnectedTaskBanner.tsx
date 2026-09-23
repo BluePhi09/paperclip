@@ -110,7 +110,7 @@ const filePhaseLabels: Record<ChatFileTransferPhase, string> = {
 };
 
 export function useIssueChatBinding(companyId: string, issueId: string) {
-  const { enabled } = useChatConnectorsEnabled();
+  const { enabled, loaded } = useChatConnectorsEnabled();
   const queryEnabled = enabled && Boolean(companyId && issueId) && !issueId.startsWith("chat:");
   const query = useQuery({
     queryKey: ["issue-chat-binding", companyId, issueId],
@@ -119,7 +119,8 @@ export function useIssueChatBinding(companyId: string, issueId: string) {
   });
   return {
     binding: queryEnabled ? (query.data ?? null) : null,
-    isLoading: queryEnabled && query.isLoading,
+    isLoading: !loaded || (queryEnabled && query.isLoading),
+    isError: queryEnabled && query.isError,
   };
 }
 
@@ -536,8 +537,8 @@ function ConnectedTaskComposer({
       {binding.slackThreadUpgradeAvailable && <SlackThreadUpgradeNotice pending={upgradeThreads.isPending}
         error={upgradeThreads.isError ? (upgradeThreads.error instanceof Error ? upgradeThreads.error.message : "Could not start the upgrade.") : null}
         onUpgrade={() => upgradeThreads.mutate()} />}
-      {binding.bindingMode === "slack_dm_thread_v2" && <p className="text-xs text-muted-foreground">Thread preview: use Reply via Slack to share a request and the CEO’s answer in this thread. The normal Paperclip composer does not send messages to Slack yet.</p>}
-      {binding.slackReplyAvailable && <SlackReplyComposer sharedThread={binding.bindingMode === "slack_dm_thread_v2"} companyId={companyId} issueId={issueId} issueCacheRefs={issueCacheRefs}
+      {binding.bindingMode === "slack_dm_thread_v2" && <p className="text-xs text-muted-foreground">Messages sent from the composer and the CEO’s answers are shared in this Slack thread. Internal notes stay with people in Paperclip. Earlier Paperclip messages are not automatically copied.</p>}
+      {binding.slackReplyAvailable && binding.bindingMode !== "slack_dm_thread_v2" && <SlackReplyComposer companyId={companyId} issueId={issueId} issueCacheRefs={issueCacheRefs}
         endpointId={binding.endpointId} conversationId={binding.conversationId} />}
       {composing && (
         <div className="space-y-2 border-t border-border pt-3">
@@ -842,7 +843,7 @@ function ConnectedTaskComposer({
           )}
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              Ordinary board comments remain Paperclip-only.
+              {binding.bindingMode === "slack_dm_thread_v2" ? "This sends an update without asking the CEO to respond. Use the task composer for a conversation." : "Ordinary board comments remain Paperclip-only."}
             </p>
             <Button
               size="sm"

@@ -170,11 +170,13 @@ describe("ExternallyConnectedTaskBanner publication truth", () => {
     expect(container.textContent).toContain("Connection changed; reload before upgrading");
   });
 
-  it("labels the threaded preview's remaining composer limitation", async () => {
+  it("discloses the shared default without republishing old comments", async () => {
     const binding = await mockChatEndpointsApi.getIssueBinding();
     mockChatEndpointsApi.getIssueBinding.mockResolvedValue({ ...binding, bindingMode: "slack_dm_thread_v2" });
     await renderBanner();
-    expect(container.textContent).toContain("normal Paperclip composer does not send messages to Slack yet");
+    expect(container.textContent).toContain("Messages sent from the composer and the CEO’s answers are shared");
+    expect(container.textContent).toContain("Earlier Paperclip messages are not automatically copied");
+    expect(container.textContent).not.toContain("Reply via Slack");
     expect(container.textContent).not.toContain("Enable threaded DMs");
   });
 

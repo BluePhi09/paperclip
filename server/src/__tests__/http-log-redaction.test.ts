@@ -13,6 +13,8 @@ import { createHttpLogger } from "../middleware/logger.js";
 
 describe("HTTP logger redaction", () => {
   it.each([
+    { method: "POST", path: "/api/issues/private-url-canary/internal-notes" },
+    { method: "GET", path: "/api/issues/private-url-canary/internal-notes?before=private-url-canary" },
     { method: "POST", path: "/api/routine-triggers/public/private-url-canary/fire" },
     { method: "PUT", path: "/api/routine-triggers/public/private-url-canary/fire" },
 
@@ -98,7 +100,7 @@ describe("HTTP logger redaction", () => {
       const log = JSON.parse(output.trim());
       expect(log.req).toMatchObject({
         method,
-        url: path.includes("routine-triggers") ? "/api/routine-triggers/public/:publicId/fire" : "/api/chat-webhooks/:publicId/:provider",
+        url: path.includes("internal-notes") ? "/api/issues/:id/internal-notes" : path.includes("routine-triggers") ? "/api/routine-triggers/public/:publicId/fire" : "/api/chat-webhooks/:publicId/:provider",
       });
       expect(log.reqBody).toBe("[REDACTED]");
       expect(log.err.message).toBe("Chat webhook request failed");

@@ -55,9 +55,11 @@ discovery only: no editing, delegation, new tasks, PR or merge.
 Expect one Connect Slack card in Slack and the canonical Paperclip task. The
 link hands off through the authenticated task to personal OAuth. After the user
 approves, the existing durable intent delivery resumes the original request.
-The answer keeps its original audience. A normal private Paperclip turn stays
-private; Reply via Slack opts in to that turn's Slack reply. Not now in Slack
-opens the board card for decline.
+The answer keeps its original audience. On legacy v1 tasks, the normal Paperclip
+composer stays internal and Reply via Slack opts in to that turn's Slack reply.
+On threaded v2 tasks, the normal composer shares request and answer by default;
+use the separate human-only Internal notes editor for non-agent notes. Not now
+in Slack opens the board card for decline.
 
 `ensure_capability` supports `slack.read_channel` and `slack.read_thread` only.
 Its public states are CONNECTED, AUTH_REQUIRED and UNAVAILABLE. Search is
@@ -145,10 +147,14 @@ after activation get one task/thread, a deduplicated eyes receipt and editable
 working status. Both native and legacy ACPX runs can supply safe coarse progress;
 tool updates are coalesced, and short runs may only show working then the answer.
 
-For new v2 bindings, **Reply via Slack** shares request and answer. The normal
-Paperclip composer is still internal, disclosed in the banner. Default sharing,
-human-only notes, explicit child-task linkage and historical screenshot research
-remain unfinished. This is not full M2b acceptance. Focused verification includes
+For new v2 bindings, the normal Paperclip composer now shares request and answer,
+with an explicit destination disclosure. Shared requests are text-only and use
+the existing durable outbox; the CEO starts only after Slack confirms delivery.
+Separate **Internal notes** are human-only, stored outside task comments and
+agent context. Earlier comments/drafts are not retroactively sent. The general
+Tasks list now includes Idle conversations without changing dashboard attention
+or execution behavior. Explicit child-task linkage and historical screenshot
+research remain unfinished. This is not full M2b acceptance. Earlier focused verification includes
 291 tests in 11 suites and 34 selected integration checks, plus server/UI/adapter
 typechecks and the UI build. The bot upgrade has now completed: live status shows
 active v2, reactions enabled and cutoff `1790145683.516000`. Real threaded Slack
@@ -159,9 +165,15 @@ receipt, one threaded working message, and an in-place final answer. Eyes are
 removed on completion. Subsequent live checks verified same-thread continuity on
 TES-4, a separate TES-5 root, labelled Paperclip request plus answer through Reply
 via Slack, and “CEO is using tools…” followed by a final answer in the same thread.
-The normal composer remains internal in this checkpoint. Next: Tasks-list
-visibility for Idle conversations, shared-default v2 composer and isolated
-human-only notes. No extra OAuth consent is needed for these UX fixes.
+At the subsequent September 23 checkpoint, migration 0285 was applied after a
+private backup. A live normal-composer request and its answer both reached the
+TES-4 thread, each in one publication attempt; the task returned to Idle.
+TES-4/TES-5 are visible in Tasks. A saved Internal-note canary did not enter
+comments, Slack publications, wakes or activity, including after that shared run.
+186 focused tests, server/UI typechecks, token gates, UI and Storybook builds
+passed. Full visual-baseline acceptance remains unrun. Notes are in database
+backups; their API/context isolation is not a sandbox against host/database
+administrators. No extra OAuth consent was needed for these UX fixes.
 
 Implementation, coding-worker approval, artifacts, GitHub and merge are later
 milestones. Discovery guidance is not a security boundary for every CEO tool.

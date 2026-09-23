@@ -4,6 +4,7 @@ import { pinoHttp } from "pino-http";
 import { HTTP_LOG_REDACT_PATHS } from "./http-log-redaction.js";
 import {
   isPrivateWebhookHttpRequest,
+  isInternalNoteHttpRequest,
   isSecretSensitiveHttpRequest,
   shouldSilenceHttpSuccessLog,
 } from "./http-log-policy.js";
@@ -56,13 +57,14 @@ function isPrivateWebhook(req: {
   originalUrl?: unknown;
   url?: unknown;
 }) {
-  return isPrivateWebhookHttpRequest(
+  return isInternalNoteHttpRequest(requestClassificationUrl(req)) || isPrivateWebhookHttpRequest(
     req.method,
     requestClassificationUrl(req),
   );
 }
 
 function privateWebhookLogUrl(url: unknown) {
+  if (typeof url === "string" && isInternalNoteHttpRequest(url)) return "/api/issues/:id/internal-notes";
   return typeof url === "string" && /\/routine-triggers\/public(?:\/|$)/i.test(url)
     ? "/api/routine-triggers/public/:publicId/fire"
     : "/api/chat-webhooks/:publicId/:provider";

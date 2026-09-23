@@ -8102,6 +8102,7 @@ export function issueRoutes(
       includeRoutineExecutions:
         req.query.includeRoutineExecutions === "true" ||
         req.query.includeRoutineExecutions === "1",
+      includeIdleSlackConversations: req.query.includeIdleSlackConversations === "true",
       excludeRoutineExecutions:
         req.query.excludeRoutineExecutions === "true" ||
         req.query.excludeRoutineExecutions === "1",

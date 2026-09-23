@@ -209,7 +209,9 @@ import {
   hasVisibleMonitorSurface,
 } from "../components/IssueMonitorBanner";
 import { IssueScheduledRetryCard } from "../components/IssueScheduledRetryCard";
-import { ExternallyConnectedTaskBanner } from "../components/chat/ExternallyConnectedTaskBanner";
+import { ExternallyConnectedTaskBanner, useIssueChatBinding } from "../components/chat/ExternallyConnectedTaskBanner";
+import { TaskInternalNotes } from "../components/chat/TaskInternalNotes";
+import { submitSharedThreadMessage } from "../components/chat/shared-thread-submit";
 import {
   IssueProperties,
   type IssuePropertiesDocumentDeepLink,
@@ -1273,8 +1275,8 @@ type IssueDetailChatTabProps = {
     clientRequestId?: string,
   ) => Promise<void>;
   onReviewConversation: () => Promise<void>;
-  onImageUpload: (file: File) => Promise<string>;
-  onAttachImage: (file: File) => Promise<IssueAttachment | void>;
+  onImageUpload?: (file: File) => Promise<string>;
+  onAttachImage?: (file: File) => Promise<IssueAttachment | void>;
   onInterruptQueued: (runId: string | null) => Promise<void>;
   onDeleteComment?: (commentId: string) => Promise<void> | void;
   onPauseWorkRun?: (runId: string, feedback?: "composer") => Promise<void>;
@@ -2988,6 +2990,10 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     enabled: !!issueId,
   });
   const issue = queriedIssue ?? conversation?.issue ?? draftIssue;
+  const chatBinding = useIssueChatBinding(issue?.companyId ?? "", issue?.id ?? "");
+  const sharedSlackThread = chatBinding.binding?.bindingMode === "slack_dm_thread_v2";
+  const [sharedSendNotice, setSharedSendNotice] = useState<string | null>(null);
+  useEffect(() => setSharedSendNotice(null), [issue?.id]);
   const resolveWritableIssueId = async () => {
     if (!conversation) return issueId!;
     const resolved = await conversation.ensureIssue();
@@ -6195,6 +6201,23 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       attachmentIds?: string[],
       clientRequestId?: string,
     ) => {
+      if (issue?.originKind === "chat_channel" && (chatBinding.isLoading || chatBinding.isError)) {
+        throw new Error("The message destination could not be confirmed. Refresh the task before sending.");
+      }
+      if (sharedSlackThread && chatBinding.binding) {
+        try {
+          if (reassignment) throw new Error("This Slack thread stays assigned to its CEO. Remove the reassignment before sending.");
+          const receipt = await submitSharedThreadMessage(chatBinding.binding, body, clientRequestId, attachmentIds);
+          setSharedSendNotice(receipt.status === "failed" ? "Request saved, but the CEO could not start. Check the connection before trying a new request." : "Request saved for Slack. The CEO starts after Slack confirms delivery.");
+          invalidateIssueThreadLazily();
+          invalidateIssueDetail();
+          invalidateIssueCollections();
+        } catch (error) {
+          setSharedSendNotice(error instanceof Error ? error.message : "The shared request could not be confirmed.");
+          throw error;
+        }
+        return;
+      }
       if (reassignment) {
         await addCommentAndReassign.mutateAsync({
           body,
@@ -6207,7 +6230,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       }
       await addComment.mutateAsync({ body, reopen, attachmentIds, clientRequestId });
     },
-    [addComment, addCommentAndReassign],
+    [addComment, addCommentAndReassign, issue?.originKind, chatBinding, sharedSlackThread, invalidateIssueThreadLazily, invalidateIssueDetail, invalidateIssueCollections],
   );
   const handleCommentImageUpload = useCallback(
     async (file: File) => {
@@ -7801,7 +7824,13 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   onRefreshLatestComments={refetchLatestComments}
                   composerRef={commentComposerRef}
                   composerAccessory={
-                    hasVisibleMonitorSurface(issue) ? (
+                    sharedSlackThread ? <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs text-muted-foreground">Shared with Slack · text only</p>
+                        {currentUserId && <TaskInternalNotes key={`${issue.id}:${currentUserId}`} issueId={issue.id} companyId={issue.companyId} userId={currentUserId} />}
+                      </div>
+                      {sharedSendNotice && <p role="status" className="text-xs text-muted-foreground">{sharedSendNotice}</p>}
+                    </div> : hasVisibleMonitorSurface(issue) ? (
                       <IssueMonitorComposerStrip
                         issue={issue}
                         onCheckNow={() => checkIssueMonitorNow.mutate()}
@@ -7824,8 +7853,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   currentUserId={currentUserId}
                   userLabelMap={userLabelMap}
                   userProfileMap={userProfileMap}
-                  draftKey={conversationAgent ? `paperclip:agent-chat-draft:${issue.companyId}:${currentUserId}:${conversationAgent.id}` : `paperclip:issue-comment-draft:${issue.id}`}
-                  reassignOptions={commentReassignOptions}
+                  draftKey={sharedSlackThread ? `paperclip:slack-shared-draft:v2:${issue.companyId}:${currentUserId}:${issue.id}:${chatBinding.binding!.conversationId}` : conversationAgent ? `paperclip:agent-chat-draft:${issue.companyId}:${currentUserId}:${conversationAgent.id}` : `paperclip:issue-comment-draft:${issue.id}`}
+                  reassignOptions={sharedSlackThread ? [] : commentReassignOptions}
                   currentAssigneeValue={actualAssigneeValue}
                   suggestedAssigneeValue={suggestedAssigneeValue}
                   mentions={mentionOptions}
@@ -7841,7 +7870,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                     } : undefined,
                     resumeHref: !activePauseHold.isRoot ? createIssueDetailPath(activePauseHoldRoot?.identifier ?? activePauseHold.rootIssueId) : undefined,
                   } : null}
-                  composerDisabledReason={issue.conversationAgentId && !instanceExperimentalSettings?.enableAgentChat ? "Agent Chat is disabled in Experimental settings." : treeControlStateError ? "Couldn’t check whether this task is paused. Refresh to try again." : null}
+                  composerDisabledReason={issue.originKind === "chat_channel" && (chatBinding.isLoading || chatBinding.isError) ? "Checking the message destination. Refresh if the connection cannot be loaded." : issue.conversationAgentId && !instanceExperimentalSettings?.enableAgentChat ? "Agent Chat is disabled in Experimental settings." : treeControlStateError ? "Couldn’t check whether this task is paused. Refresh to try again." : null}
                   composerHint={composerHint}
                   queuedCommentReason={queuedCommentReason}
                   onVote={handleCommentVote}
@@ -7855,8 +7884,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                       ),
                     ]);
                   }}
-                  onImageUpload={handleCommentImageUpload}
-                  onAttachImage={handleCommentAttachImage}
+                  onImageUpload={sharedSlackThread ? undefined : handleCommentImageUpload}
+                  onAttachImage={sharedSlackThread ? undefined : handleCommentAttachImage}
                   onInterruptQueued={handleInterruptQueuedRun}
                   onDeleteComment={(commentId) =>
                     deleteComment
