@@ -5,6 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
+  toolApplications,
   toolConnections,
   toolCatalogEntries,
   companyMemberships,
@@ -810,8 +811,28 @@ export function connectionIntentService(db: Db) {
         isSlackReadProfile(item) && item.status !== "archived" && record(item.config?.slackReadPilot)?.fingerprint === authority.binding.fingerprint);
       if (existing.length > 1) throw conflict("Resolve duplicate Slack read connections before authorizing");
       if (existing[0]) return existing[0];
-      const app = await txAccess.createApplication(loaded.issue.companyId, { name: "Slack public-channel read pilot", type: "mcp_http",
+      // Removing a connection intentionally retains its application/audit history.
+      // Reuse only this person's exact pilot application, never its revoked grant.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`slack-read-app:${loaded.issue.companyId}`}))`);
+      const applications = await txAccess.listApplications(loaded.issue.companyId);
+      const priorApp = applications.find(item => item.applicationKey === "slack-public-channel-read-pilot" || item.name === "Slack public-channel read pilot");
+      if (priorApp && (priorApp.applicationKey !== "slack-public-channel-read-pilot" ||
+          priorApp.name !== "Slack public-channel read pilot" || priorApp.type !== "mcp_http" ||
+          !["active", "archived"].includes(priorApp.status) || priorApp.ownerUserId !== actor.actorId ||
+          priorApp.ownerAgentId || priorApp.pluginId || priorApp.metadata?.sourceTemplateKey !== "slack")) {
+        throw conflict("The existing Slack read pilot application has changed. Ask the setup operator to review it.");
+      }
+      const app = priorApp ?? await txAccess.createApplication(loaded.issue.companyId, { name: "Slack public-channel read pilot", type: "mcp_http",
         ownerUserId: actor.actorId, metadata: { sourceTemplateKey: "slack" } });
+      if (priorApp?.status === "archived") {
+        // This restores the catalog container only. Connections, grants, tools,
+        // profiles and old OAuth transactions remain revoked/archived.
+        await tx.update(toolApplications).set({ status: "active", archivedAt: null, updatedAt: new Date() })
+          .where(and(eq(toolApplications.id, app.id), eq(toolApplications.companyId, loaded.issue.companyId)));
+        await logActivity(tx as unknown as Db, { companyId: loaded.issue.companyId, actorType: "user", actorId: actor.actorId!,
+          action: "tool_application.reactivated", entityType: "tool_application", entityId: app.id,
+          details: { reason: "slack_read_fresh_consent", interactionId } });
+      }
       const config = { url: SLACK_READ_MCP_URL, slackReadPilot: authority.binding,
         oauth: { provider: "slack", authorizationUrl: SLACK_READ_AUTH_URL, tokenUrl: SLACK_READ_TOKEN_URL, scopes: [...SLACK_READ_SCOPES] } };
       return txAccess.createConnection(loaded.issue.companyId, {

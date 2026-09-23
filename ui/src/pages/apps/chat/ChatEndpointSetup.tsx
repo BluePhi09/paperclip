@@ -592,7 +592,7 @@ function ChatSdkEndpointSetup() {
         )}
         {endpoint && step === tryStep && (
           <TryStep
-            slackDmOnly={endpoint.setup?.slackOAuth?.profile === "ceo-dm-v1"}
+            slackDmOnly={Boolean(endpoint.setup?.slackOAuth)}
             endpointId={endpoint.id}
             provider={provider}
             agentName={selectedAgent?.name ?? endpoint.assignedAgentName}
@@ -811,7 +811,7 @@ function ProviderConnectStep({
   const slackCommand = slackApp.command.trim();
   const slackWebhookUrl =
     endpoint.setup?.webhookUrl ?? "<paperclip-webhook-url>";
-  const slackManifest = endpoint.setup?.slackOAuth?.profile === "ceo-dm-v1" ? `display_information:
+  const slackManifest = endpoint.setup?.slackOAuth ? `display_information:
   name: ${JSON.stringify(slackAppName)}
 features:
   app_home:

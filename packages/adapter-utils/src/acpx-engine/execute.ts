@@ -1,4 +1,5 @@
 import { cancellableSandboxStartup } from "./startup-cancellation.js";
+import { createAcpxChatProgress } from "./chat-progress.js";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import os from "node:os";
@@ -4835,8 +4836,11 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
       const stepEventRelay = async (): Promise<AcpRuntimeTurnResult> => {
         const turn = activeTurn as AcpRuntimeTurn;
         const toolTitles = new Map<string, string>();
+        const chatProgress = createAcpxChatProgress(now);
         const drainEvents = (async (): Promise<void> => {
           for await (const event of turn.events) {
+            const progress = chatProgress(event.type);
+            if (progress) await ctx.onEvent?.(progress);
             // ACPX currently flattens client-side filesystem/terminal receipts
             // into status text. They cannot establish complete action outcomes.
             if (event.type === "status" && /^(fs|terminal)\//.test(event.text)) incompleteToolInventory = true;

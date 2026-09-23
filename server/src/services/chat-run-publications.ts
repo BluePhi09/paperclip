@@ -223,7 +223,6 @@ async function enqueueSafeNativeChatProgress(
           eq(heartbeatRuns.id, heartbeatRunEvents.runId),
           eq(heartbeatRuns.companyId, heartbeatRunEvents.companyId),
           eq(heartbeatRuns.agentId, heartbeatRunEvents.agentId),
-          eq(heartbeatRuns.runtimeMode, "native"),
           eq(heartbeatRuns.status, "running"),
         ),
       )
@@ -233,6 +232,11 @@ async function enqueueSafeNativeChatProgress(
           eq(chatConversations.companyId, heartbeatRuns.companyId),
           sql`${issueIdFromContext} = ${chatConversations.issueId}::text`,
           inArray(chatConversations.state, ["active", "waiting"]),
+          or(eq(heartbeatRuns.runtimeMode, "native"), and(
+            eq(heartbeatRuns.runtimeMode, "legacy"),
+            eq(chatConversations.bindingMode, "slack_dm_thread_v2"),
+            eq(heartbeatRunEvents.eventType, "chat.progress.using_tools"),
+          )),
         ),
       )
       .innerJoin(
@@ -345,7 +349,7 @@ async function enqueueSafeNativeChatProgress(
               eq(heartbeatRuns.id, row.runId),
               eq(heartbeatRuns.companyId, row.companyId),
               eq(heartbeatRuns.agentId, row.agentId),
-              eq(heartbeatRuns.runtimeMode, "native"),
+              inArray(heartbeatRuns.runtimeMode, ["native", "legacy"]),
               eq(heartbeatRuns.status, "running"),
             ),
           )

@@ -10,15 +10,16 @@ import { chatChannelRoutes } from "./chat-channels.js";
 const board: Request["actor"] = { type: "board", source: "session", userId: "owner", sessionId: "session", companyIds: ["company-a"], isInstanceAdmin: true };
 function fixture(actor = board) {
   const service = { get: vi.fn().mockResolvedValue({ id: "endpoint", companyId: "company-a" }), startSlackBotOAuth: vi.fn().mockResolvedValue({ authorizationUrl: "https://slack.com/oauth/v2/authorize?state=nonce" }), completeSlackBotOAuth: vi.fn().mockResolvedValue({ id: "endpoint" }) };
+  const upgrade = { ...service, startSlackThreadUpgrade: vi.fn().mockResolvedValue({ authorizationUrl: "https://slack.com/oauth/v2/authorize?state=upgrade" }) };
   const limit = vi.fn().mockResolvedValue([{ issuePrefix: "TES" }]);
   const where = vi.fn().mockReturnValue({ limit });
   const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => { req.actor = actor; next(); });
-  app.use("/api", chatChannelRoutes(db as unknown as Db, { service: service as unknown as ChatChannelService, heartbeat: { wakeup: vi.fn() } }));
+  app.use("/api", chatChannelRoutes(db as unknown as Db, { service: upgrade as unknown as ChatChannelService, heartbeat: { wakeup: vi.fn() } }));
   app.use(errorHandler);
-  return { app, service, db, limit };
+  return { app, service: upgrade, db, limit };
 }
 const path = "/api/chat-endpoints/endpoint/slack/oauth";
 describe("Slack pilot OAuth route authority", () => {
@@ -30,6 +31,8 @@ describe("Slack pilot OAuth route authority", () => {
     const f = fixture(actor);
     await request(f.app).post(`${path}/start`).send({ permissionProfile: "ceo-dm-v1" }).expect(403);
     await request(f.app).get(`${path}/callback`).query({ state: "nonce", code: "code" }).expect(403);
+    await request(f.app).post("/api/chat-endpoints/endpoint/slack/threading/upgrade").send({ permissionProfile: "ceo-dm-threaded-v2" }).expect(403);
+    expect(f.service.startSlackThreadUpgrade).not.toHaveBeenCalled();
     await request(f.app).post("/api/chat-endpoints/endpoint/conversations/10000000-0000-4000-8000-000000000001/slack-replies")
       .send({ body: "Reply hello", clientRequestId: "10000000-0000-4000-8000-000000000002" }).expect(403);
     expect(f.service.startSlackBotOAuth).not.toHaveBeenCalled();
@@ -41,6 +44,17 @@ describe("Slack pilot OAuth route authority", () => {
     expect(f.service.startSlackBotOAuth).not.toHaveBeenCalled();
     await request(f.app).post(`${path}/start`).send({ permissionProfile: "ceo-dm-v1" }).expect(200);
     expect(f.service.startSlackBotOAuth).toHaveBeenCalledWith("endpoint", { userId: "owner", sessionId: "session" });
+  });
+  it("admits only the exact upgrade profile and returns active bots to management", async () => {
+    const f = fixture();
+    const upgradePath = "/api/chat-endpoints/endpoint/slack/threading/upgrade";
+    await request(f.app).post(upgradePath).send({ permissionProfile: "ceo-dm-v1" }).expect(400);
+    await request(f.app).post(upgradePath).send({ permissionProfile: "ceo-dm-threaded-v2", scopes: ["files:read"] }).expect(400);
+    await request(f.app).post(upgradePath).send({ permissionProfile: "ceo-dm-threaded-v2" }).expect(200);
+    expect(f.service.startSlackThreadUpgrade).toHaveBeenCalledWith("endpoint", { userId: "owner", sessionId: "session" });
+    f.service.get.mockResolvedValue({ id: "endpoint", companyId: "company-a", status: "active" } as never);
+    const response = await request(f.app).get(`${path}/callback`).query({ state: "nonce", code: "code" }).expect(303);
+    expect(response.headers.location).toBe("/TES/apps/chat/endpoint/conversations");
   });
   it("uses an application-owned redirect and strips provider errors from URLs", async () => {
     const f = fixture();

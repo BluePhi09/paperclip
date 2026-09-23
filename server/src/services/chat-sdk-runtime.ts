@@ -30,6 +30,7 @@ import {
   type TelegramRawMessage,
 } from "@chat-adapter/telegram";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { scopeSlackDmThreads } from "./chat-slack-dm-threads.js";
 import {
   Chat,
   type ActionEvent,
@@ -146,6 +147,10 @@ interface ProviderConfigBase {
 
 export interface ResolvedSlackChatConfig extends ProviderConfigBase {
   provider: "slack";
+  /** Internal opt-in; endpoint admission remains disabled until v2 binding/sharing is wired. */
+  dmConversationMode?: "legacy" | "message_threads";
+  /** Durable upgrade cutoff. Earlier messages retain their legacy identity. */
+  dmThreadingSince?: string;
   nativeStreaming?: boolean;
   credentials: {
     apiUrl?: string;
@@ -1376,6 +1381,10 @@ function createProviderAdapter(
         },
       };
       const adapter = createSlackAdapter(adapterConfig);
+      if (config.dmConversationMode === "message_threads") {
+        if (!config.dmThreadingSince) throw new Error("Slack DM threading requires a saved activation cutoff");
+        scopeSlackDmThreads(adapter, config.dmThreadingSince);
+      }
       (
         adapter as unknown as SlackAdapterInternals
       ).paperclipFileUploadReceiptContext = new AsyncLocalStorage<

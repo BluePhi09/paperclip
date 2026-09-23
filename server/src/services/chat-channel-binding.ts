@@ -1,4 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
+import { isSlackCeoBotProfile } from "./slack-ceo-permission-profiles.js";
 import type { Db } from "@paperclipai/db";
 import {
   chatConversations,
@@ -70,10 +71,14 @@ export async function getExternalChannelBindingSummary(
     externalLabel: row.conversation.externalLabel,
     externalUrl,
     conversationId: row.conversation.id,
+    bindingMode: row.conversation.bindingMode,
     publicationState: row.publicationState ?? null,
     assignedAgentLocked: true,
-    ...(row.endpoint.provider === "slack" && row.endpoint.status === "active" && row.conversation.isDirectMessage &&
+    ...(row.endpoint.provider === "slack" && row.endpoint.status === "active" &&
       (row.endpoint.setup as { slackPermissionProfile?: string }).slackPermissionProfile === "ceo-dm-v1"
+      ? { slackThreadUpgradeAvailable: true } : {}),
+    ...(row.endpoint.provider === "slack" && row.endpoint.status === "active" && row.conversation.isDirectMessage &&
+      isSlackCeoBotProfile((row.endpoint.setup as { slackPermissionProfile?: string }).slackPermissionProfile)
       ? { slackReplyAvailable: true } : {}),
   };
 }

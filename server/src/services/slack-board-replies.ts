@@ -3,7 +3,7 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import {
   agents, agentWakeupRequests, chatActions, chatConversations, chatEndpoints,
   chatIdentityLinks, chatExternalPrincipals, companyMemberships, heartbeatRuns,
-  issueComments, issues, toolConnections, type Db,
+  issueComments, issues, toolConnections, chatPublications, type Db,
 } from "@paperclipai/db";
 import { conflict, forbidden, HttpError, notFound } from "../errors.js";
 import { issueService } from "./issues.js";
@@ -11,8 +11,13 @@ import { logActivity } from "./activity-log.js";
 import { createDurableChatWakeupRequest, assertDurableChatWakeupReceipt } from "./durable-chat-wakeup.js";
 import type { IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 import { isAutomaticRecoverySuppressedByPauseHold } from "./recovery/pause-hold-guard.js";
+import { slackDmBindingOwnedBy } from "./chat-slack-dm-threads.js";
+import { isSlackCeoBotProfile } from "./slack-ceo-permission-profiles.js";
+import { projectSafeChatPublication } from "./chat-publication-projection.js";
+import { splitNativePublicationText } from "./chat-publication-text-parts.js";
 
 const KIND = "slack_board_reply";
+const SHARED_REQUEST_PREFIX = "slack-shared-request:";
 export const SLACK_BOARD_REPLY_SOURCE = "slack.board_reply";
 type Action = typeof chatActions.$inferSelect;
 type Scope = { companyId: string; endpointId: string; conversationId: string; userId: string };
@@ -31,7 +36,7 @@ export async function authorizeSlackPilotConversation(db: Db, scope: Scope, rece
     .from(toolConnections).where(and(eq(toolConnections.id, endpoint.connectionId), eq(toolConnections.companyId, scope.companyId)));
   if (await isAutomaticRecoverySuppressedByPauseHold(db, scope.companyId, issue.id)) throw forbidden("This task is paused");
   if (!connection?.enabled || connection.status !== "active" || endpoint.provider !== "slack" || endpoint.status !== "active" || !endpoint.allowDirectMessages ||
-      (endpoint.setup as { slackPermissionProfile?: string }).slackPermissionProfile !== "ceo-dm-v1" ||
+      !isSlackCeoBotProfile((endpoint.setup as { slackPermissionProfile?: string }).slackPermissionProfile) ||
       endpoint.sponsorUserId !== scope.userId || !conversation.isDirectMessage ||
       !["active", "waiting"].includes(conversation.state) || issue.originKind !== "chat_channel" ||
       issue.assigneeAgentId !== endpoint.assignedAgentId || issue.hiddenAt || issue.assigneeUserId) {
@@ -49,9 +54,11 @@ export async function authorizeSlackPilotConversation(db: Db, scope: Scope, rece
         and d.endpoint_id = ${endpoint.id} and d.conversation_id = ${conversation.id}
         and d.principal_id = ${chatExternalPrincipals.id} and d.state = 'processed')`)).limit(1);
   if (!identity || identity.principal.isBot || identity.principal.provider !== "slack" || identity.link.revokedAt) throw forbidden("Your linked Slack identity no longer owns this DM");
+  if (!slackDmBindingOwnedBy(conversation, { ...scope, principalId: identity.principal.id })) throw forbidden("Your linked Slack identity does not own this thread");
   const fence = JSON.stringify([endpoint.connectionId, endpoint.providerAccountId, endpoint.botExternalId,
     endpoint.assignedAgentId, conversation.externalConversationId, conversation.externalThreadId,
-    conversation.sessionGeneration, identity.link.id, identity.link.confirmedAt?.toISOString()]);
+    conversation.sessionGeneration, identity.link.id, identity.link.confirmedAt?.toISOString(),
+    ...(conversation.bindingMode === "legacy" ? [] : [conversation.bindingMode, conversation.originPrincipalId, conversation.originUserId])]);
   if (receipt && (receipt.kind !== KIND || receipt.payload.fence !== fence ||
       receipt.payload.issueId !== issue.id || receipt.payload.agentId !== endpoint.assignedAgentId ||
       receipt.principalId !== identity.principal.id)) throw forbidden("Slack reply authorization changed; submit a new request");
@@ -67,12 +74,64 @@ function scopeFor(action: Action): Scope {
 
 async function authorizeAction(db: Db, action: Action) {
   const current = await authorize(db, scopeFor(action), action);
+  const shared = current.conversation.bindingMode === "slack_dm_thread_v2";
+  if (shared !== (action.payload.audience === "shared_thread") ||
+      (shared && typeof action.payload.requestPublicationId !== "string")) throw forbidden("Slack request sharing mode changed");
   const [comment] = await db.select().from(issueComments).where(and(
     eq(issueComments.id, String(action.payload.commentId)), eq(issueComments.companyId, action.companyId),
     eq(issueComments.issueId, current.issue.id), eq(issueComments.authorUserId, String(action.payload.userId)),
   )).limit(1);
-  if (!comment || comment.deletedAt || comment.authorType !== "user") throw forbidden("Slack reply request was removed");
+  if (!comment || comment.deletedAt || comment.authorType !== "user" || comment.body !== action.payload.body) throw forbidden("Slack reply request was removed or changed");
   return current;
+}
+
+/** Shared requests use the same durable publication worker as answers. Check
+ * the saved request's person/destination again at every provider send, including
+ * any transport fragments. Never infer authority from the outbox key alone. */
+export async function authorizeSlackSharedRequestPublication(db: Db, publication: typeof chatPublications.$inferSelect): Promise<boolean | null> {
+  if (!publication.idempotencyKey.startsWith(SHARED_REQUEST_PREFIX)) return null;
+  const match = /^slack-shared-request:([0-9a-f-]{36})(?::slack-part:([1-9][0-9]*))?$/.exec(publication.idempotencyKey);
+  if (!match) return false;
+  const [action] = await db.select().from(chatActions).where(and(eq(chatActions.companyId, publication.companyId), eq(chatActions.id, match[1]))).limit(1);
+  if (!action || action.kind !== KIND || !["queued", "submitted"].includes(action.status) || action.payload.audience !== "shared_thread" ||
+      action.endpointId !== publication.endpointId || action.conversationId !== publication.conversationId ||
+      action.payload.issueId !== publication.issueId || action.payload.commentId !== publication.commentId ||
+      publication.payload.attachmentIds?.length || publication.payload.interactionId || publication.payload.card || publication.payload.progressState) return false;
+  const part = publication.payload.transportPart;
+  if (match[2] ? part?.batchId !== action.payload.requestPublicationId || part?.index !== Number(match[2])
+    : publication.id !== action.payload.requestPublicationId) return false;
+  const safeText = projectSafeChatPublication({ classification: "external", source: "explicit_board_send", text: `From Paperclip (you):\n\n${action.payload.body}` }).text;
+  const expectedParts = splitNativePublicationText("slack", safeText);
+  const index = match[2] ? Number(match[2]) : 0;
+  if (part) {
+    const expected = expectedParts[index];
+    if (!expected || part.index !== index || part.batchId !== action.payload.requestPublicationId || part.count !== expectedParts.length ||
+        part.mode !== "inline" || part.prefix !== expected.prefix || part.suffix !== expected.suffix || publication.payload.text !== expected.text) return false;
+  } else if (index !== 0 || publication.payload.text !== safeText) return false;
+  try {
+    await authorizeAction(db, action);
+    return true;
+  } catch (error) {
+    if (error instanceof HttpError && error.status < 500) return false;
+    throw error;
+  }
+}
+
+async function sharedRequestDelivered(db: Db, action: Action): Promise<boolean> {
+  if (action.payload.audience !== "shared_thread") return true;
+  const rows = await db.select().from(chatPublications).where(and(
+    eq(chatPublications.companyId, action.companyId), eq(chatPublications.endpointId, action.endpointId),
+    eq(chatPublications.conversationId, action.conversationId!), eq(chatPublications.commentId, String(action.payload.commentId)),
+  ));
+  const root = rows.find(row => row.id === action.payload.requestPublicationId && row.idempotencyKey === `${SHARED_REQUEST_PREFIX}${action.id}`);
+  if (!root) return false;
+  const count = root.payload.transportPart?.count ?? 1;
+  const batch = rows.filter(row => row.id === root.id || row.payload.transportPart?.batchId === root.id);
+  if (batch.length !== count || new Set(batch.map(row => row.payload.transportPart?.index ?? 0)).size !== count) return false;
+  for (const row of batch) {
+    if (row.state !== "published" || !row.providerMessageId || !(await authorizeSlackSharedRequestPublication(db, row))) return false;
+  }
+  return true;
 }
 
 /** Called at run execution, not just at browser submission. A serialized source
@@ -96,6 +155,7 @@ export async function authorizeSlackBoardReplyWake(db: Db, input: {
     throw forbidden("Slack reply request does not match this run");
   }
   await authorizeAction(db, action);
+  if (!(await sharedRequestDelivered(db, action))) throw forbidden("Slack has not confirmed the shared request yet");
   return action;
 }
 
@@ -125,10 +185,16 @@ export function slackBoardRepliesService(db: Db, heartbeat: IssueAssignmentWakeu
     for (const action of actions) {
       try {
         const current = await authorizeAction(db, action);
+        // A pending/uncertain/failed provider send never means the request was
+        // delivered. Keep this same receipt queued for transport recovery.
+        if (!(await sharedRequestDelivered(db, action))) continue;
         const request = createDurableChatWakeupRequest({ id: action.id, companyId: action.companyId,
           agentId: current.endpoint.assignedAgentId, issueId: current.issue.id, commentId: String(action.payload.commentId),
           requestedByActorType: "user", requestedByActorId: String(action.payload.userId), requestedAt: action.createdAt,
-          authorize: async tx => { await authorizeAction(tx, action); },
+          authorize: async tx => {
+            await authorizeAction(tx, action);
+            if (!(await sharedRequestDelivered(tx, action))) throw forbidden("Slack has not confirmed the shared request yet");
+          },
         });
         await heartbeat.wakeup(request.agentId, { source: "assignment", triggerDetail: "system", reason: "Reply via Slack requested",
           requestedByActorType: "user", requestedByActorId: request.requestedByActorId, durableChatRequest: request,
@@ -198,11 +264,19 @@ export function slackBoardRepliesService(db: Db, heartbeat: IssueAssignmentWakeu
           status: "todo", actorUserId: scope.userId, companyGuard: scope.companyId,
         }, tx);
       }
-      const [created] = await tx.insert(chatActions).values({ id: randomUUID(), companyId: scope.companyId,
+      const shared = current.conversation.bindingMode === "slack_dm_thread_v2";
+      const requestId = randomUUID(), requestPublicationId = shared ? randomUUID() : null;
+      const [created] = await tx.insert(chatActions).values({ id: requestId, companyId: scope.companyId,
         endpointId: scope.endpointId, conversationId: scope.conversationId, principalId: current.identity.principal.id,
         kind: KIND, providerActionId: key, status: "queued", payload: { version: 1, userId: scope.userId,
-          issueId: issue.id, agentId: current.endpoint.assignedAgentId, commentId: comment.id, fence: current.fence, body },
+          issueId: issue.id, agentId: current.endpoint.assignedAgentId, commentId: comment.id, fence: current.fence, body,
+          ...(shared ? { audience: "shared_thread", requestPublicationId } : {}) },
       }).returning();
+      if (requestPublicationId) await tx.insert(chatPublications).values({
+        id: requestPublicationId, companyId: scope.companyId, endpointId: scope.endpointId, conversationId: scope.conversationId,
+        issueId: issue.id, commentId: comment.id, idempotencyKey: `${SHARED_REQUEST_PREFIX}${requestId}`, state: "pending",
+        payload: projectSafeChatPublication({ classification: "external", source: "explicit_board_send", text: `From Paperclip (you):\n\n${body}` }),
+      });
       await logActivity(tx as unknown as Db, { companyId: scope.companyId, actorType: "user", actorId: scope.userId,
         action: "chat.board_reply_requested", entityType: "issue", entityId: issue.id, issueId: issue.id,
         details: { endpointId: scope.endpointId, conversationId: scope.conversationId, commentId: comment.id, requestId: created.id } });

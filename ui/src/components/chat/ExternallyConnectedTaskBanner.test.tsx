@@ -14,6 +14,7 @@ const mockChatEndpointsApi = vi.hoisted(() => ({
   getIssueBinding: vi.fn(),
   publishBoardMessage: vi.fn(),
   getPublicationBatchStatus: vi.fn(),
+  startSlackThreadUpgrade: vi.fn(),
 }));
 const pushToastMock = vi.hoisted(() => vi.fn());
 const uploadAttachmentMock = vi.hoisted(() => vi.fn());
@@ -153,6 +154,28 @@ describe("ExternallyConnectedTaskBanner publication truth", () => {
     flushSync(() => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+  });
+
+  it("offers explicit threaded consent without changing the connection on render", async () => {
+    const binding = await mockChatEndpointsApi.getIssueBinding();
+    mockChatEndpointsApi.getIssueBinding.mockResolvedValue({ ...binding, slackThreadUpgradeAvailable: true });
+    mockChatEndpointsApi.startSlackThreadUpgrade.mockRejectedValue(new Error("Connection changed; reload before upgrading"));
+    await renderBanner();
+    expect(container.textContent).toContain("Existing conversations stay unchanged");
+    expect(mockChatEndpointsApi.startSlackThreadUpgrade).not.toHaveBeenCalled();
+    await act(() => findButton(container, "Enable threaded DMs").click());
+    await flushReact();
+    expect(mockChatEndpointsApi.startSlackThreadUpgrade).toHaveBeenCalledOnce();
+    expect(mockChatEndpointsApi.startSlackThreadUpgrade).toHaveBeenCalledWith("endpoint-1");
+    expect(container.textContent).toContain("Connection changed; reload before upgrading");
+  });
+
+  it("labels the threaded preview's remaining composer limitation", async () => {
+    const binding = await mockChatEndpointsApi.getIssueBinding();
+    mockChatEndpointsApi.getIssueBinding.mockResolvedValue({ ...binding, bindingMode: "slack_dm_thread_v2" });
+    await renderBanner();
+    expect(container.textContent).toContain("normal Paperclip composer does not send messages to Slack yet");
+    expect(container.textContent).not.toContain("Enable threaded DMs");
   });
 
   it("only reports success and clears the draft after confirmed publication", async () => {

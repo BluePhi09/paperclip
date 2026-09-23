@@ -62,12 +62,12 @@ describe("Slack read pilot boundaries", () => {
   const args = (parameters: unknown, toolName = "slack_read_channel", schema: unknown = readChannelSchema) => governedSlackReadArguments({ toolName, schema, parameters, channelId: "CAPPROVED", nowSeconds: 2_000_000 });
   it("projects a fixed channel and window; repeated governance is stable", () => {
     const projected = args({});
-    expect(projected).toEqual({ channel_id: "CAPPROVED", oldest: "1395200", latest: "2000000", limit: 30 });
+    expect(projected).toEqual({ channel_id: "CAPPROVED", oldest: "1395200.000000", latest: "2000000.000000", limit: 30 });
     expect(args(projected)).toEqual(projected);
   });
   it("guides a clock-mismatched caller to the server window without widening it", () => {
     expect(() => args({ latest: "2000027.72" })).toThrow("Omit oldest/latest");
-    expect(args({ limit: 100, response_format: "detailed" })).toMatchObject({ oldest: "1395200", latest: "2000000" });
+    expect(args({ limit: 100, response_format: "detailed" })).toMatchObject({ oldest: "1395200.000000", latest: "2000000.000000" });
   });
   it.each([
     { channel_id: "COTHER" }, { query: "in:anywhere" }, { channel: "COTHER" }, { limit: 201 }, { limit: -1 }, { limit: 1.5 },
@@ -83,10 +83,14 @@ describe("Slack read pilot boundaries", () => {
   });
   it("requires a recent thread root in the same channel", () => {
     const projected = args({ message_ts: "1999999.123", response_format: "concise" }, "slack_read_thread", readThreadSchema);
-    expect(projected).toEqual({ message_ts: "1999999.123", response_format: "concise", channel_id: "CAPPROVED", limit: 30, oldest: "1395200", latest: "2000000" });
+    expect(projected).toEqual({ message_ts: "1999999.123", response_format: "concise", channel_id: "CAPPROVED", limit: 30, oldest: "1395200.000000", latest: "2000000.000000" });
     expect(args(projected, "slack_read_thread", readThreadSchema)).toEqual(projected);
     for (const parameters of [{ message_ts: "1395199.001" }, { message_ts: "2000001.001" }, { message_ts: "1999999" }, { ts: "1999999.123" }, {}]) {
       expect(() => args(parameters, "slack_read_thread", readThreadSchema)).toThrow();
     }
+  });
+  it("canonicalizes whole-second bounds for Slack without rounding fractional timestamps", () => {
+    expect(args({ oldest: "1395200", latest: "2000000" })).toMatchObject({ oldest: "1395200.000000", latest: "2000000.000000" });
+    expect(args({ oldest: "1999999.123456", latest: "1999999.999999" })).toMatchObject({ oldest: "1999999.123456", latest: "1999999.999999" });
   });
 });

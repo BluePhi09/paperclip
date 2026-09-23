@@ -8,7 +8,7 @@ import {
   toolApplications, toolConnections,
 } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
-import { slackBoardRepliesService, slackBoardReplyBinding, authorizeSlackBoardReplyWake } from "../services/slack-board-replies.js";
+import { slackBoardRepliesService, slackBoardReplyBinding, authorizeSlackBoardReplyWake, authorizeSlackSharedRequestPublication } from "../services/slack-board-replies.js";
 import { assertDurableChatWakeupRequest } from "../services/durable-chat-wakeup.js";
 import type { IssueAssignmentWakeupDeps } from "../services/issue-assignment-wakeup.js";
 import { issueService } from "../services/issues.js";
@@ -136,5 +136,91 @@ const support = await getEmbeddedPostgresTestSupport();
     const f = await fixture();
     await expect(authorizeSlackBoardReplyWake(db, { companyId: f.companyId, agentId: f.agentId, issueId: f.issueId,
       wakeupRequestId: null, contextSnapshot: { source: "slack.board_reply" } })).rejects.toMatchObject({ status: 403 });
+  });
+
+  async function threadBinding(f: Awaited<ReturnType<typeof fixture>>) {
+    await db.update(chatConversations).set({ bindingMode: "slack_dm_thread_v2", externalThreadId: "slack:DTEST:9000.000001",
+      originPrincipalId: f.principalId, originUserId: f.userId }).where(eq(chatConversations.id, f.conversationId));
+  }
+
+  it("retains an exact threaded binding through board submission and rejects later root changes", async () => {
+    const f = await fixture();
+    await threadBinding(f);
+    await f.service.request(f.scope, "Answer in this thread", randomUUID());
+    expect(f.heartbeat.wakeup).not.toHaveBeenCalled();
+    await db.update(chatPublications).set({ state: "published", providerMessageId: "9001.000001" }).where(eq(chatPublications.companyId, f.companyId));
+    await f.service.processPending();
+    const [run] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, f.companyId));
+    expect(await slackBoardReplyBinding(db, f.companyId, f.issueId, run.id)).toMatchObject({ conversationId: f.conversationId });
+    await db.update(chatConversations).set({ externalThreadId: "slack:DTEST:9000.000002" }).where(eq(chatConversations.id, f.conversationId));
+    expect(await slackBoardReplyBinding(db, f.companyId, f.issueId, run.id)).toBeNull();
+  });
+
+  it("atomically saves a shared request once, waits for delivery, then resumes once after reconstruction", async () => {
+    const f = await fixture(), key = randomUUID();
+    await threadBinding(f);
+    const first = await f.service.request(f.scope, "Shared from Paperclip", key);
+    const second = await f.service.request(f.scope, "Shared from Paperclip", key);
+    expect(first).toEqual(second);
+    const [publication] = await db.select().from(chatPublications).where(eq(chatPublications.companyId, f.companyId));
+    expect(publication.payload.text).toBe("From Paperclip (you):\n\nShared from Paperclip");
+    expect(publication.commentId).toBe(first.commentId);
+    expect(await authorizeSlackSharedRequestPublication(db, publication)).toBe(true);
+    expect(await authorizeSlackSharedRequestPublication(db, { ...publication, payload: { text: "Modified later" } })).toBe(false);
+    expect(f.heartbeat.wakeup).not.toHaveBeenCalled();
+    const restarted = slackBoardRepliesService(db, f.heartbeat);
+    for (const state of ["pending", "retry", "delivery_unknown", "failed"] as const) {
+      await db.update(chatPublications).set({ state }).where(eq(chatPublications.id, publication.id));
+      await restarted.processPending();
+      expect(f.heartbeat.wakeup).not.toHaveBeenCalled();
+    }
+    await db.update(chatPublications).set({ state: "published", providerMessageId: "9001.000001" }).where(eq(chatPublications.id, publication.id));
+    await restarted.processPending();
+    await restarted.processPending();
+    expect(f.heartbeat.wakeup).toHaveBeenCalledOnce();
+    expect(await db.select().from(issueComments).where(eq(issueComments.issueId, f.issueId))).toHaveLength(1);
+    expect(await db.select().from(chatPublications).where(eq(chatPublications.companyId, f.companyId))).toHaveLength(1);
+    expect(await db.select().from(chatDeliveries).where(eq(chatDeliveries.companyId, f.companyId))).toHaveLength(1);
+  });
+
+  it("revocation before a shared send blocks both the request publication and the CEO wake", async () => {
+    const f = await fixture();
+    await threadBinding(f);
+    await f.service.request(f.scope, "Do not send after revocation", randomUUID());
+    const [publication] = await db.select().from(chatPublications).where(eq(chatPublications.companyId, f.companyId));
+    await db.update(chatIdentityLinks).set({ status: "revoked" }).where(eq(chatIdentityLinks.endpointId, f.endpointId));
+    expect(await authorizeSlackSharedRequestPublication(db, publication)).toBe(false);
+    await f.service.processPending();
+    expect(f.heartbeat.wakeup).not.toHaveBeenCalled();
+    expect((await db.select().from(chatActions).where(eq(chatActions.companyId, f.companyId)))[0].status).toBe("failed");
+  });
+
+  it("editing the saved request does not silently replace the text authorized for Slack", async () => {
+    const f = await fixture();
+    await threadBinding(f);
+    const result = await f.service.request(f.scope, "Original shared request", randomUUID());
+    await db.update(issueComments).set({ body: "Private replacement" }).where(eq(issueComments.id, result.commentId));
+    const [publication] = await db.select().from(chatPublications).where(eq(chatPublications.companyId, f.companyId));
+    expect(await authorizeSlackSharedRequestPublication(db, publication)).toBe(false);
+    await f.service.processPending();
+    expect(f.heartbeat.wakeup).not.toHaveBeenCalled();
+  });
+
+  it("does not authorize a threaded task merely from an existing linked identity and inbound receipt", async () => {
+    const f = await fixture();
+    await threadBinding(f);
+    await db.update(chatConversations).set({ originUserId: "another-user" }).where(eq(chatConversations.id, f.conversationId));
+    await expect(f.service.request(f.scope, "Do not start", randomUUID())).rejects.toMatchObject({ status: 403 });
+    expect(f.heartbeat.wakeup).not.toHaveBeenCalled();
+    expect(await db.select().from(issueComments).where(eq(issueComments.issueId, f.issueId))).toHaveLength(0);
+  });
+
+  it("enforces thread shape, channel and tenant constraints in the database", async () => {
+    const f = await fixture(), other = await fixture();
+    await threadBinding(f);
+    for (const change of [{ externalThreadId: "slack:DOTHER:9000.000001" }, { sessionGeneration: 2 },
+      { originPrincipalId: null }, { originPrincipalId: other.principalId }, { bindingMode: "unknown" as never }]) {
+      await expect(db.update(chatConversations).set(change).where(eq(chatConversations.id, f.conversationId))).rejects.toThrow();
+    }
   });
 });

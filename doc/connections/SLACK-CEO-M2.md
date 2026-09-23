@@ -69,6 +69,10 @@ The live schema reviewed on 2026-09-22 uses `channel_id`, `oldest`, `latest`,
 add required `message_ts`, not `ts`. Both calls receive bounded time windows;
 thread roots must also be inside that window. Structural fixtures match these
 live schemas. The pilot caps thread page size at 100 even if Slack permits more.
+The gateway sends fractional Slack timestamps even for whole-second boundaries
+(`seconds.000000`). A live test showed integer-string bounds could return only a
+parent with misleading no-more-messages metadata. Preserve caller fractional
+precision without converting timestamps through floating-point formatting.
 
 The gateway enforces the configured channel, seven-day window, at most 200
 requested message records and 30 thread calls per human turn. Failed calls
@@ -97,6 +101,67 @@ service/routes/UI tests, and the M1 OAuth/reply/lifecycle/publication regression
 The database tests use a simulated provider, not the normal Slack workspace.
 Real user OAuth, exact upstream tool schemas, bounded reads, second-request reuse
 and live restart recovery remain required before declaring live M2 acceptance.
+
+### September 22 live follow-up
+
+After the timestamp correction and an isolated server restart, the normal
+governed path returned 20 actual replies plus their parent using a saved grant.
+Run `9dd42610-01f7-46ff-8889-44ac28bf9f88` settled TES-2 to Idle. Publication
+`fa4a20e5-0be3-4be6-a646-1780890a7d18` reached Slack in one attempt.
+A controlled signed replay of an already-processed DM message returned 200 with
+no increase in tasks, runs, deliveries or publications. This is not a naturally
+observed Slack retry.
+
+At 22:41–22:50 PDT, the user approved resetting only personal reads. The real
+removal/reconnect path exposed and fixed retained-application uniqueness handling;
+old credentials remain revoked, and foreign-owner applications cannot be adopted.
+The pending request survived the pilot restart. The user approved fresh OAuth;
+run `4e45ba40-7d64-46e8-8dd9-da927a0dc838` resumed the original request and read
+five messages. Publication `8913ab75-0328-4581-a448-d8f9b07dc86c` reached Slack
+in one attempt and TES-2 returned to Idle. A crash immediately AFTER OAuth
+acceptance, before wake delivery, remains a separate live test.
+
+At that earlier checkpoint, 110 focused tests and direct server typechecking passed. M2b was planned in
+[threaded research](../plans/2026-09-22-slack-ceo-threaded-research.md). Its v2
+permission definitions are tested but not admitted by existing v1 OAuth/runtime
+entry points. Do not add scopes to the app until its upgrade path is ready.
+
+A subsequent backend checkpoint added a generated legacy-default thread-binding
+migration and saved activation cutoff, exact originating-person/root checks,
+and the shared-request outbox: v2 board requests must reach Slack before waking
+the CEO. 227 focused tests and server/UI TypeScript checks pass. The new mode is
+not activated; no live migration, new scopes or UI changes have been applied.
+See the threaded-research plan for the remaining UI/privacy/research work and the
+two broader integration failures also reproduced against committed code.
+
+### Current threaded-DM preview
+
+The narrow preview is now deployed on the isolated authenticated pilot after a
+private database backup and migration 0284. The new **Enable threaded DMs**
+button starts an explicit same-identity bot OAuth upgrade, adding only
+`reactions:write`; user consent and exact validation must succeed before activation.
+Personal reads and old conversation bindings are unchanged. New top-level DMs
+after activation get one task/thread, a deduplicated eyes receipt and editable
+working status. Both native and legacy ACPX runs can supply safe coarse progress;
+tool updates are coalesced, and short runs may only show working then the answer.
+
+For new v2 bindings, **Reply via Slack** shares request and answer. The normal
+Paperclip composer is still internal, disclosed in the banner. Default sharing,
+human-only notes, explicit child-task linkage and historical screenshot research
+remain unfinished. This is not full M2b acceptance. Focused verification includes
+291 tests in 11 suites and 34 selected integration checks, plus server/UI/adapter
+typechecks and the UI build. The bot upgrade has now completed: live status shows
+active v2, reactions enabled and cutoff `1790145683.516000`. Real threaded Slack
+acceptance began with a real post-upgrade DM. A callback channel-ID mismatch was
+found and corrected (namespaced SDK ID versus bare provider ID); 38 targeted
+checks and server typechecking pass. TES-4 now provides live proof of one eyes
+receipt, one threaded working message, and an in-place final answer. Eyes are
+removed on completion. Subsequent live checks verified same-thread continuity on
+TES-4, a separate TES-5 root, labelled Paperclip request plus answer through Reply
+via Slack, and “CEO is using tools…” followed by a final answer in the same thread.
+The normal composer remains internal in this checkpoint. Next: Tasks-list
+visibility for Idle conversations, shared-default v2 composer and isolated
+human-only notes. No extra OAuth consent is needed for these UX fixes.
 
 Implementation, coding-worker approval, artifacts, GitHub and merge are later
 milestones. Discovery guidance is not a security boundary for every CEO tool.

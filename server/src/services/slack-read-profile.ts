@@ -3,9 +3,9 @@ import { and, eq } from "drizzle-orm";
 import { chatConversations, chatEndpoints, type Db } from "@paperclipai/db";
 import { forbidden, unprocessable } from "../errors.js";
 import { authorizeSlackPilotConversation } from "./slack-board-replies.js";
+import { hasExactSlackCeoScopes, SLACK_READ_PROFILE } from "./slack-ceo-permission-profiles.js";
+export { SLACK_READ_PROFILE, SLACK_READ_SCOPES } from "./slack-ceo-permission-profiles.js";
 
-export const SLACK_READ_PROFILE = "slack-public-read-v1" as const;
-export const SLACK_READ_SCOPES = ["channels:history", "channels:read"] as const;
 export const SLACK_READ_TOOLS = {
   "slack.read_channel": "slack_read_channel",
   "slack.read_thread": "slack_read_thread",
@@ -21,8 +21,7 @@ export const SLACK_READ_WINDOW_GUIDANCE = "Omit oldest/latest on the initial rea
  * This is not an additional requested data scope. Missing/extra reads or any
  * write scope still fail closed. */
 export function hasSlackReadRuntimeScopes(scopes: readonly string[]) {
-  return SLACK_READ_SCOPES.every(scope => scopes.includes(scope)) &&
-    scopes.every(scope => scope === "identify" || (SLACK_READ_SCOPES as readonly string[]).includes(scope));
+  return hasExactSlackCeoScopes(SLACK_READ_PROFILE, scopes, "runtime");
 }
 
 export function object(value: unknown): Record<string, unknown> {
@@ -111,8 +110,7 @@ export function validateSlackReadTokenResponse(payload: unknown, expected: { app
       (identity.app_id !== undefined && identity.app_id !== expected.appId)) {
     throw forbidden("Slack authorized a different app than the configured pilot", { code: "slack_read_app_mismatch" });
   }
-  const exactScopes = (candidate: string[]) => SLACK_READ_SCOPES.every(scope => candidate.includes(scope)) &&
-    candidate.every(scope => (SLACK_READ_SCOPES as readonly string[]).includes(scope));
+  const exactScopes = (candidate: string[]) => hasExactSlackCeoScopes(SLACK_READ_PROFILE, candidate);
   if (!exactScopes(scopes) || (response.scope !== undefined && !exactScopes(String(response.scope).split(/[ ,]+/).filter(Boolean)))) {
     throw unprocessable("Slack must grant exactly public-channel metadata and history access", { code: "slack_read_scope_mismatch" });
   }
@@ -163,6 +161,13 @@ export function governedSlackReadArguments(input: {
       !/^\d+\.\d+$/.test(String(args.message_ts)) || Number(args.message_ts) < oldest || Number(args.message_ts) > now)) {
     throw forbidden("Only threads rooted within the seven-day scan are supported");
   }
+  // Slack's MCP thread reader requires Slack ts strings even for whole-second
+  // boundaries. Integer strings can return only the parent with a misleading
+  // "no more messages" result. Preserve caller precision without float rounding.
+  const slackTimestamp = (value: unknown, fallback: number) => {
+    const text = value === undefined ? String(fallback) : String(value);
+    return text.includes(".") ? text : `${text}.000000`;
+  };
   return { ...args, channel_id: input.channelId, limit: args.limit ?? 30,
-    oldest: args.oldest ?? String(oldest), latest: args.latest ?? String(now) };
+    oldest: slackTimestamp(args.oldest, oldest), latest: slackTimestamp(args.latest, now) };
 }

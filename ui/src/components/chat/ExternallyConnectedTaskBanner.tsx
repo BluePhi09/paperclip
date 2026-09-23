@@ -157,6 +157,16 @@ function ConnectedTaskComposer({
   const { pushToast } = useToast();
   const queryClient = useQueryClient();
   const [composing, setComposing] = useState(false);
+  const upgradeThreads = useMutation({
+    mutationFn: () => chatEndpointsApi.startSlackThreadUpgrade(binding.endpointId),
+    onSuccess: ({ authorizationUrl }) => {
+      const url = new URL(authorizationUrl);
+      if (url.origin !== "https://slack.com" || url.pathname !== "/oauth/v2/authorize" || url.username || url.password) {
+        throw new Error("Unexpected Slack consent destination");
+      }
+      window.location.assign(url.href);
+    },
+  });
   const [body, setBody] = useState("");
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<string[]>(
     [],
@@ -523,7 +533,11 @@ function ConnectedTaskComposer({
           </Button>
         </div>
       </div>
-      {binding.slackReplyAvailable && <SlackReplyComposer companyId={companyId} issueId={issueId} issueCacheRefs={issueCacheRefs}
+      {binding.slackThreadUpgradeAvailable && <SlackThreadUpgradeNotice pending={upgradeThreads.isPending}
+        error={upgradeThreads.isError ? (upgradeThreads.error instanceof Error ? upgradeThreads.error.message : "Could not start the upgrade.") : null}
+        onUpgrade={() => upgradeThreads.mutate()} />}
+      {binding.bindingMode === "slack_dm_thread_v2" && <p className="text-xs text-muted-foreground">Thread preview: use Reply via Slack to share a request and the CEO’s answer in this thread. The normal Paperclip composer does not send messages to Slack yet.</p>}
+      {binding.slackReplyAvailable && <SlackReplyComposer sharedThread={binding.bindingMode === "slack_dm_thread_v2"} companyId={companyId} issueId={issueId} issueCacheRefs={issueCacheRefs}
         endpointId={binding.endpointId} conversationId={binding.conversationId} />}
       {composing && (
         <div className="space-y-2 border-t border-border pt-3">
@@ -891,4 +905,16 @@ function ConnectedTaskComposer({
       )}
     </section>
   );
+}
+
+export function SlackThreadUpgradeNotice({ pending = false, error = null, onUpgrade }: {
+  pending?: boolean; error?: string | null; onUpgrade: () => void;
+}) {
+  return <div className="space-y-2 border-t border-border pt-3">
+    <p className="text-xs text-muted-foreground">Enable a separate task/thread for each new Slack DM, with an acknowledgement reaction and working status. Adds only the bot’s reactions permission. Existing conversations stay unchanged.</p>
+    <Button size="sm" variant="outline" disabled={pending} onClick={onUpgrade}>
+      {pending ? "Opening Slack…" : "Enable threaded DMs"}
+    </Button>
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+  </div>;
 }

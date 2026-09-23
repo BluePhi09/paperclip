@@ -189,7 +189,7 @@ export interface SlackAppConfiguration {
 
 export interface ChatEndpointSetupState {
   /** Safe deployment readiness, never OAuth credentials or transaction state. */
-  slackOAuth?: { enabled: boolean; configured: boolean; callbackUrl: string | null; profile: "ceo-dm-v1"; missing: string[]; scopes: string[] };
+  slackOAuth?: { enabled: boolean; configured: boolean; callbackUrl: string | null; profile: "ceo-dm-v1" | "ceo-dm-threaded-v2"; missing: string[]; scopes: string[] };
   github?: {
     stage: "connect" | "install" | "repositories" | "verify" | "identity" | "behavior" | "test";
     appSlug?: string;
@@ -311,6 +311,8 @@ export interface ChatIdentityLink {
   revokedAt?: string | null;
 }
 
+export type ChatConversationBindingMode = "legacy" | "slack_dm_thread_v2";
+
 export interface ChatConversation {
   id: string;
   companyId: string;
@@ -321,6 +323,8 @@ export interface ChatConversation {
   issueTitle?: string | null;
   externalConversationId: string;
   externalThreadId: string;
+  /** Legacy rows never acquire shared-thread semantics implicitly. */
+  bindingMode?: ChatConversationBindingMode;
   sessionGeneration: number;
   externalLabel: string;
   externalUrl?: string | null;
@@ -472,8 +476,11 @@ export interface SlackReplyReceipt {
 }
 
 export interface ExternalChannelBindingSummary {
+  /** Persisted routing version; not itself permission to send. */
+  bindingMode?: ChatConversationBindingMode;
   /** UI capability hint only; the reply API independently authorizes the signed-in person. */
   slackReplyAvailable?: boolean;
+  slackThreadUpgradeAvailable?: boolean;
   endpointId: string;
   provider: ChatProvider;
   botLabel?: string | null;

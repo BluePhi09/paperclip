@@ -71,6 +71,8 @@ export interface ChatConversation {
 
 export interface ExternalChannelBindingSummary {
   slackReplyAvailable?: boolean;
+  slackThreadUpgradeAvailable?: boolean;
+  bindingMode?: "legacy" | "slack_dm_thread_v2";
   endpointId: string;
   provider: ChatProvider;
   botLabel?: string | null;
@@ -219,6 +221,9 @@ export const chatEndpointsApi = {
   finishSlackSetup: (endpointId: string) => api.post<ChatEndpoint>(`/chat-endpoints/${endpointId}/finish`, {}),
   startSlackBotOAuth: (endpointId: string) => api.post<{ authorizationUrl: string; expiresAt: string }>(
     `/chat-endpoints/${endpointId}/slack/oauth/start`, { permissionProfile: "ceo-dm-v1" },
+  ),
+  startSlackThreadUpgrade: (endpointId: string) => api.post<{ authorizationUrl: string; expiresAt: string }>(
+    `/chat-endpoints/${endpointId}/slack/threading/upgrade`, { permissionProfile: "ceo-dm-threaded-v2" },
   ),
   setupTestStatus: (endpointId: string) => api.get<{ messageReceivedAt: string | null }>(`/chat-endpoints/${endpointId}/test-status`),
   requestIdentityAccess: (token: string) => api.post<{ status: "member" | "pending_approval" }>("/chat-identity-links/request-access", { token }),

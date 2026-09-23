@@ -7,8 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { queryKeys } from "@/lib/queryKeys";
 
 type Draft = { body: string; clientRequestId: string };
-export function SlackReplyComposer({ companyId, issueId, endpointId, conversationId, issueCacheRefs = [] }: {
-  companyId: string; issueId: string; endpointId: string; conversationId: string; issueCacheRefs?: string[];
+export function SlackReplyComposer({ companyId, issueId, endpointId, conversationId, issueCacheRefs = [], sharedThread = false }: {
+  companyId: string; issueId: string; endpointId: string; conversationId: string; issueCacheRefs?: string[]; sharedThread?: boolean;
 }) {
   const client = useQueryClient();
   const session = useQuery({ queryKey: queryKeys.auth.session, queryFn: authApi.getSession });
@@ -54,8 +54,10 @@ export function SlackReplyComposer({ companyId, issueId, endpointId, conversatio
   return <div className="space-y-3">
     <Button size="sm" variant="outline" onClick={() => setOpen(value => !value)}>Reply via Slack</Button>
     {open && <div className="space-y-3 border-t border-border pt-3">
-      <label htmlFor="slack-agent-reply" className="text-sm font-medium">Ask the agent to reply in your linked Slack DM</label>
-      <p className="text-xs text-muted-foreground">Only the agent’s answer to this request is sent to Slack. Your request is saved in Paperclip. Ordinary task messages stay internal.</p>
+      <label htmlFor="slack-agent-reply" className="text-sm font-medium">Ask the agent to reply in your linked Slack {sharedThread ? "thread" : "DM"}</label>
+      <p className="text-xs text-muted-foreground">{sharedThread
+        ? "Your request and the agent’s answer are shared in the linked Slack thread. The agent starts after your request is delivered."
+        : "Only the agent’s answer to this request is sent to Slack. Your request is saved in Paperclip. Ordinary task messages stay internal."}</p>
       <Textarea id="slack-agent-reply" value={body} onChange={event => setBody(event.target.value)}
         disabled={send.isPending || Boolean(saved)} maxLength={8000} placeholder="What should the agent answer in Slack?" />
       {storageError && <p role="alert" className="text-sm text-destructive">The saved request could not be read. Restore browser storage before sending.</p>}

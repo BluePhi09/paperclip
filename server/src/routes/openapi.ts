@@ -2696,6 +2696,14 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "post", path: "/api/chat-endpoints/{endpointId}/slack/threading/upgrade", tags: ["chat-channels"],
+  summary: "Request consent for threaded pilot DMs and acknowledgement reactions",
+  description: "Same-person, session-bound upgrade of an active legacy pilot. Existing credentials stay active until the exact bot grant is verified and committed with the immutable threading cutoff. No channel/file permissions are added.",
+  request: { params: z.object({ endpointId: z.string().uuid() }), body: jsonBody(z.object({ permissionProfile: z.literal("ceo-dm-threaded-v2") }).strict()) },
+  responses: { 200: r.ok(z.object({ authorizationUrl: z.string(), expiresAt: z.string() })), 400: r.badRequest, 403: r.forbidden, 404: r.notFound, 409: r.conflict, 422: r.unprocessable },
+});
+
+registry.registerPath({
   method: "post",
   path: "/api/chat-endpoints/{endpointId}/conversations/{conversationId}/publications",
   tags: ["chat-channels"],

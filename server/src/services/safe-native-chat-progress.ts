@@ -1,4 +1,5 @@
 export const SAFE_NATIVE_CHAT_PROGRESS_EVENT_TYPES = [
+  "chat.progress.using_tools",
   "workspace.ready",
   "research.started",
   "research.progressed",
@@ -40,6 +41,7 @@ export type SafeNativeChatProgressPhase =
 const SAFE_NATIVE_CHAT_PROGRESS_PHASES: Readonly<
   Record<SafeNativeChatProgressEventType, SafeNativeChatProgressPhase>
 > = {
+  "chat.progress.using_tools": "using_tools",
   "workspace.ready": "preparing",
   "research.started": "researching",
   "research.progressed": "researching",

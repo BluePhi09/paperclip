@@ -9,6 +9,14 @@ function exchange(body: unknown, status = 200) {
 }
 
 describe("Slack CEO DM OAuth boundary", () => {
+  it("binds threaded scopes explicitly, never infers an upgrade from a token", async () => {
+    const profile = "ceo-dm-threaded-v2";
+    const upgraded = { ...installation, scope: `${installation.scope},reactions:write` };
+    const request = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json(upgraded));
+    expect(new URL(slackBotAuthorizationUrl(config, "nonce", profile)).searchParams.get("scope")).toBe(upgraded.scope);
+    await expect(exchangeSlackBotCode(config, "code", request)).rejects.toThrow(/exactly/);
+    await expect(exchangeSlackBotCode(config, "code", request, profile)).resolves.toMatchObject({ scopes: [...SLACK_CEO_DM_SCOPES, "reactions:write"] });
+  });
   it("is disabled by default and does not expose environment values", () => {
     expect(slackBotOAuthStatus("http://localhost:3210", "id", {})).toMatchObject({ enabled: false, configured: false, callbackUrl: null });
     const env = Object.fromEntries(Object.entries(config).map(([key, value]) => [`PAPERCLIP_SLACK_CEO_POC_${key}`, value]));

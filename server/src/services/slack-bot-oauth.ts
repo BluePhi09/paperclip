@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { forbidden, unprocessable } from "../errors.js";
+import { hasExactSlackCeoScopes, slackCeoBotScopes, type SlackCeoBotProfile, SLACK_CEO_DM_PROFILE, SLACK_CEO_DM_SCOPES } from "./slack-ceo-permission-profiles.js";
+export { SLACK_CEO_DM_PROFILE, SLACK_CEO_DM_SCOPES } from "./slack-ceo-permission-profiles.js";
 
 /** The existing adapter profile, not a least-privilege production profile. */
 export const SLACK_ADAPTER_BOT_SCOPES = [
@@ -8,10 +10,6 @@ export const SLACK_ADAPTER_BOT_SCOPES = [
   "groups:read", "im:history", "im:read", "mpim:history", "mpim:read",
   "reactions:read", "reactions:write", "users:read",
 ] as const;
-
-/** DM reception, DM metadata, replies, author identity and private /connect. */
-export const SLACK_CEO_DM_SCOPES = ["chat:write", "commands", "im:history", "im:read", "users:read"] as const;
-export const SLACK_CEO_DM_PROFILE = "ceo-dm-v1" as const;
 
 /** Called only after Slack's raw-body signature has been verified. */
 export function slackDmPilotRequestAllowed(raw: string, contentType: string, appId: string | undefined, userId: string | undefined) {
@@ -38,7 +36,7 @@ const PREFIX = "PAPERCLIP_SLACK_CEO_POC_";
 const REQUIRED = ["COMPANY_ID", "USER_ID", "AGENT_ID", "APP_ID", "TEAM_ID", "CLIENT_ID", "CLIENT_SECRET", "SIGNING_SECRET"] as const;
 export type SlackBotOAuthConfig = Record<(typeof REQUIRED)[number], string>;
 
-export function slackBotOAuthStatus(publicBaseUrl: string | null, endpointId: string, env = process.env) {
+export function slackBotOAuthStatus(publicBaseUrl: string | null, endpointId: string, env = process.env, profile: SlackCeoBotProfile = SLACK_CEO_DM_PROFILE) {
   const enabled = env[`${PREFIX}ENABLED`] === "true";
   let callbackUrl: string | null = null;
   try {
@@ -55,8 +53,8 @@ export function slackBotOAuthStatus(publicBaseUrl: string | null, endpointId: st
       ...REQUIRED.filter((key) => !env[`${PREFIX}${key}`]?.trim()).map((key) => `${PREFIX}${key}`),
       ...(!callbackUrl ? ["PAPERCLIP_PUBLIC_URL (HTTPS)"] : []),
     ] : [],
-    profile: SLACK_CEO_DM_PROFILE,
-    scopes: [...SLACK_CEO_DM_SCOPES],
+    profile,
+    scopes: [...slackCeoBotScopes(profile)],
   };
 }
 
@@ -85,17 +83,17 @@ export function assertSlackBotOAuthActor(
   }
 }
 
-export function slackBotAuthorizationUrl(config: SlackBotOAuthConfig & { callbackUrl: string }, state: string) {
+export function slackBotAuthorizationUrl(config: SlackBotOAuthConfig & { callbackUrl: string }, state: string, profile: SlackCeoBotProfile = SLACK_CEO_DM_PROFILE) {
   const url = new URL("https://slack.com/oauth/v2/authorize");
   url.searchParams.set("client_id", config.CLIENT_ID);
   url.searchParams.set("redirect_uri", config.callbackUrl);
   url.searchParams.set("team", config.TEAM_ID);
-  url.searchParams.set("scope", SLACK_CEO_DM_SCOPES.join(","));
+  url.searchParams.set("scope", slackCeoBotScopes(profile).join(","));
   url.searchParams.set("state", state);
   return url.href;
 }
 
-export async function exchangeSlackBotCode(config: SlackBotOAuthConfig & { callbackUrl: string }, code: string, fetchImpl = globalThis.fetch) {
+export async function exchangeSlackBotCode(config: SlackBotOAuthConfig & { callbackUrl: string }, code: string, fetchImpl = globalThis.fetch, profile: SlackCeoBotProfile = SLACK_CEO_DM_PROFILE) {
   const response = await fetchImpl("https://slack.com/api/oauth.v2.access", {
     method: "POST", redirect: "error", signal: AbortSignal.timeout(15_000),
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -118,7 +116,7 @@ export async function exchangeSlackBotCode(config: SlackBotOAuthConfig & { callb
   // never silently turn off an administrator's token rotation requirement.
   if (body.refresh_token || body.expires_in) throw unprocessable("This pilot does not yet support rotating Slack bot tokens. Keep your workspace policy unchanged.", { code: "slack_bot_rotation_unsupported" });
   const scopes = typeof body.scope === "string" ? body.scope.split(/[ ,]+/).filter(Boolean) : [];
-  if (SLACK_CEO_DM_SCOPES.some((scope) => !scopes.includes(scope)) || scopes.some(scope => !(SLACK_CEO_DM_SCOPES as readonly string[]).includes(scope))) {
+  if (!hasExactSlackCeoScopes(profile, scopes)) {
     throw unprocessable("This pilot needs exactly the DM-only permissions. Use a separate app without previous broader grants.", { code: "slack_bot_scope_profile_mismatch" });
   }
   return { botToken: body.access_token, botUserId: body.bot_user_id, installingUserId: user.id, scopes };

@@ -181,6 +181,15 @@ export function chatChannelRoutes(db: Db, options: ChatChannelRouteOptions) {
     res.json(await service.startSlackBotOAuth(endpointId(req), actor));
   });
 
+  router.post("/chat-endpoints/:endpointId/slack/threading/upgrade", validate(z.object({
+    permissionProfile: z.literal("ceo-dm-threaded-v2"),
+  }).strict()), async (req, res) => {
+    const actor = slackOAuthActor(req);
+    if (!(await assertEndpointManagementAccess(req, res))) return;
+    res.set("Cache-Control", "no-store");
+    res.json(await service.startSlackThreadUpgrade(endpointId(req), actor));
+  });
+
   router.get("/chat-endpoints/:endpointId/slack/oauth/callback", async (req, res) => {
     const actor = slackOAuthActor(req);
     if (!(await assertEndpointManagementAccess(req, res))) return;
@@ -192,7 +201,9 @@ export function chatChannelRoutes(db: Db, options: ChatChannelRouteOptions) {
     const [company] = await db.select({ issuePrefix: companies.issuePrefix })
       .from(companies).where(eq(companies.id, endpoint.companyId)).limit(1);
     if (!company) throw notFound("Chat endpoint company not found");
-    const destination = `/${encodeURIComponent(company.issuePrefix)}/apps/chat/connect?provider=slack&purpose=chat&resume=${encodeURIComponent(endpointId(req))}&stage=credentials`;
+    const destination = endpoint.status === "active"
+      ? `/${encodeURIComponent(company.issuePrefix)}/apps/chat/${encodeURIComponent(endpointId(req))}/conversations`
+      : `/${encodeURIComponent(company.issuePrefix)}/apps/chat/connect?provider=slack&purpose=chat&resume=${encodeURIComponent(endpointId(req))}&stage=credentials`;
     try {
       await service.completeSlackBotOAuth(endpointId(req), {
         actor,
@@ -204,7 +215,7 @@ export function chatChannelRoutes(db: Db, options: ChatChannelRouteOptions) {
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
       // Never reflect the provider's error_description or OAuth code in UI URLs.
-      res.redirect(303, `${destination}&slackOauth=failed`);
+      res.redirect(303, `${destination}${destination.includes("?") ? "&" : "?"}slackOauth=failed`);
     }
   });
 

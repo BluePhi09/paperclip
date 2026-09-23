@@ -21,10 +21,18 @@ describe("explicit Slack reply composer", () => {
     client.setQueryData(queryKeys.auth.session, { user: { id: "user" } });
   });
   afterEach(() => { flushSync(() => root.unmount()); container.remove(); client.clear(); localStorage.clear(); });
-  async function render() {
-    await act(async () => { root.render(<QueryClientProvider client={client}><SlackReplyComposer companyId="company" issueId="issue" endpointId="endpoint" conversationId="conversation" /></QueryClientProvider>); });
+  async function render(sharedThread = false) {
+    await act(async () => { root.render(<QueryClientProvider client={client}><SlackReplyComposer sharedThread={sharedThread} companyId="company" issueId="issue" endpointId="endpoint" conversationId="conversation" /></QueryClientProvider>); });
   }
   const button = (text: string) => [...container.querySelectorAll("button")].find(b => b.textContent === text)!;
+  it("explains shared request delivery before execution in the new thread", async () => {
+    await render(true);
+    await act(async () => button("Reply via Slack").click());
+    expect(container.textContent).toContain("Your request and the agent’s answer are shared");
+    expect(container.textContent).toContain("starts after your request is delivered");
+    expect(container.textContent).not.toContain("Only the agent’s answer");
+    expect(chatEndpointsApi.requestSlackReply).not.toHaveBeenCalled();
+  });
   it("does not send anything on opening and explains the private default", async () => {
     await render();
     await act(async () => button("Reply via Slack").click());

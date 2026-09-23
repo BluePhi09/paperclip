@@ -595,7 +595,57 @@ describe("Chat SDK published adapter integration", () => {
     }
   });
 
-  it("parses signed Slack message edits and deletes through the pinned adapter", async () => {
+  it("routes two signed DM roots separately and sends each answer under its original message", async () => {
+    const signingSecret = "slack-threading-fixture";
+    const onMessage = vi.fn<ChatSdkRuntimeCallbacks["onMessage"]>(async () => undefined);
+    const runtime = createChatSdkEndpointRuntime({
+      callbacks: { onMessage }, companyId: "thread-test-company", endpointId: "thread-test-endpoint",
+      persistence: memoryPersistence(), logger: "silent",
+      providerConfig: { provider: "slack", userName: "paperclip-agent", nativeStreaming: false,
+        dmConversationMode: "message_threads",
+        dmThreadingSince: "1790000000.000000",
+        credentials: { signingSecret, botToken: "xoxb-fixture", botUserId: "UBOT" } },
+    });
+    try {
+      await runtime.initialize();
+      const postMessage = vi.fn(async (_input: unknown) => ({ ok: true, channel: "D123", ts: "1790000002.000001" }));
+      const adapter = runtime.getProviderAdapter() as unknown as {
+        _client: { users: { info: (input: unknown) => Promise<unknown> }; chat: { postMessage: typeof postMessage } };
+      };
+      adapter._client.users.info = vi.fn(async () => ({ ok: true, user: { id: "UHUMAN", name: "human", is_bot: false, profile: { display_name: "Human" } } }));
+      adapter._client.chat.postMessage = postMessage;
+      for (const [index, message] of [
+        { ts: "1790000000.000001", text: "First task" },
+        { ts: "1790000000.000002", text: "Second task" },
+        { ts: "1790000001.000001", thread_ts: "1790000000.000001", text: "Follow up on first task" },
+      ].entries()) {
+        const response = await runtime.handleWebhook(signedSlackEventRequest(signingSecret, {
+          type: "event_callback", team_id: "TTEST", event_id: `EvThread${index}`,
+          event: { type: "message", channel: "D123", channel_type: "im", user: "UHUMAN", ...message },
+        }));
+        expect(response.status).toBe(200);
+      }
+      const roots = onMessage.mock.calls.map(([event]) => event.thread.id);
+      expect(roots).toEqual(["slack:D123:1790000000.000001", "slack:D123:1790000000.000002", "slack:D123:1790000000.000001"]);
+      // The SDK prefixes channel IDs too; service admission must canonicalize
+      // this field rather than compare it directly with a bare provider ID.
+      expect(onMessage.mock.calls.map(([event]) => event.thread.channelId)).toEqual([
+        "slack:D123", "slack:D123", "slack:D123",
+      ]);
+      await runtime.thread(roots[0]).post("First answer");
+      await runtime.thread(roots[1]).post("Second answer");
+      expect(postMessage.mock.calls.map(([input]) => input)).toEqual([
+        expect.objectContaining({ channel: "D123", thread_ts: "1790000000.000001" }),
+        expect.objectContaining({ channel: "D123", thread_ts: "1790000000.000002" }),
+      ]);
+    } finally { await runtime.shutdown(); }
+  });
+
+  it.each([
+    { channel: "C-PAPERCLIP", channelType: "channel", mode: undefined, root: "1788.400", expectedRoot: "1788.400" },
+    { channel: "D123", channelType: "im", mode: "message_threads" as const, root: undefined, expectedRoot: "1788.500" },
+    { channel: "D123", channelType: "im", mode: "message_threads" as const, root: "1788.400", expectedRoot: "1788.400" },
+  ])("parses signed Slack edits/deletes with consistent thread identity: $channel/$root", async ({ channel, channelType, mode, root, expectedRoot }) => {
     const signingSecret = "slack-lifecycle-signing-secret";
     const onMessageUpdated = vi.fn(async () => undefined);
     const onMessageDeleted = vi.fn(async () => undefined);
@@ -611,6 +661,8 @@ describe("Chat SDK published adapter integration", () => {
       persistence,
       providerConfig: {
         provider: "slack",
+        dmConversationMode: mode,
+        dmThreadingSince: mode ? "1788.000000" : undefined,
         userName: "paperclip-agent",
         credentials: {
           botToken: "xoxb-test",
@@ -643,7 +695,7 @@ describe("Chat SDK published adapter integration", () => {
         user: "U-OPERATOR",
         text: "@paperclip-agent original request",
         ts: "1788.500",
-        thread_ts: "1788.400",
+        thread_ts: root,
       };
 
       const edited = await runtime.handleWebhook(
@@ -654,8 +706,8 @@ describe("Chat SDK published adapter integration", () => {
           event: {
             type: "message",
             subtype: "message_changed",
-            channel: "C-PAPERCLIP",
-            channel_type: "channel",
+            channel,
+            channel_type: channelType,
             event_ts: "1788.600",
             message: {
               ...previousMessage,
@@ -673,7 +725,7 @@ describe("Chat SDK published adapter integration", () => {
           endpointId: "endpoint-slack-lifecycle-envelope",
           provider: "slack",
           thread: expect.objectContaining({
-            id: "slack:C-PAPERCLIP:1788.400",
+            id: `slack:${channel}:${expectedRoot}`,
           }),
           message: expect.objectContaining({
             id: "1788.500",
@@ -694,8 +746,8 @@ describe("Chat SDK published adapter integration", () => {
           event: {
             type: "message",
             subtype: "message_deleted",
-            channel: "C-PAPERCLIP",
-            channel_type: "channel",
+            channel,
+            channel_type: channelType,
             deleted_ts: "1788.500",
             event_ts: "1788.700",
             previous_message: previousMessage,
@@ -709,9 +761,9 @@ describe("Chat SDK published adapter integration", () => {
           endpointId: "endpoint-slack-lifecycle-envelope",
           provider: "slack",
           event: expect.objectContaining({
-            channelId: "C-PAPERCLIP",
+            channelId: channel,
             messageId: "1788.500",
-            threadId: "slack:C-PAPERCLIP:1788.400",
+            threadId: `slack:${channel}:${expectedRoot}`,
           }),
         }),
       );

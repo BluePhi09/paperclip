@@ -134,6 +134,7 @@ import * as discordQuestionForms from "../services/chat-discord-question-forms.j
 import { issueService } from "../services/issues.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { getExternalChannelBindingSummary } from "../services/chat-channel-binding.js";
+import { slackBoardRepliesService } from "../services/slack-board-replies.js";
 import { PaperclipRunnerToolAuthority } from "../services/native-runtime/paperclip-runner-tool-authority.js";
 import { NativeChatAttachmentReadScope } from "../services/native-runtime/chat-attachment-read.js";
 import { logActivity } from "../services/activity-log.js";
@@ -1244,7 +1245,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     const token = { ok: true, app_id: "ATEST", team: { id: "TTEST" }, authed_user: { id: "UOWNER" }, access_token: "xoxb-synthetic-token", token_type: "bot", bot_user_id: botId, scope: SLACK_CEO_DM_SCOPES.join(",") };
     const providerFetch = vi.fn<typeof fetch>(async input => {
       if (String(input) === "https://slack.com/api/oauth.v2.access") return Response.json(token);
-      if (String(input) === "https://slack.com/api/auth.test") return Response.json({ ok: true, team_id: "TTEST", team: "Pilot", user_id: botId, user: `ceo-${botId}` }, { headers: { "x-oauth-scopes": SLACK_CEO_DM_SCOPES.join(",") } });
+      if (String(input) === "https://slack.com/api/auth.test") return Response.json({ ok: true, team_id: "TTEST", team: "Pilot", user_id: botId, user: `ceo-${botId}` }, { headers: { "x-oauth-scopes": token.scope } });
       throw new Error(`Unexpected provider request: ${String(input)}`);
     });
     const services = createService(undefined, providerFetch);
@@ -1256,6 +1257,215 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
   }
 
   describe("Slack CEO DM-only OAuth pilot", () => {
+    async function activeLegacyFixture() {
+      const f = await slackCeoOAuthFixture();
+      await f.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor });
+      await f.service.handleWebhook(f.endpoint.publicId, "slack", signedSlackWebhookRequest({
+        url: `https://paperclip.example/api/chat-webhooks/${f.endpoint.publicId}/slack`, contentType: "application/json",
+        body: JSON.stringify({ type: "url_verification", challenge: "verified-challenge" }),
+      }));
+      await f.service.configure(f.endpoint.id, { action: "verify" }, "owner-user");
+      await f.service.finishSlackSetup(f.endpoint.id, "owner-user");
+      return f;
+    }
+
+    it.each(["declined", "wrong-scope", "wrong-installer", "revoked-link", "wrong-session", "stale-generation"])("retains the existing bot when a threaded upgrade fails: %s", async failure => {
+      const f = await activeLegacyFixture();
+      const [before] = await db.select().from(toolConnections).where(eq(toolConnections.id, f.endpoint.connectionId));
+      const begin = await f.service.startSlackThreadUpgrade(f.endpoint.id, f.actor);
+      const state = new URL(begin.authorizationUrl).searchParams.get("state")!;
+      f.token.scope += ",reactions:write";
+      if (failure === "wrong-scope") f.token.scope += ",files:read";
+      if (failure === "wrong-installer") f.token.authed_user.id = "UOTHER";
+      if (failure === "revoked-link") await db.update(chatIdentityLinks).set({ status: "revoked", revokedAt: new Date() }).where(eq(chatIdentityLinks.endpointId, f.endpoint.id));
+      if (failure === "stale-generation") {
+        const [endpoint] = await db.select().from(chatEndpoints).where(eq(chatEndpoints.id, f.endpoint.id));
+        await db.update(chatEndpoints).set({ setup: { ...endpoint.setup, runtimeGeneration: 999 } as any }).where(eq(chatEndpoints.id, f.endpoint.id));
+      }
+      await expect(f.service.completeSlackBotOAuth(f.endpoint.id, { state, code: "upgrade-code", error: failure === "declined" ? "access_denied" : null,
+        actor: failure === "wrong-session" ? { ...f.actor, sessionId: "another" } : f.actor })).rejects.toThrow();
+      const [after] = await db.select().from(toolConnections).where(eq(toolConnections.id, f.endpoint.connectionId));
+      const [endpoint] = await db.select().from(chatEndpoints).where(eq(chatEndpoints.id, f.endpoint.id));
+      expect(after.credentialSecretRefs).toEqual(before.credentialSecretRefs);
+      expect(after).toMatchObject({ enabled: true, status: "active" });
+      expect(endpoint).toMatchObject({ status: "active", capabilities: { reactions: false }, setup: { slackPermissionProfile: "ceo-dm-v1" } });
+      expect((endpoint.setup as any).slackDmThreading).toBeUndefined();
+    });
+
+    it.each(["native", "legacy"] as const)("upgrades once through fresh consent, acknowledges one root, and edits working progress in that thread: %s", async runtimeMode => {
+      const f = await activeLegacyFixture();
+      const begin = await f.service.startSlackThreadUpgrade(f.endpoint.id, f.actor);
+      const url = new URL(begin.authorizationUrl);
+      expect(url.searchParams.get("scope")?.split(",")).toEqual([...SLACK_CEO_DM_SCOPES, "reactions:write"]);
+      expect(url.searchParams.has("user_scope")).toBe(false);
+      f.token.scope += ",reactions:write";
+      const state = url.searchParams.get("state")!;
+      // Durable state survives service reconstruction, without a fresh grant.
+      await f.service.shutdown();
+      const restored = createService(undefined, f.providerFetch);
+      await restored.service.completeSlackBotOAuth(f.endpoint.id, { state, code: "upgrade-code", actor: f.actor });
+      const [upgraded] = await db.select().from(chatEndpoints).where(eq(chatEndpoints.id, f.endpoint.id));
+      expect(upgraded).toMatchObject({ status: "active", capabilities: { reactions: true, files: false }, setup: { slackPermissionProfile: "ceo-dm-threaded-v2" } });
+      const cutoff = (upgraded.setup as any).slackDmThreading.since;
+      expect(cutoff).toMatch(/^\d+\.\d{6}$/);
+      await expect(restored.service.completeSlackBotOAuth(f.endpoint.id, { state, code: "upgrade-code", actor: f.actor })).rejects.toThrow();
+      await expect(restored.service.startSlackThreadUpgrade(f.endpoint.id, f.actor)).rejects.toThrow(/legacy pilot/);
+      await restored.service.handleWebhook(f.endpoint.publicId, "slack", signedSlackWebhookRequest({
+        url: `https://paperclip.example/api/chat-webhooks/${f.endpoint.publicId}/slack`, contentType: "application/json",
+        body: JSON.stringify({ type: "url_verification", challenge: "rebuild-runtime" }),
+      }));
+      const rootTs = `${Math.floor(Date.now() / 1000) + 1}.000001`;
+      // Match the real pinned SDK callback, not the bare provider channel id.
+      const root = makeThread({ channelId: "slack:D123", id: `slack:D123:${rootTs}`, isDM: true });
+      const incoming = { callbacks: restored.runtime.configurations.get(f.endpoint.id)!.callbacks, endpointId: f.endpoint.id,
+        thread: root.thread, message: makeMessage({ id: rootTs, userId: "UOWNER", text: "Test threaded progress" }), trigger: "direct_message" as const };
+      await deliverMessage(incoming);
+      await deliverMessage(incoming);
+      await restored.service.processPendingReceiptReactions();
+      const receipts = await db.select().from(chatActions).where(and(eq(chatActions.endpointId, f.endpoint.id), eq(chatActions.kind, "receipt_reaction")));
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0].status).toBe("processed");
+      const [conversation] = await restored.service.listConversations(f.endpoint.id);
+      expect(conversation.bindingMode).toBe("slack_dm_thread_v2");
+      expect(conversation.externalConversationId).toBe("D123");
+      const runId = randomUUID();
+      await db.insert(heartbeatRuns).values({ id: runId, companyId: f.companyId, agentId: f.assignedAgentId, runtimeMode, status: "running",
+        contextSnapshot: await chatWakeContext({ endpointId: f.endpoint.id, issueId: conversation.issueId, provider: "slack", providerMessageId: rootTs }) });
+      await enqueueChatRunMilestones(db);
+      await restored.service.processPendingPublications();
+      const runtime = restored.runtime.get(f.endpoint.id)!;
+      expect(runtime.posts).toHaveLength(1);
+      expect(runtime.posts[0]).toMatchObject({ threadId: root.thread.id, text: "Maya is working…" });
+      await db.update(chatPublications).set({ createdAt: new Date(Date.now() - 25_000) }).where(eq(chatPublications.conversationId, conversation.id));
+      await db.insert(heartbeatRunEvents).values({ companyId: f.companyId, agentId: f.assignedAgentId, runId, seq: 1, eventType: runtimeMode === "native" ? "tool.execution.started" : "chat.progress.using_tools",
+        message: "PRIVATE COMMAND", payload: { command: "PRIVATE ARGUMENTS" } });
+      await enqueueChatRunMilestones(db);
+      await restored.service.processPendingPublications();
+      expect(runtime.posts).toHaveLength(1);
+      expect(runtime.edits.at(-1)).toMatchObject({ threadId: root.thread.id, text: "Maya is using tools…" });
+      expect(JSON.stringify([...runtime.posts, ...runtime.edits])).not.toContain("PRIVATE");
+      await db.update(heartbeatRuns).set({ status: "failed", errorCode: "test_error", finishedAt: new Date() }).where(eq(heartbeatRuns.id, runId));
+      await enqueueChatRunMilestones(db);
+      await restored.service.processPendingPublications();
+      expect(runtime.posts).toHaveLength(1);
+      expect(runtime.edits.at(-1)?.text).toContain("stopped before completing");
+    });
+
+    async function threadedFixture() {
+      const f = await slackCeoOAuthFixture();
+      await f.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor });
+      const [endpoint] = await db.select().from(chatEndpoints).where(eq(chatEndpoints.id, f.endpoint.id));
+      // Test-only activation. The production upgrade remains gated until the
+      // shared composer, private notes and scope-consent flow are complete.
+      await db.update(chatEndpoints).set({ setup: { ...endpoint.setup,
+        runtimeGeneration: Number((endpoint.setup as any).runtimeGeneration ?? 0) + 1,
+        slackDmThreading: { version: 2, since: "9000.000000" },
+      } as any }).where(eq(chatEndpoints.id, f.endpoint.id));
+      await f.service.handleWebhook(f.endpoint.publicId, "slack", signedSlackWebhookRequest({
+        url: `https://paperclip.example/api/chat-webhooks/${f.endpoint.publicId}/slack`, contentType: "application/json",
+        body: JSON.stringify({ type: "url_verification", challenge: "verified-challenge" }),
+      }));
+      await f.service.configure(f.endpoint.id, { action: "verify" }, "owner-user");
+      await f.service.finishSlackSetup(f.endpoint.id, "owner-user");
+      return f;
+    }
+
+    it("persists separate DM roots, resumes the same task in a reply, and deduplicates after reconstruction", async () => {
+      const f = await threadedFixture();
+      expect(f.runtime.configurations.get(f.endpoint.id)!.providerConfig).toMatchObject({
+        dmConversationMode: "message_threads", dmThreadingSince: "9000.000000",
+      });
+      const callbacks = f.runtime.configurations.get(f.endpoint.id)!.callbacks;
+      const root = makeThread({ channelId: "slack:D123", id: "slack:D123:9001.000001", isDM: true });
+      const second = makeThread({ channelId: "slack:D123", id: "slack:D123:9001.000002", isDM: true });
+      const firstInput = { callbacks, endpointId: f.endpoint.id, thread: root.thread,
+        message: makeMessage({ id: "9001.000001", userId: "UOWNER", text: "First task" }), trigger: "direct_message" as const };
+      await deliverMessage(firstInput);
+      await deliverMessage({ ...firstInput, thread: second.thread, message: makeMessage({ id: "9001.000002", userId: "UOWNER", text: "Second task" }) });
+      const [first] = await db.select().from(chatConversations).where(and(eq(chatConversations.endpointId, f.endpoint.id), eq(chatConversations.externalThreadId, root.thread.id)));
+      expect(first).toMatchObject({ bindingMode: "slack_dm_thread_v2", externalConversationId: "D123", originUserId: "owner-user", originPrincipalId: expect.any(String), sessionGeneration: 1 });
+      // Completing a turn must not roll a native thread into a different task.
+      await db.update(issues).set({ status: "done" }).where(eq(issues.id, first.issueId));
+      await db.update(chatConversations).set({ state: "completed" }).where(eq(chatConversations.id, first.id));
+      await deliverMessage({ ...firstInput, message: makeMessage({ id: "9002.000001", userId: "UOWNER", text: "Continue the first task" }) });
+      expect(f.wakeup).toHaveBeenCalledTimes(3);
+      expect(await f.service.listConversations(f.endpoint.id)).toHaveLength(2);
+      expect(await db.select().from(issueComments).where(eq(issueComments.issueId, first.issueId))).toHaveLength(2);
+      await f.service.shutdown();
+      const restarted = createService(undefined, f.providerFetch);
+      await restarted.service.handleWebhook(f.endpoint.publicId, "slack", signedSlackWebhookRequest({
+        url: `https://paperclip.example/api/chat-webhooks/${f.endpoint.publicId}/slack`, contentType: "application/json",
+        body: JSON.stringify({ type: "url_verification", challenge: "still-here" }),
+      }));
+      const restartedCallbacks = restarted.runtime.configurations.get(f.endpoint.id)!.callbacks;
+      await deliverMessage({ ...firstInput, callbacks: restartedCallbacks });
+      expect(restarted.wakeup).not.toHaveBeenCalled();
+      await deliverMessage({ ...firstInput, callbacks: restartedCallbacks, message: makeMessage({ id: "9003.000001", userId: "UOWNER", text: "After restart" }) });
+      expect(restarted.wakeup).toHaveBeenCalledOnce();
+      expect(await restarted.service.listConversations(f.endpoint.id)).toHaveLength(2);
+      expect(await db.select().from(issueComments).where(eq(issueComments.issueId, first.issueId))).toHaveLength(3);
+    });
+
+    it("keeps pre-upgrade flat messages legacy and denies mismatched thread ownership", async () => {
+      const f = await threadedFixture();
+      const callbacks = f.runtime.configurations.get(f.endpoint.id)!.callbacks;
+      const base = { callbacks, endpointId: f.endpoint.id, trigger: "direct_message" as const };
+      const old = { ...base, thread: makeThread({ channelId: "D123", id: "slack:D123:", isDM: true }).thread,
+        message: makeMessage({ id: "8999.999999", userId: "UOWNER", text: "Legacy private request" }) };
+      await deliverMessage(old);
+      await deliverMessage(old);
+      const current = { ...base, thread: makeThread({ channelId: "D123", id: "slack:D123:9001.000001", isDM: true }).thread,
+        message: makeMessage({ id: "9001.000001", userId: "UOWNER", text: "New thread" }) };
+      await deliverMessage(current);
+      const rows = await f.service.listConversations(f.endpoint.id);
+      expect(rows.map(row => row.bindingMode).sort()).toEqual(["legacy", "slack_dm_thread_v2"]);
+      const threaded = rows.find(row => row.bindingMode === "slack_dm_thread_v2")!;
+      await db.update(chatConversations).set({ originUserId: "different-user" }).where(eq(chatConversations.id, threaded.id));
+      await deliverMessage({ ...current, message: makeMessage({ id: "9002.000001", userId: "UOWNER", text: "Must not route to someone else's task" }) });
+      expect(f.wakeup).toHaveBeenCalledTimes(2);
+      expect(await db.select().from(issueComments).where(eq(issueComments.issueId, threaded.issueId))).toHaveLength(1);
+      expect(await f.service.listConversations(f.endpoint.id)).toHaveLength(2);
+      // None of this profile's five scopes authorizes reactions or file reads.
+      expect(await db.select().from(chatActions).where(and(eq(chatActions.endpointId, f.endpoint.id), eq(chatActions.kind, "receipt_reaction")))).toHaveLength(0);
+    });
+
+    it.each(["short", "multipart"])("publishes the shared Paperclip request under the exact root before waking the CEO: %s", async (size) => {
+      const f = await threadedFixture();
+      const root = makeThread({ channelId: "D123", id: "slack:D123:9001.000001", isDM: true });
+      await deliverMessage({ callbacks: f.runtime.configurations.get(f.endpoint.id)!.callbacks, endpointId: f.endpoint.id,
+        thread: root.thread, message: makeMessage({ id: "9001.000001", userId: "UOWNER", text: "Initial task" }), trigger: "direct_message" });
+      const [conversation] = await f.service.listConversations(f.endpoint.id);
+      // Finish the simulated inbound wake so a new human turn is eligible.
+      await db.update(agentWakeupRequests).set({ status: "skipped" }).where(eq(agentWakeupRequests.companyId, f.companyId));
+      const replies = slackBoardRepliesService(db, { wakeup: receiptBackedWakeup(f.wakeup) });
+      const body = size === "short" ? "Shared follow-up" : "Evidence to discuss. ".repeat(1500);
+      const receipt = await replies.request({ companyId: f.companyId, endpointId: f.endpoint.id, conversationId: conversation.id, userId: "owner-user" }, body, randomUUID());
+      expect(receipt.status).toBe("queued");
+      expect(f.wakeup).toHaveBeenCalledTimes(1);
+      f.runtime.get(f.endpoint.id)!.postHook = async () => { expect(f.wakeup).toHaveBeenCalledTimes(1); };
+      await f.service.processPendingPublications();
+      let pending = await db.select().from(chatPublications).where(and(eq(chatPublications.companyId, f.companyId), eq(chatPublications.commentId, receipt.commentId)));
+      if (pending.some(row => row.state !== "published")) {
+        await replies.processPending();
+        expect(f.wakeup).toHaveBeenCalledTimes(1);
+        for (let attempt = 0; attempt < 4 && pending.some(row => row.state !== "published"); attempt++) {
+          await f.service.processPendingPublications();
+          pending = await db.select().from(chatPublications).where(and(eq(chatPublications.companyId, f.companyId), eq(chatPublications.commentId, receipt.commentId)));
+        }
+      }
+      const publications = await db.select().from(chatPublications).where(and(eq(chatPublications.companyId, f.companyId), eq(chatPublications.commentId, receipt.commentId)));
+      if (size === "short") expect(publications).toHaveLength(1);
+      else expect(publications.length).toBeGreaterThan(1);
+      for (const publication of publications) expect(publication).toMatchObject({ state: "published", providerMessageId: expect.any(String) });
+      const posts = f.runtime.get(f.endpoint.id)!.posts;
+      for (const post of posts) expect(post.threadId).toBe(root.thread.id);
+      expect(posts.map(post => post.text).join("")).toBe(`From Paperclip (you):\n\n${body.trimEnd()}`);
+      await replies.processPending();
+      await replies.processPending();
+      expect(f.wakeup).toHaveBeenCalledTimes(2);
+      expect((await getExternalChannelBindingSummary(db, f.companyId, conversation.issueId))?.bindingMode).toBe("slack_dm_thread_v2");
+    });
+
     it("admits a linked DM once, and never requests optional files or receipt reactions", async () => {
       const f = await slackCeoOAuthFixture();
       await f.service.completeSlackBotOAuth(f.endpoint.id, { state: f.state, code: "code", actor: f.actor });

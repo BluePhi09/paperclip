@@ -16,6 +16,7 @@ import {
 import type {
   ChatAdapterCapabilities,
   ChatConcurrencyPolicy,
+  ChatConversationBindingMode,
   ChatDeliveryState,
   ChatDeploymentMode,
   ChatEndpointSetupState,
@@ -372,6 +373,10 @@ export const chatConversations = pgTable(
       .references(() => issues.id, { onDelete: "restrict" }),
     externalConversationId: text("external_conversation_id").notNull(),
     externalThreadId: text("external_thread_id").notNull().default(""),
+    // Immutable admission semantics; existing conversations remain legacy.
+    bindingMode: text("binding_mode").$type<ChatConversationBindingMode>().notNull().default("legacy"),
+    originPrincipalId: uuid("origin_principal_id"),
+    originUserId: text("origin_user_id"),
     // Providers with linear conversations (DMs, Telegram groups, Teams group
     // chats) reuse one native thread id. A generation preserves the native id
     // used for replies while allowing completed Paperclip tasks to roll over.
@@ -395,6 +400,13 @@ export const chatConversations = pgTable(
       "chat_conversations_state_check",
       sql`${table.state} in ('active', 'waiting', 'completed', 'unavailable', 'endpoint_removed')`,
     ),
+    check("chat_conversations_binding_mode_check", sql`${table.bindingMode} in ('legacy', 'slack_dm_thread_v2')`),
+    check("chat_conversations_slack_thread_binding_check", sql`${table.bindingMode} = 'legacy' or (
+      ${table.isDirectMessage} and ${table.sessionGeneration} = 1
+      and ${table.originPrincipalId} is not null and ${table.originUserId} is not null
+      and ${table.externalConversationId} ~ '^D[A-Z0-9]+$'
+      and ${table.externalThreadId} ~ '^slack:D[A-Z0-9]+:[0-9]{1,12}[.][0-9]{1,6}$'
+      and split_part(${table.externalThreadId}, ':', 2) = ${table.externalConversationId})`),
     index("chat_conversations_issue_idx").on(table.companyId, table.issueId),
     uniqueIndex("chat_conversations_thread_uq").on(
       table.endpointId,
@@ -403,6 +415,11 @@ export const chatConversations = pgTable(
       table.sessionGeneration,
     ),
     unique("chat_conversations_company_id_uq").on(table.companyId, table.id),
+    foreignKey({
+      columns: [table.companyId, table.originPrincipalId],
+      foreignColumns: [chatExternalPrincipals.companyId, chatExternalPrincipals.id],
+      name: "chat_conversations_origin_principal_fk",
+    }),
     foreignKey({
       columns: [table.companyId, table.issueId],
       foreignColumns: [issues.companyId, issues.id],
