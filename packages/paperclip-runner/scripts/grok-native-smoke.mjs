@@ -56,7 +56,7 @@ for (let repetition=1; repetition<=repetitions; repetition++) {
   async function turn(text,id) {
     const handle=host.startTurn({text, requestId:id, signal:AbortSignal.timeout(120000)}); let output=''; const counts={};
     const drain=(async()=>{for await(const event of handle.events){counts[event.type]=(counts[event.type]??0)+1;if(event.type==='text_delta' && event.stream!=='thought')output+=event.text;}})();
-    const [result]=await Promise.all([handle.result,drain]);attempt.lastTurnStatus=result.status;attempt.stopReason=result.stopReason;attempt.failureCode=result.error?.code??null;attempt.failureCategory=result.error?.category??null; attempt.lastEventCounts=counts;attempt.outputLength=output.length;if(result.status!=='completed') throw Object.assign(new Error('Provider turn did not complete'),{code:result.error?.code ?? result.status});return {output,counts};
+    const [result]=await Promise.all([handle.result,drain]);attempt.toolCalls=calls;attempt.providerFailureReason=/rate.?limit|quota/i.test(result.error?.message??'')?'rate_limited':/auth|token|login|credential/i.test(result.error?.message??'')?'authentication':result.error?'other_runtime':null;attempt.lastTurnStatus=result.status;attempt.stopReason=result.stopReason;attempt.failureCode=result.error?.code??null;attempt.failureCategory=result.error?.category??null; attempt.lastEventCounts=counts;attempt.outputLength=output.length;if(result.status!=='completed') throw Object.assign(new Error('Provider turn did not complete'),{code:result.error?.code ?? result.status});return {output,counts};
   }
   try {
     await phase('initialize');
