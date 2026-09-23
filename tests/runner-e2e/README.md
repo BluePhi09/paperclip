@@ -1007,7 +1007,13 @@ failure evidence, so a future blank page is distinguishable from a loaded task.
 `runner-acpx-grok` uses native ACPX with Grok Build 1.0.13 and `grok-4.7`.
 Set an explicit `XAI_API_KEY` for this API-key profile. The manual
 `grok-qualification` suite runs the core and restart workflows on local and
-Daytona runtimes. Missing subscription coverage remains a qualification blocker;
+Daytona runtimes. The separate manual `grok-subscription-qualification` suite
+uses `runner-acpx-grok-subscription` and explicit `GROK_AUTH_JSON`. Its fixture
+stages that login in a private, disposable company home; this is credential
+setup, not a test of interactive browser login. The server never inherits the
+JSON secret or an API key from the harness. See [FIXTURES.md](FIXTURES.md) and
+[SECURITY.md](SECURITY.md) for staging, cleanup, and redaction requirements.
+Missing subscription coverage remains a qualification blocker;
 an API-key pass must not be reported as subscription evidence. See
 [`doc/grok-native-runner.md`](../../doc/grok-native-runner.md) for installation,
 credential boundaries and repetition requirements.

@@ -53,6 +53,13 @@ and continuation after controller restart
 in both environments. Run with `--suite grok-qualification`; it is excluded from
 scheduled `--all`. Use the canonical Product E2E dashboard and Evalbook reports.
 
+The separate `grok-subscription-qualification` suite covers the same workflows
+with the explicit `GROK_AUTH_JSON` fixture credential. It seeds only the disposable
+company's private login home and supplies no API key. It does not exercise the
+interactive sign-in UI. Authentication mode remains part of the profile identity.
+After a subscription upgrade, a fresh `grok login` may be needed if the existing
+login still reports the previous entitlement through ACP.
+
 `packages/paperclip-runner/scripts/grok-native-smoke.mjs` records explicit auth,
 model/binary identity, MCP outcome, durable resume and restrictive permissions.
 Pass `--auth subscription --auth-file /private/path/auth.json --output /private/report.json`

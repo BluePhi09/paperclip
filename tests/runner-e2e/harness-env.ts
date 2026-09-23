@@ -129,7 +129,8 @@ export function buildRunnerE2EProcessEnvironment(
 /**
  * Build the environment inherited by the Paperclip server. Paid credentials
  * deliberately stay in the launcher/Playwright process and cross the server
- * boundary only once, in the encrypted company-secrets API request.
+ * boundary through encrypted company secrets. Explicit subscription fixtures
+ * stage their login in the disposable company's private credential home.
  */
 export function buildPaperclipServerEnvironment(
   source: NodeJS.ProcessEnv,

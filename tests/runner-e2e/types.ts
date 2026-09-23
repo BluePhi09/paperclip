@@ -3,6 +3,7 @@ export const CREDENTIAL_NAMES = [
   "ANTHROPIC_API_KEY",
   "OPENROUTER_API_KEY",
   "XAI_API_KEY",
+  "GROK_AUTH_JSON",
   "DAYTONA_API_KEY",
 ] as const;
 
