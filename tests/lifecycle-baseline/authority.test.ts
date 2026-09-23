@@ -115,6 +115,7 @@ describe("LCA narrative authority baseline", () => {
       });
       observe("LCA-05", word, { before, after });
       expect(after.effect).toEqual(before.effect);
+      expect(after.classification).toEqual(before.classification);
     },
   );
   it("LCA-05 legacy description is not work-mode authority", () => {
@@ -125,6 +126,7 @@ describe("LCA narrative authority baseline", () => {
     });
     observe("LCA-05", "description", { before, after });
     expect(after.effect).toEqual(before.effect);
+    expect(after.classification).toEqual(before.classification);
   });
   it("LCA-09 additional commentary cannot manufacture progress or reset an attempt", () => {
     const before = continuation({ ...legacyBase, continuationAttempt: 2 });

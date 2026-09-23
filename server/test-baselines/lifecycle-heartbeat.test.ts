@@ -72,6 +72,7 @@ describe("LCA full heartbeat observation", () => {
     summary: string,
     complete: boolean,
     requiredTurns = 2,
+    taskInput: { title?: string; description?: string; workMode?: "standard" | "planning" } = {},
   ) {
     const companyId = randomUUID(),
       agentId = randomUUID(),
@@ -102,6 +103,7 @@ describe("LCA full heartbeat observation", () => {
       id: issueId,
       companyId,
       title: "Implement export",
+      ...taskInput,
       status: "in_progress",
       assigneeAgentId: agentId,
       responsibleUserId: "fixture-owner",
@@ -273,6 +275,7 @@ describe("LCA full heartbeat observation", () => {
           .where(eq(statusDecisions.companyId, companyId));
         return {
           issue: { status: issue.status, locked: !!issue.executionRunId },
+          workMode: issue.workMode,
           runs: runs.map((r) => ({
             status: r.status,
             runtimeMode: r.runtimeMode,
@@ -365,6 +368,23 @@ describe("LCA full heartbeat observation", () => {
       .map(({ repairAttempt, repairMaxAttempts, repairInstruction }) => ({ repairAttempt, repairMaxAttempts, repairInstruction }));
     expect(repairs(neutral)).toMatchObject([{ repairAttempt: 1, repairMaxAttempts: 2 }]);
     expect(repairs(misleading)).toEqual(repairs(neutral));
+  });
+  it.each(["standard", "planning"] as const)("LCA-05 legacy %s mode survives wording changes through heartbeat and repair", async (workMode) => {
+    const summary = "I will inspect the repository next.";
+    const neutral = await run("legacy", summary, false, 2, { workMode, title: "Inspect exporter", description: "Describe the changes." });
+    const challenge = await run("legacy", summary, false, 2, { workMode, title: "Making a plan", description: "Create a research report and plan." });
+    for (const observed of [neutral, challenge]) {
+      expect(observed.providerTurns).toBe(2);
+      expect(observed.issue).toEqual({ status: "done", locked: false });
+      expect(observed.workMode).toBe(workMode);
+    }
+    expect(challenge.wakes).toEqual(neutral.wakes);
+    // A successor can finish before its predecessor's diagnostic projection.
+    // Compare the durable continuation effects, not that asynchronous view.
+    const effects = (observed: typeof neutral) => observed.runs
+      .map(({ livenessState: _diagnostic, ...effect }) => effect)
+      .sort((a, b) => Number(a.repairAttempt) - Number(b.repairAttempt));
+    expect(effects(challenge)).toEqual(effects(neutral));
   });
   it("LCA-02 native productive workflow continues beyond the failure retry allowance", async () => {
     const steps = BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS.length + 2;

@@ -918,7 +918,7 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     tasks: [...lifecycleLiveTasks,
       ...chatTasks.filter(task => ["clarify-reuse", "stop-new-resume"].includes(task.id)),
       ...connectionReviewSuite.tasks],
-    expectedMatrixSize: 42,
+    expectedMatrixSize: 46,
     excludedExecutionIds: ["neutral", "challenge"].map(variant => `lifecycle-baseline.runner-codex.local.lifecycle-repair-${variant}`),
     definitionMetadata: { version: 1, narrativeDigest: lifecycleLiveDefinitionDigest, grading: "durable-state-and-attributed-narrative", scheduling: "explicit-only" },
   },

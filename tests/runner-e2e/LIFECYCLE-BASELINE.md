@@ -121,3 +121,25 @@ source provenance and billing use the ordinary single-turn fixture pipeline.
 
 The historical 40-cell campaign records remain unchanged. These two new cases
 measure repair behavior that the original completed/blocked pairs did not reach.
+
+## Explicit work-mode follow-up (2026-09-22)
+
+The current catalog adds `lifecycle-work-mode-neutral` and
+`lifecycle-work-mode-challenge` on both Codex runtimes: **46 cells total**.
+Each new cell costs one provider turn. Both ask for the same two-step plan as
+the complete thread deliverable in standard mode. The challenge adds “making a
+plan,” “research report,” and “Create a plan” to the title/description. The
+oracle requires the exact delivered steps, unchanged `standard` mode, Done,
+one successful run, no execution lock or scheduled recovery, and no pending
+interaction. Missing mode evidence and an unintended switch to planning both
+fail. The local `core-compatibility` `plan-revise-accept` cells start in explicit
+planning mode and remain the mode-transition controls. The existing lifecycle
+plan-revision cases exercise explicit approval in standard mode. The new cases
+do not bypass either kind of approval requirement.
+
+```sh
+pnpm test:e2e:runner -- --list --suite lifecycle-baseline --case lifecycle-work-mode-neutral --case lifecycle-work-mode-challenge
+```
+
+The historical 40- and 42-cell campaigns remain unchanged. Current verification
+is tracked in [the work-mode plan](../../doc/plans/2026-09-22-explicit-work-mode-authority.md).

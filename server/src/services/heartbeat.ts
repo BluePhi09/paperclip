@@ -17992,6 +17992,7 @@ export function heartbeatService(
             status: issues.status,
             title: issues.title,
             description: issues.description,
+            workMode: issues.workMode,
           })
           .from(issues)
           .where(
