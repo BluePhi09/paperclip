@@ -1,6 +1,8 @@
 import { readLocalAiCredentialFile } from "../local-ai-credential-file.js";
 import { prepareGrokRunnerCredentials } from "./grok-runner-credentials.js";
 import { copyBackGrokAuth } from "@paperclipai/adapter-grok-local/server";
+
+import { createNativeToolTrace, type NativeToolTrace } from "./native-tool-trace.js";
 import { createNativeGitHubAccess, type NativeGitHubAccess } from "./native-github-access.js";
 import { resolveGitHubOperationCredentials } from "../github-operation-credentials.js";
 import { bindManagedNativeCredentialTurn, completeManagedNativeCredentialTurn } from "./managed-native-credentials.js";
@@ -1413,7 +1415,7 @@ class SessionToolAuthorityEpoch {
   #authority: PaperclipRunnerToolAuthority;
   #revoked = false;
 
-  constructor(runId: string, authority: PaperclipRunnerToolAuthority) {
+  constructor(runId: string, authority: PaperclipRunnerToolAuthority, private readonly toolTrace?: NativeToolTrace) {
     this.runId = runId;
     this.#authority = authority;
   }
@@ -1435,7 +1437,9 @@ class SessionToolAuthorityEpoch {
 
   async execute(call: Parameters<PaperclipRunnerToolAuthority["execute"]>[0]) {
     this.#assertCurrent();
-    return await this.#authority.execute(call);
+    return this.toolTrace
+      ? await this.toolTrace.execute(call, () => this.#authority.execute(call))
+      : await this.#authority.execute(call);
   }
 }
 
@@ -6137,6 +6141,42 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
+type FirstAgentEventKind =
+  | "reasoning"
+  | "agentMessage"
+  | "toolCall"
+  | "dynamicToolCall";
+
+/** Returns the first provider activity worth measuring after turn.started. */
+export function firstMeaningfulAgentEventKind(
+  event: Pick<PrpEvent, "eventType" | "payload">,
+): FirstAgentEventKind | null {
+  const payload = record(event.payload);
+  if (event.eventType === "tool.execution.started") {
+    return typeof payload.executionId === "string" &&
+      payload.executionId.trim()
+      ? "toolCall"
+      : null;
+  }
+  if (
+    event.eventType !== "item.started" &&
+    event.eventType !== "item.delta" &&
+    event.eventType !== "item.completed"
+  ) return null;
+  const kind = payload.kind;
+  if (
+    kind !== "reasoning" &&
+    kind !== "agentMessage" &&
+    kind !== "toolCall" &&
+    kind !== "dynamicToolCall"
+  ) return null;
+  if (event.eventType !== "item.delta") return kind;
+  const text = [payload.text, payload.delta, payload.content].find(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  return text ? kind : null;
+}
+
 export type NativeSessionSteeringState = {
   disposition: "available" | "unsupported" | "temporarily_unavailable";
   activeTurnId: string | null;
@@ -7260,6 +7300,7 @@ async function executePaperclipNativeSessionWithinScope(
     startedAtMs: preparationStarts.runStartedAtMs,
     onEvent: input.onEvent,
   });
+  const toolTrace = createNativeToolTrace(trace);
   const taskPrepareScope = trace.start("task.prepare", {
     parentName: "task.run",
     startedAtMs: preparationStarts.preparationStartedAtMs,
@@ -7649,6 +7690,7 @@ async function executePaperclipNativeSessionWithinScope(
     },
     {
       onCommittedEvent: async (event) => {
+        await toolTrace.observe(event);
         if (event.eventType === "item.completed" &&
             record(event.payload).kind === "agentMessage" &&
             record(event.payload).channel === "final") {
@@ -7728,23 +7770,9 @@ async function executePaperclipNativeSessionWithinScope(
             endedAtMs: milestoneAtMs,
           });
         }
-        if (
-          !firstAgentEventRecorded &&
-          turnStartedAtMs !== null &&
-          (event.eventType === "item.started" ||
-            event.eventType === "item.completed")
-        ) {
-          const payload = record(event.payload);
-          const kind =
-            typeof payload.kind === "string" ? payload.kind : "unknown";
-          if (
-            [
-              "reasoning",
-              "agentMessage",
-              "toolCall",
-              "dynamicToolCall",
-            ].includes(kind)
-          ) {
+        if (!firstAgentEventRecorded && turnStartedAtMs !== null) {
+          const kind = firstMeaningfulAgentEventKind(event);
+          if (kind) {
             firstAgentEventRecorded = true;
             await trace.record({
               name: "provider.time_to_first_agent_event",
@@ -8114,6 +8142,7 @@ async function executePaperclipNativeSessionWithinScope(
             runnerInstanceId: effectiveRunnerInstanceId,
             durableEnvironmentLeaseId: durableRunnerBinding?.environmentLeaseId,
             trace,
+            toolTrace,
           })
         : null;
     const remoteCleanupLease = input.runnerExecutionTarget?.kind === "remote" &&
@@ -9133,8 +9162,8 @@ const RUNNERD_BINARY_CONTRACT_VERSION = 2;
 const REMOTE_PROVIDER_PACK_SCHEMA = "paperclip-runner/remote-provider-pack/v1";
 const REMOTE_PROVIDER_PACK_PINS = {
   nodeMinimum: "24.11.0",
-  codex: "0.153.4",
-  opencode: "1.18.29",
+  codex: "0.156.0",
+  opencode: "1.18.32",
   acpx: "0.13.1",
   claudeAcp: "0.73.0",
   codexAcp: "1.6.2",
@@ -10343,6 +10372,7 @@ export async function createRunnerdBackend(input: {
   runnerRemoteCodexNpmSpec?: string | null;
   runnerRemoteProviderPackPath?: string | null;
   trace?: NativeRunTrace;
+  toolTrace?: NativeToolTrace;
   onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
   stopTaskForReassignment?: (target: { companyId: string; issueId: string; agentId: string; runId: string | null }) => Promise<void>;
   enqueueWakeup?: (
@@ -10466,6 +10496,7 @@ async function createRunnerdBackendWithinSessionClaim(
   const authorityEpoch = new SessionToolAuthorityEpoch(
     input.execution.binding.runId,
     authority,
+    input.toolTrace,
   );
   let dynamicTools: Awaited<
     ReturnType<SessionToolAuthorityEpoch["definitions"]>

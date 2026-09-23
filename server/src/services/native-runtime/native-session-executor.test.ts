@@ -289,6 +289,7 @@ import {
   resolveRemoteRunnerTransportMode,
   renewNativeSessionExecutionLease,
   runtimeInputLifecycleMetric,
+  firstMeaningfulAgentEventKind,
   runtimeQuestionFallbackFromEvent,
   resolveNativeRuntimeRequest,
   resolveNativeHarnessPersistenceProfile,
@@ -306,6 +307,59 @@ beforeEach(() => {
   state.resolveRunnerBinary.mockReset().mockReturnValue("/tmp/paperclip-runnerd");
   state.resolveCurrentWakeCommentsBinding.mockReset().mockResolvedValue(null);
   state.assertCurrentWakeCommentsRead.mockReset().mockResolvedValue(undefined);
+});
+
+describe("first meaningful native agent event", () => {
+  const event = (eventType: string, payload: Record<string, unknown>) =>
+    ({ eventType, payload }) as PrpEvent;
+
+  it("accepts nonempty assistant and reasoning deltas", () => {
+    expect(
+      firstMeaningfulAgentEventKind(
+        event("item.delta", { kind: "agentMessage", text: "first token" }),
+      ),
+    ).toBe("agentMessage");
+    expect(
+      firstMeaningfulAgentEventKind(
+        event("item.delta", { kind: "reasoning", delta: "thinking" }),
+      ),
+    ).toBe("reasoning");
+  });
+
+  it("accepts real tool starts and preserves qualified item events", () => {
+    expect(
+      firstMeaningfulAgentEventKind(
+        event("tool.execution.started", {
+          executionId: "tool-1",
+          name: "Terminal",
+        }),
+      ),
+    ).toBe("toolCall");
+    expect(
+      firstMeaningfulAgentEventKind(
+        event("item.started", { kind: "dynamicToolCall" }),
+      ),
+    ).toBe("dynamicToolCall");
+    expect(
+      firstMeaningfulAgentEventKind(
+        event("item.completed", { kind: "agentMessage" }),
+      ),
+    ).toBe("agentMessage");
+  });
+
+  it("counts a generic tool announcement without a display name", () => {
+    expect(firstMeaningfulAgentEventKind(event("tool.execution.started", { executionId: "tool-1", name: null }))).toBe("toolCall");
+  });
+
+  it("ignores empty deltas and usage, status, or metadata events", () => {
+    for (const candidate of [
+      event("item.delta", { kind: "agentMessage", text: " " }),
+      event("item.delta", { kind: "reasoning", delta: "" }),
+      event("item.delta", { kind: "usage", text: "tokens" }),
+      event("turn.started", { kind: "agentMessage", text: "message" }),
+      event("tool.execution.started", { name: "Terminal" }),
+    ]) expect(firstMeaningfulAgentEventKind(candidate)).toBeNull();
+  });
 });
 
 describe("remote controller restart adoption", () => {
@@ -998,8 +1052,8 @@ describe("remote provider pack manifest", () => {
     const payload = {
       pins: {
         nodeMinimum: "24.11.0",
-        codex: "0.153.4",
-        opencode: "1.18.29",
+        codex: "0.156.0",
+        opencode: "1.18.32",
         acpx: "0.13.1",
         claudeAcp: "0.73.0",
         codexAcp: "1.6.2",
@@ -1059,7 +1113,7 @@ describe("remote provider pack manifest", () => {
       );
     await writeManifest();
     expect(readRemoteProviderPackManifest(root).payload.pins.opencode).toBe(
-      "1.18.29",
+      "1.18.32",
     );
     for (const [artifactName, substituteName] of [
       ["nodeCommand", "productionLock"],
@@ -1989,7 +2043,7 @@ describe("remote preinstalled executable discovery", () => {
       const shim =
         '#!/bin/sh\ncat "$(dirname "$0")/version.txt"\nprintf "%s\\n" "$@"\n';
       await writeFile(source, shim, { mode: 0o755 });
-      await writeFile(join(installation, "version.txt"), "codex-cli 0.153.4\n");
+      await writeFile(join(installation, "version.txt"), "codex-cli 0.156.0\n");
       // Existing deployments may already have the old symlink. Never write
       // through it into the shared installation while upgrading the launcher.
       await symlink(source, target);
@@ -2002,7 +2056,7 @@ describe("remote preinstalled executable discovery", () => {
           execFileSync(target, ["--version", "argument with 'quotes'"], {
             encoding: "utf8",
           }),
-        ).toBe("codex-cli 0.153.4\n--version\nargument with 'quotes'\n");
+        ).toBe("codex-cli 0.156.0\n--version\nargument with 'quotes'\n");
         expect(await readFile(source, "utf8")).toBe(shim);
       }
       expect(await readdir(join(root, "workspace", "bin"))).toEqual(["codex"]);
@@ -9988,6 +10042,7 @@ describe("runnerd provider runtime wiring", () => {
         .mockImplementation((binding: Record<string, unknown>) =>
           Promise.resolve({ runId: binding.runId }),
         );
+      const tracedRuns: string[] = [];
       let firstScopedRoot: string | undefined;
       for (const candidate of [
         first,
@@ -10021,6 +10076,13 @@ describe("runnerd provider runtime wiring", () => {
           db: candidateDb,
           execution: candidate,
           runnerInstanceId: `runner-${candidate.binding.runId}`,
+          toolTrace: {
+            observe() {},
+            async execute(_call, work) {
+              tracedRuns.push(candidate.binding.runId);
+              return await work();
+            },
+          },
         });
         state.createBackend.mock.calls.at(-1)![1].codexTransportFactory!();
         if (candidate === first) {
@@ -10073,6 +10135,7 @@ describe("runnerd provider runtime wiring", () => {
       await expect(
         continuationOptions.dynamicToolHandler!({}),
       ).resolves.toEqual({ runId: continuation.binding.runId });
+      expect(tracedRuns).toEqual([continuation.binding.runId, continuation.binding.runId]);
     } finally {
       if (previousStateDirectory === undefined) {
         delete process.env.PAPERCLIP_RUNNER_STATE_DIR;
@@ -10258,7 +10321,7 @@ describe("runnerd provider runtime wiring", () => {
         }), stderr: "",
       };
       if (command.args?.[0] === "--version") return {
-        exitCode: 0, timedOut: false, stdout: "codex-cli 0.153.4", stderr: "",
+        exitCode: 0, timedOut: false, stdout: "codex-cli 0.156.0", stderr: "",
       };
       if (command.args?.[2] === "paperclip-runner-launch") {
         throw new Error("fixture_stop_after_launch_staging");
@@ -10379,7 +10442,7 @@ describe("runnerd provider runtime wiring", () => {
           ) {
             throw new Error("reached-preinstalled-codex-verification");
           }
-          stdout = "codex-cli 0.153.4";
+          stdout = "codex-cli 0.156.0";
         } else if (script === "uname -s; uname -m") {
           stdout = `${process.platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "arm64" ? "arm64" : "x86_64"}\n`;
         } else if (script.includes("command -v paperclip-runnerd")) {
