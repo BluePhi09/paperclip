@@ -11,11 +11,11 @@ import {
 } from "./lifecycle-live-cases.js";
 
 describe("LCA live baseline authoring and evidence", () => {
-  it("registers the 40 baseline cells plus two legacy repair probes", () => {
+  it("registers the 40 baseline cells, two legacy repair probes, and four work-mode probes", () => {
     const selected = selectRunnerExecutions(
       parseRunnerSelectors(["--suite", "lifecycle-baseline"]),
     );
-    expect(selected).toHaveLength(42);
+    expect(selected).toHaveLength(46);
     expect(new Set(selected.map((e) => e.profile.expectedRuntimeMode))).toEqual(
       new Set(["native", "legacy"]),
     );
@@ -108,6 +108,7 @@ describe("LCA live baseline authoring and evidence", () => {
         environment: "local",
         json: {
           issue: {
+            workMode: "standard",
             executionRunId: null,
             scheduledRetry: null,
             activeRecoveryAction: null,
@@ -146,6 +147,11 @@ describe("LCA live baseline authoring and evidence", () => {
       expect((await failures({ ...valid, json: {} })).length).toBeGreaterThan(
         0,
       );
+      if (probe.family === "work-mode") {
+        expect(task.workMode).toBe("standard");
+        expect((await failures({ ...valid, json: { ...valid.json, issue: { ...valid.json.issue, workMode: "planning" } } })).length).toBeGreaterThan(0);
+        expect((await failures({ ...valid, json: { ...valid.json, issue: { ...valid.json.issue, workMode: undefined } } })).length).toBeGreaterThan(0);
+      }
       expect(
         (
           await failures({

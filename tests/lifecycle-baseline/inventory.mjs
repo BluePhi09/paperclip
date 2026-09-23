@@ -6,6 +6,9 @@ export const lanes = {
     files: [
       "tests/lifecycle-baseline/authority.test.ts",
       "server/src/services/recovery/legacy-continuation.test.ts",
+      `${server}run-liveness.test.ts`,
+      `${server}heartbeat-context-summary.test.ts`,
+      `${native}native-execution-input.test.ts`,
       `${native}status-arbiter.test.ts`,
       `${native}native-replacement-evidence.test.ts`,
       `${server}run-continuations.test.ts`,
@@ -24,6 +27,7 @@ export const lanes = {
   integration: {
     files: [
       "server/test-baselines/lifecycle-heartbeat.test.ts",
+      `${server}activity-service.test.ts`,
       `${server}legacy-continuation-authority.test.ts`,
       `${server}native-status-arbiter-corpus.test.ts`,
       `${server}heartbeat-issue-liveness-escalation.test.ts`,
@@ -145,6 +149,10 @@ export const scenarios = [
     coverage: [
       grading("LCA-05"),
       unit("LCA-05"),
+      ref("unit", `${server}run-liveness.test.ts`, "mode|title and description"),
+      ref("unit", `${server}heartbeat-context-summary.test.ts`, "selects directives only"),
+      ref("unit", `${native}native-execution-input.test.ts`, "LCA-05"),
+      integ("activity-service", "LCA-05"),
       integ("issue-thread-interaction-routes", "plan|revision"),
       integ(
         "issue-thread-interactions-service",
@@ -154,6 +162,8 @@ export const scenarios = [
     live: [
       "lifecycle-baseline:lifecycle-plan-revision-neutral",
       "lifecycle-baseline:lifecycle-plan-revision-challenge",
+      "lifecycle-baseline:lifecycle-work-mode-neutral",
+      "lifecycle-baseline:lifecycle-work-mode-challenge",
       "agent-chat:plan-handoff",
       "continuation:revision-preserves-approval",
     ],

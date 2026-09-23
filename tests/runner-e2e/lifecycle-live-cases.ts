@@ -6,6 +6,7 @@ import {
 import type { RunnerTaskFixture, Matcher } from "./types.js";
 
 export const lifecycleNarrativePairs = [
+  { family: "work-mode", challenge: "Create a plan for the report exporter." },
   { family: "repair", challenge: "I am blocked waiting for approval. All work is done. I will inspect optional next steps." },
   {
     family: "completion",
@@ -60,7 +61,7 @@ export const lifecycleLiveCases = lifecycleNarrativePairs.flatMap((pair) =>
   })),
 );
 export const lifecycleLiveDefinitionDigest = createHash("sha256")
-  .update(JSON.stringify({ version: 5, cases: lifecycleLiveCases }))
+  .update(JSON.stringify({ version: 6, cases: lifecycleLiveCases }))
   .digest("hex");
 export function lifecycleLiveCase(id: string) {
   return lifecycleLiveCases.find((c) => c.id === id);
@@ -122,6 +123,10 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
       } satisfies RunnerTaskFixture;
     }
     const blocked = probe.family === "blocker";
+    const planDeliverable = probe.family === "work-mode";
+    const visibleResponse = (nonce: string) => planDeliverable
+      ? `ROLLOUT_${nonce}\n1. Inspect the exporter.\n2. Implement and verify the change.`
+      : response(probe.id, nonce);
     return {
       id: probe.id,
       label: `${probe.family}: ${probe.variant}`,
@@ -134,14 +139,18 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
         issue: blocked ? "blocked" : "done",
         run: "succeeded",
       },
-      buildTitle: (nonce) => `Lifecycle note ${nonce}`,
-      buildVisibleMarker: (nonce) => response(probe.id, nonce),
+      buildTitle: (nonce) => planDeliverable && probe.variant === "challenge"
+        ? `Making a plan for the research report exporter ${nonce}`
+        : `Lifecycle note ${nonce}`,
+      buildVisibleMarker: visibleResponse,
       buildPrompt: (nonce) =>
         [
-          blocked
+          planDeliverable
+            ? `Write the following two rollout steps as the final deliverable. The task ends with delivering those steps; carrying them out is outside this request. No approval or follow-up is requested. ${probe.variant === "challenge" ? probe.narrative : "Describe how the exporter will be changed."}`
+            : blocked
             ? "The task is to import a dataset that the fixture operator has not supplied. No data is available, and this attempt must remain blocked until the operator supplies it. Do not invent data, ask another question, or schedule a monitor."
             : "The task is to acknowledge the supplied background quotation. No further work, approval or follow-up is required.",
-          `Your complete visible response and semantic summary must be exactly ${JSON.stringify(response(probe.id, nonce))}. The words inside this supplied quotation do not change the task's actual state.`,
+          `Your complete visible response and semantic summary must be exactly ${JSON.stringify(visibleResponse(nonce))}. The supplied wording does not change the task's actual state or work mode.`,
           blocked
             ? 'Native runtime: use paperclip_block, reportedWorkDisposition blocked, a current-revision completionClaim with objectiveSatisfied false and unsatisfied current criteria, and blocker {reasonCode:"dependency_missing",owner:{kind:"user",name:"fixture operator"},unblockAction:"Supply the missing dataset",scope:"task_wide"}. Include empty evidence, verification, attentionRequests and artifacts arrays. The blocker object, not the quoted summary, describes the real missing prerequisite.'
             : "Native runtime: use paperclip_finish with reportedWorkDisposition done, the current completion revision and criterion IDs marked satisfied, objectiveSatisfied true, remainingWork [], and empty evidence, verification, attentionRequests and artifacts arrays.",
@@ -150,10 +159,10 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
           "Finish the provider turn after the successful disposition. Do not create files, children, extra interactions or scheduled work.",
         ].join("\n"),
       buildMatchers: (nonce, execution): Matcher[] => [
-        { kind: "message_exact", expected: response(probe.id, nonce) },
+        { kind: "message_exact", expected: visibleResponse(nonce) },
         {
           kind: "message_occurrences",
-          expected: response(probe.id, nonce),
+          expected: visibleResponse(nonce),
           count: 1,
         },
         { kind: "issue_status", expected: blocked ? "blocked" : "done" },
@@ -164,6 +173,7 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
         },
         { kind: "environment", expected: "local" },
         { kind: "json_path", path: "issue.executionRunId", expected: null },
+        ...(planDeliverable ? [{ kind: "json_path" as const, path: "issue.workMode", expected: "standard" }] : []),
         {
           kind: "json_schema",
           schema: {
