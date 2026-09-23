@@ -152,3 +152,16 @@ September 22 follow-up: [legacy continuation implementation and verification](LE
 The [continuation accounting matrix](../../doc/plans/2026-09-22-continuation-accounting-baseline.md) adds ACCT-01 through ACCT-04 for separate allowances, false progress, late gates and restart/replay. Its real-provider companion is the explicit-only `continuation-accounting` Product E2E suite.
 The [September 22 measurement](CONTINUATION-ACCOUNTING-2026-09-22.md) records the
 enabled failures and preserves both initial and corrected live campaigns.
+The [September 23 fixes and fresh verification](CONTINUATION-ACCOUNTING-FIXES-2026-09-23.md)
+retain the original measurements and cover separate persisted allowances, delayed
+repair promotion and the current native question/response continuation contract.
+
+The inexpensive browser regressions use real Chromium without a provider or
+Paperclip instance. They check screenshot readiness and development service-worker
+module revalidation across repeated reloads:
+
+```sh
+pnpm exec playwright test --config tests/runner-e2e/playwright-support.config.ts
+```
+
+Set `PAPERCLIP_PLAYWRIGHT_CHANNEL=chrome` to use an installed Chrome browser.

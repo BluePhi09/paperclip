@@ -1,0 +1,119 @@
+{
+  "schema": "paperclip.repository-verification/v1",
+  "measuredAt": "2026-09-23T15:04:23.646010+00:00",
+  "productionCommit": "cfbf03adee36ff8c3235858d046147c2d3c078d4",
+  "fixtureCommit": "841b836be232e6624776ee4e3f7641271d954914",
+  "scope": "All groups of scripts/run-vitest-stable.mjs, resumed after the initial pnpm test:run failure. Two test-only fixture fixes were verified before this record; no production change after the live campaign source.",
+  "counts": {
+    "passed": 25944,
+    "failed": 0,
+    "skipped": 102
+  },
+  "serializedCoverage": {
+    "expected": 148,
+    "executed": 148,
+    "unique": 148,
+    "missing": []
+  },
+  "groups": [
+    {
+      "group": "general-server",
+      "status": "passed",
+      "counts": {
+        "passed": 12902,
+        "failed": 0,
+        "skipped": 83
+      },
+      "completedInvocations": 1,
+      "logPath": "/private/tmp/accounting-fixed-full-tests.log",
+      "logSha256": "4424a8ed0eab9dd363d225a152b22954c661db1833e66cfb2a555b975f618592"
+    },
+    {
+      "group": "workspaces-a",
+      "status": "passed",
+      "counts": {
+        "passed": 7005,
+        "failed": 0,
+        "skipped": 0
+      },
+      "completedInvocations": 2,
+      "logPath": "/private/tmp/accounting-fixed-workspaces-a.log",
+      "logSha256": "350e65148379100561e2ae367383c58b850899bc6f40cb7bb833b2069e7000ae"
+    },
+    {
+      "group": "workspaces-b",
+      "status": "passed",
+      "counts": {
+        "passed": 3398,
+        "failed": 0,
+        "skipped": 19
+      },
+      "completedInvocations": 12,
+      "logPath": "/private/tmp/accounting-fixed-workspaces-b-final.log",
+      "logSha256": "9f76c4968ce972fc47c503065f967e66bea2321b213108884df641d7c9905fd5"
+    },
+    {
+      "group": "serialized-0",
+      "status": "passed",
+      "counts": {
+        "passed": 760,
+        "failed": 0,
+        "skipped": 0
+      },
+      "completedInvocations": 47,
+      "logPath": "/private/tmp/accounting-fixed-serialized-0-retry.log",
+      "logSha256": "26bbb8c43423f7b3d4a0f2b2cab31434891aa9d5a226bdb070c50f280993edb2"
+    },
+    {
+      "group": "serialized-1",
+      "status": "passed",
+      "counts": {
+        "passed": 938,
+        "failed": 0,
+        "skipped": 0
+      },
+      "completedInvocations": 50,
+      "logPath": "/private/tmp/accounting-fixed-serialized-1.log",
+      "logSha256": "3892df72f6d484c71508d9900acb06fae8ba7854e9981827ffbd8c6adc1069c3"
+    },
+    {
+      "group": "serialized-2",
+      "status": "passed",
+      "counts": {
+        "passed": 941,
+        "failed": 0,
+        "skipped": 0
+      },
+      "completedInvocations": 51,
+      "logPath": "/private/tmp/accounting-fixed-serialized-2-retry.log",
+      "logSha256": "1a2174825d988a152b066fe83a4ce7398bcec7617e8a0d2dfa2eadcb111a78db"
+    }
+  ],
+  "initialFailures": [
+    {
+      "log": "/private/tmp/accounting-fixed-full-tests.log",
+      "reason": "Three production offline-fallback assertions loaded an unstamped development worker; fixture now stamps a production build, unchanged assertions pass."
+    },
+    {
+      "logs": [
+        "/private/tmp/accounting-fixed-serialized-0.log",
+        "/private/tmp/accounting-fixed-serialized-2.log"
+      ],
+      "reason": "First route cold imports exceeded the 15s test deadline during concurrent UI execution; full unchanged shards rerun successfully after UI completed."
+    },
+    {
+      "log": "/private/tmp/accounting-fixed-workspaces-b.log",
+      "reason": "Callback drain fixture could stop before its handler started because its polling window was only 250ms. Test now awaits a handler-start signal; full workspace group passes."
+    }
+  ],
+  "checks": {
+    "recursiveTypecheck": "passed",
+    "build": "passed",
+    "followupPackageTypechecks": "passed",
+    "tokenGates": "passed",
+    "baseline": "1073/1073 plus grading follow-up 86/86 (one added calibration, 1074 current assertions)",
+    "e2eSupport": "475/475",
+    "browserSupport": "5/5",
+    "live": "8/8, no retries, all evidence valid, cleanup passed"
+  }
+}
