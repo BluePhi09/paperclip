@@ -12,7 +12,8 @@ Runtime authentication: [AI Connections](./AI-CONNECTIONS.md).
 
 Provider notes: [Google Workspace](./GOOGLE-WORKSPACE.md),
 [Gmail](./GMAIL.md), [PostHog](./POSTHOG.md),
-[AgentMail](./AGENTMAIL.md), and [iMessage Photon](./IMESSAGE-PHOTON.md). Optional credential custody:
+[AgentMail](./AGENTMAIL.md), [iMessage Photon](./IMESSAGE-PHOTON.md), and
+[Enterpret](./ENTERPRET.md). Optional credential custody:
 [Vercel Connect](./VERCEL-CONNECT.md).
 
 Post-read action: classify a new integration request, pick the right Paperclip
