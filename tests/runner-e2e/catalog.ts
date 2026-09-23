@@ -915,7 +915,7 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     groups: ["local"], environments: [localEnvironment], profiles: codexContinuityProfiles.map(productionStoryProfile),
     tasks: accountingTasks, expectedMatrixSize: 8,
     excludedExecutionIds: accountingTasks.filter(t => !t.id.includes("productive")).map(t => `continuation-accounting.runner-codex.local.${t.id}`),
-    definitionMetadata: { version: 3, grading: "accounting-v3-plain-tokens", scheduling: "explicit-only", providerTurns: "five productive, three repair, two executed plus one cancelled for Stop" },
+    definitionMetadata: { version: 4, grading: "accounting-v4-cancellation-evidence", scheduling: "explicit-only", providerTurns: "five productive, three repair, two executed plus one cancelled for Stop" },
   },
   {
     id: "lifecycle-baseline", label: "Lifecycle authority baseline", manualOnly: true,

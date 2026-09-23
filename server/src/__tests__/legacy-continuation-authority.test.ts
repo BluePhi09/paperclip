@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { agents, agentWakeupRequests, companies, createDb, heartbeatRuns, issueComments, issueRecoveryActions, issueThreadInteractions, issues } from "@paperclipai/db";
+import { heartbeatService } from "../services/heartbeat.js";
 import { recoveryService } from "../services/recovery/service.js";
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 
@@ -102,6 +103,21 @@ describe("legacy continuation persisted authority", () => {
     expect(await f.createRecovery().legacyRepairDispatchBlock(second.id)).not.toBeNull();
     await f.createRecovery().reconcileLegacyContinuation(first.id);
     expect(await f.runs()).toHaveLength(3);
+    expect((await f.actions())[0].attemptCount).toBe(2);
+  });
+
+  it("ACCT-04 a delayed second repair remains promotable after controller restart", async () => {
+    const f = await fixture();
+    await f.createRecovery().reconcileLegacyContinuation(f.runId);
+    const first = (await f.runs()).find(r => r.id !== f.runId)!;
+    await f.finish(first);
+    await f.createRecovery().reconcileLegacyContinuation(first.id);
+    const second = (await f.runs()).find(r => r.status === "scheduled_retry")!;
+    expect(await f.createRecovery().legacyRepairDispatchBlock(second.id)).toBeNull();
+    const restarted = heartbeatService(db);
+    const promoted = await restarted.promoteDueScheduledRetries(new Date(second.scheduledRetryAt!.getTime() + 1));
+    expect.soft(promoted.runIds).toContain(second.id);
+    expect((await f.runs()).find(r => r.id === second.id)).toMatchObject({ status: "queued", errorCode: null });
     expect((await f.actions())[0].attemptCount).toBe(2);
   });
 
