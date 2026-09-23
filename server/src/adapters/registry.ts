@@ -523,9 +523,9 @@ const paperclipRunnerAdapter: ServerAdapterModule = {
           { value: "opencode", label: `OpenCode ${QUALIFIED_OPENCODE_RUNNER_VERSION}` },
           { value: "claude_managed", label: "Claude Managed" },
           { value: "aws_agentcore", label: "AWS AgentCore" },
-          { value: "acpx", label: "ACPX Claude" },
+          { value: "acpx", label: "ACPX (Claude / Grok Build)" },
         ],
-        hint: "Select a local provider, company-qualified managed provider, or ACPX Claude.",
+        hint: "Select a local provider, company-qualified managed provider, or Claude or Grok Build through ACPX.",
       },
       {
         key: "acpxAgent", label: "ACP agent", type: "select" as const, default: "claude",
