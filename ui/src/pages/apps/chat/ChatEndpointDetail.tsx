@@ -1,4 +1,4 @@
-import { SlackToolsSettings, SlackSearchAccess } from "./SlackToolSettings";
+import { SlackSearchAccess } from "./SlackToolSettings";
 import { defaultSlackAppName } from "./slack-app-name";
 import { ChatCommunicationInstructions } from "./ChatCommunicationInstructions";
 import { SlackAvatarSettings } from "./SlackAvatarStep";
@@ -404,6 +404,13 @@ function Settings({
     saveResources.mutate({ id: resource.id, enabled });
   return (
     <section className="max-w-3xl space-y-7">
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold">Agent</h2>
+        <p className="text-sm font-medium">{endpoint.assignedAgentName}</p>
+        <p className="text-sm text-muted-foreground">
+          Only {endpoint.assignedAgentName} uses this chat connection.
+        </p>
+      </div>
       {endpoint.provider === "imessage-photon" && <p className="text-sm text-muted-foreground">{endpoint.photonAllocation === "shared" ? "Shared Photon project · direct messages only. Enroll senders in Photon and link their Messages identities in Access. Groups cannot be enabled." : "Enable each group individually. Agent replies are visible to everyone in that group; only authorized senders can start work."}</p>}
       {endpoint.provider === "slack" && (
         <div className="space-y-2 text-sm">
@@ -426,7 +433,6 @@ function Settings({
               avatarUrl={agentAvatarUrl(resolveAgentAppearance(avatarAgent.data?.appearance, endpoint.assignedAgentId), 512, 1, "rest")}
             />
       )}
-      {endpoint.provider === "slack" && <SlackToolsSettings companyId={endpoint.companyId} endpointId={endpointId} connectionId={endpoint.connectionId} />}
       {endpoint.provider === "slack" && <ChatCommunicationInstructions
         key={endpoint.id}
         value={endpoint.communicationInstructions ?? ""}

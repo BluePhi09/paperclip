@@ -1,9 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SLACK_TOOLS, type SlackSearchStatus } from "@paperclipai/shared";
-import {
-  SlackCapabilitiesView,
-  SlackSearchView,
-} from "../../src/pages/apps/chat/SlackToolSettings";
+import type { SlackSearchStatus } from "@paperclipai/shared";
+import { SlackSearchView } from "../../src/pages/apps/chat/SlackToolSettings";
 const base: SlackSearchStatus = {
   canConfigure: true,
   configured: false,
@@ -14,40 +11,16 @@ const base: SlackSearchStatus = {
   limitation:
     "This runtime uses bounded channel history search. Native search requires transient result delivery.",
 };
-function Preview({
-  upgrade = false,
-  access = false,
-  connected = false,
-  configured = false,
-}) {
+function Preview({ connected = false, configured = false }) {
   return (
     <main className="max-w-3xl p-6 space-y-7">
-      <h2 className="text-lg font-semibold">
-        {access ? "Access" : "Settings"}
-      </h2>
-      {access ? (
-        <SlackSearchView
-          status={{ ...base, configured, connected }}
-          onConnect={async () => {}}
-          onDisconnect={async () => {}}
-          onConfigure={async () => {}}
-        />
-      ) : (
-        <SlackCapabilitiesView
-          capabilities={{
-            grantedScopes: [],
-            missingScopes: upgrade
-              ? ["pins:read", "pins:write", "canvases:write", "lists:write"]
-              : [],
-            tools: SLACK_TOOLS.map((t) => ({
-              name: t.name,
-              description: t.description,
-              risk: t.risk,
-              available: !upgrade || t.risk === "read",
-            })),
-          }}
-        />
-      )}
+      <h2 className="text-lg font-semibold">Access</h2>
+      <SlackSearchView
+        status={{ ...base, configured, connected }}
+        onConnect={async () => {}}
+        onDisconnect={async () => {}}
+        onConfigure={async () => {}}
+      />
     </main>
   );
 }
@@ -57,12 +30,10 @@ export default {
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof Preview>;
 type Story = StoryObj<typeof Preview>;
-export const Capabilities: Story = {};
-export const UpgradePermissions: Story = { args: { upgrade: true } };
-export const ConfigureSearch: Story = { args: { access: true } };
+export const ConfigureSearch: Story = {};
 export const ConnectSearch: Story = {
-  args: { access: true, configured: true },
+  args: { configured: true },
 };
 export const SearchConnected: Story = {
-  args: { access: true, configured: true, connected: true },
+  args: { configured: true, connected: true },
 };
