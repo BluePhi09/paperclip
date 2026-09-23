@@ -36,3 +36,7 @@ See the [scenario matrix](../../doc/plans/2026-09-22-continuation-accounting-bas
 for deterministic fault, replay, spending and ownership coverage. Infrastructure
 failures are not induced in paid cells; their cross-lane allowance semantics are
 covered by actual scheduler tests with controlled failures.
+
+Results and follow-ups are retained in the [accounting measurement report](../lifecycle-baseline/CONTINUATION-ACCOUNTING-2026-09-22.md),
+including the original failed fixture campaign. A new measurement never replaces
+or regrades an earlier campaign.

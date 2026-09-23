@@ -29,7 +29,7 @@ new paid productive cases use public questions and responses instead.
 | Repeated missing disposition | Existing repair episode unit/DB tests; complete sweep after exhaustion | Initial turn plus exactly two legacy repairs; visible board recovery, blocked task |
 | Comments/confident prose/tool calls without state change | Quiet/noisy exhausted repair and failure variants; native event replay | Quiet versus three distinct attributed misleading comments per run; no extra allowance |
 | Late approval/pause/spending/ownership gate | Second repair delayed, new gate, service restart, same debit; existing admission tests cover both runtimes | Approval created by first repair owns wait; acceptance causes one completion; Stop before second repair dispatch |
-| Restart while a repair is scheduled | Durable episode/dispatch tests | Controller restart before delayed repair; identical run IDs and episode counters |
+| Restart while a repair is scheduled | Actual delayed-retry promotion as well as the repair gate; retain episode and debit | Controller restart before delayed repair; identical run IDs and episode counters; fail with the persisted cancellation reason if promotion cancels it |
 | Duplicate/out-of-order handling | Concurrent retry/recovery tests and native consumed-repair replay with commentary/tool events | Exact run counts, document revisions and retained IDs; exhaustive races stay deterministic |
 | No reset after exhaustion; legitimate new request | Existing heartbeat exhausted failure versus actual new user request | No user message during exhaustion; a real approval resumes its owned path |
 | Missing or misleading evidence | Calibrated oracle rejects missing state, wrong documents, overwritten steps, fabricated progress, extra runs, lost receipts, decline, executed Stop | Every live result uses that oracle and existing screenshot/evidence/billing pipeline |
@@ -64,3 +64,11 @@ spending gates and timing races use deterministic fixtures rather than artificia
 spending money or hoping for a real outage. The original native compatibility
 probes, blank-route reload finding and duplicate-response finding remain in the
 [retained backlog](2026-09-22-legacy-continuation-authority.md).
+
+## Recorded baseline
+
+The [measurement report](../../tests/lifecycle-baseline/CONTINUATION-ACCOUNTING-2026-09-22.md)
+retains the deterministic inventory and each paid campaign without regrading.
+The new suite exposes shared allowance accounting in both directions and a
+delayed-repair promotion mismatch. These are production follow-ups; the test
+slice leaves their intended-behavior assertions enabled and failing.

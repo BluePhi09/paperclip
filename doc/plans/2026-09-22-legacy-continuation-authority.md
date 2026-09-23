@@ -123,8 +123,8 @@ Keep this section even if this slice incidentally resolves some assertions.
 | Commentary counts as progress | 1 | Retain for progress-evidence audit; no comment-count budget resets in this slice |
 | Wording selects liveness versus handoff path in heartbeat | 1 | Retain separately in results; must be covered while closing the current shared authority boundary |
 | Native autonomous continuation compatibility probes | 2 | Replace with reachable public-contract tests; `same_agent` injection is not a current model-facing defect |
-| Productive continuation versus repair/failure budgets | Coverage boundary | Separate audit after this slice; do not infer progress from text/event counts |
-| Blank task route after reload | New live observation | Investigate browser bootstrap/rendering; seen after successful persisted lifecycle in both runtimes; campaigns 35744074887 and 35747200170 |
+| Productive continuation versus repair/failure budgets | Three new findings | [Accounting baseline](2026-09-22-continuation-accounting-baseline.md) exposes delayed repair spending infrastructure allowance, infrastructure retries spending productive allowance, and delayed repair cancellation during promotion. Test-only slice; production fixes remain open |
+| Blank task route after reload | Repeated live observation | Investigate browser bootstrap/rendering; campaigns 35744074887 and 35747200170, plus accounting campaign 35813099816 after two correct legacy steps with a pending question. Empty screenshot retained; full quiet productive case remains unverified |
 | Duplicate legacy response | One later live observation | Campaign 35805477715 legacy work-mode neutral: provider issued two successful PATCH calls, second escaping an underscore. Retain as model behavior evidence; exact-once matcher rejected it |
 | Missing-comment policy ownership | Coverage boundary | Existing typed retry policy remains; review separately if consolidating all post-run compliance into one disposition contract |
 | Maintain CI and prepare App/Evals review | Pending | Promote fixed invariants into maintained cheap gates; paid suites remain explicit |
