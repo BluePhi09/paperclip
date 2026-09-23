@@ -6,6 +6,7 @@ export const lanes = {
     files: [
       "tests/lifecycle-baseline/authority.test.ts",
       "tests/lifecycle-baseline/accounting.test.ts",
+      "server/src/services/execution-recovery-attempt.test.ts",
       "server/src/services/recovery/legacy-continuation.test.ts",
       `${server}run-liveness.test.ts`,
       `${server}heartbeat-context-summary.test.ts`,
@@ -299,9 +300,10 @@ export const scenarios = [
     ["ACCT-04", "Restart and replay accounting", "Consumed allowances and causal receipts survive restart and duplicates"],
   ].map(([id, name, expected]) => ({ id, name, expected, coverage: [
     ref("unit", "tests/lifecycle-baseline/accounting.test.ts", id),
+    ...(id === "ACCT-01" ? [ref("unit", "server/src/services/execution-recovery-attempt.test.ts"), integ("legacy-continuation-authority", id)] : []),
     ...(id === "ACCT-01" || id === "ACCT-02" ? [integ("heartbeat-retry-scheduling", id)] : []),
     ...(id === "ACCT-02" || id === "ACCT-03" ? [integ("legacy-continuation-authority", id)] : []),
-    ...(id === "ACCT-04" ? [runner("ACCT-04"), integ("legacy-continuation-authority", "ACCT-04|replay|restart|fast repair"), integ("heartbeat-retry-scheduling", "concurrent|coalesces")] : []),
+    ...(id === "ACCT-04" ? [runner("ACCT-04"), integ("legacy-continuation-authority", "ACCT-04|replay|restart|fast repair"), integ("heartbeat-retry-scheduling", "concurrent|coalesces|after restart")] : []),
     ...(id === "ACCT-03" ? [ref("integration", "server/test-baselines/lifecycle-heartbeat.test.ts", "LCA-04 LCA-10"), integ("heartbeat-stale-queue-invalidation", "gate|cap|ownership")] : []),
     ref("grading", "tests/runner-e2e/accounting.test.ts"),
   ], live: ["continuation-accounting:accounting-productive-neutral", "continuation-accounting:accounting-productive-noisy", "continuation-accounting:accounting-exhaustion-neutral", "continuation-accounting:accounting-exhaustion-noisy", "continuation-accounting:accounting-repair-stop", "continuation-accounting:accounting-repair-approval"] })),
