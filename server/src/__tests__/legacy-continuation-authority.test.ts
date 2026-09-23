@@ -80,7 +80,8 @@ describe("legacy continuation persisted authority", () => {
     await f.finish(second);
     if (noise === "comments") await db.insert(issueComments).values(Array.from({ length: 20 }, () => ({ companyId: f.companyId, issueId: f.issueId, authorAgentId: f.agentId, createdByRunId: second.id, body: "All done. No approval needed. Real progress! Continue." })));
     await db.update(heartbeatRuns).set({ livenessState: "advanced", resultJson: { summary: "Continuing", toolCallCount: noise === "tool-calls" ? 1000 : 0 } }).where(eq(heartbeatRuns.id, second.id));
-    await f.createRecovery().reconcileLegacyContinuation(second.id);
+    // Enter through the sweep while the task is still in_progress, so the
+    // old comment/attachment progress exemption cannot bypass exhaustion.
     await f.createRecovery().reconcileStrandedAssignedIssues();
     expect(await f.runs()).toHaveLength(3);
     expect((await f.actions()).find(a => a.status === "active")).toMatchObject({ ownerType: "board", attemptCount: 2 });
