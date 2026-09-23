@@ -43,7 +43,7 @@ not forwarded to Grok.
 ## Evaluation
 
 The private `paperclip-evals` repository maintains `live-acpx-grok-4.7.json` and
-`rosters/live-acpx-grok.json`. The roster covers all 35 protocol cases. Its campaign
+`rosters/live-acpx-grok.json`. The roster covers all 39 protocol cases. Its campaign
 lane remains disabled pending complete live qualification.
 
 Product E2E exposes `runner-acpx-grok` in core local/Daytona compatibility and

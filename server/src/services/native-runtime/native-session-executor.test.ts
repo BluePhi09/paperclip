@@ -26,6 +26,7 @@ import {
 } from "@paperclipai/db";
 import {
   acpxRuntimeSessionDirectoryName,
+  resolveAcpxRuntimeRoot,
   createPrpSemanticToolInputEnvelope,
   createPrpSemanticToolResultEnvelope,
   validatePrpStructuredRunResult,
@@ -7788,7 +7789,10 @@ describe("runnerd provider runtime wiring", () => {
         runnerInstanceId: "grok-cleanup", managedAiCredentialHome: managedHome });
       state.createBackend.mock.calls.at(-1)![1].codexTransportFactory!();
       const runtimeDirectory = state.createTransport.mock.calls.at(-1)![0].acpxRuntimeDirectory!;
-      const agentHome = join(runtimeDirectory, acpxRuntimeSessionDirectoryName(execution.session.normalizedSessionId!), "grok-home");
+      await mkdir(runtimeDirectory, { recursive: true });
+      // Use the runtime's real resolver, so this test cannot reproduce a
+      // controller-side guess that omits the nested ACPX namespace.
+      const agentHome = join(await resolveAcpxRuntimeRoot(runtimeDirectory, execution.session.normalizedSessionId!), "grok-home");
       await mkdir(agentHome, { recursive: true, mode: 0o700 });
       for (const name of ["auth.json", "auth-refresh.json", "auth-refresh.json.tmp"]) {
         await writeFile(join(agentHome, name), "fixture-refreshed-login", { mode: 0o600 });
