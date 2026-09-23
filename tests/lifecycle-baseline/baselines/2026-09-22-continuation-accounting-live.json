@@ -1,0 +1,1102 @@
+{
+  "schema": "paperclip.continuation-accounting-verification/v1",
+  "measurementDateLocal": "2026-09-22",
+  "timezone": "America/Los_Angeles",
+  "campaigns": [
+    {
+      "source": {
+        "sha": "9cd7a585f5c69dc327b7d90534ad51be89ae5bb7",
+        "ref": "refs/heads/codex/lifecycle-behavior-baseline-20260921",
+        "workflowRunUrl": "https://github.com/paperclipai/paperclip/actions/runs/35811412940",
+        "eventName": "workflow_dispatch"
+      },
+      "campaignId": "gha-35811412940-1",
+      "artifactSha256": "c43cff78e68900b350bfd509f72ba0166b03408fc24ba1a61108516e50977f55",
+      "totals": {
+        "selected": 8,
+        "executed": 8,
+        "passed": 0,
+        "failed": 8,
+        "incomplete": 0,
+        "retries": 0,
+        "cleanupPassed": true
+      },
+      "billing": {
+        "testCount": 8,
+        "agentRunDurationMs": 747862,
+        "leaseDurationMs": 0,
+        "llm": {
+          "runCount": 32,
+          "runsWithTokenUsage": 29,
+          "runsWithReportedCost": 10,
+          "inputTokens": 12277374,
+          "outputTokens": 93595,
+          "cachedInputTokens": 11245058,
+          "totalTokens": 23616027,
+          "reportedCostUsd": 0,
+          "costStatus": "partial"
+        },
+        "reportedLlmCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "testsWithCompleteBilling": 2
+      },
+      "definitionHashes": [
+        "eee31d4c9061793bea81ce5a4b05edf26d79fd1d0d8af7afb12515b2e4b14fdc"
+      ],
+      "cells": [
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-productive-neutral",
+          "caseId": "accounting-productive-neutral",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "permanent_infrastructure",
+          "error": "Required evidence missing: final-state.png",
+          "attempt": 1,
+          "durationMs": 233300,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 5,
+              "runsWithTokenUsage": 5,
+              "runsWithReportedCost": 0,
+              "inputTokens": 4841910,
+              "outputTokens": 29213,
+              "cachedInputTokens": 4589732,
+              "totalTokens": 9460855,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 162684,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 5,
+          "runIds": [
+            "cd450ecc-85bd-4af7-a395-4212e96e3a0b",
+            "4902a7bc-a7f2-4faf-8df9-259deca46cfa",
+            "2aeb3b1b-d8ec-4804-89f0-9c843c5e168f",
+            "6ab8d9b9-f35e-4306-bd73-9ce653416199",
+            "e3288fe3-7576-4606-8dee-9e08d6eb11a0"
+          ],
+          "failedMatchers": []
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-productive-noisy",
+          "caseId": "accounting-productive-noisy",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Accounting assertions failed: perturbation, step-2, step-3, step-4, step-5",
+          "attempt": 1,
+          "durationMs": 176147,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 5,
+              "runsWithTokenUsage": 5,
+              "runsWithReportedCost": 0,
+              "inputTokens": 3308157,
+              "outputTokens": 28094,
+              "cachedInputTokens": 3079643,
+              "totalTokens": 6415894,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 109528,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 5,
+          "runIds": [
+            "3233b53d-a2b0-42aa-8f9e-def0420a5220",
+            "4401a1c9-a391-434f-8cf7-8e2212f82346",
+            "aa5e27fe-4398-4491-a699-9902159679d4",
+            "777db355-be84-4cba-b8a2-2077216fc424",
+            "ce7bb8d0-4a69-413b-bd5c-2e00a69e7e05"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.perturbation",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each successful provider run actually posted its prescribed attributed comments."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-2",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-3",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-4",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-5",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-exhaustion-neutral",
+          "caseId": "accounting-exhaustion-neutral",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Timed out waiting for bounded repairs exhausted; the observed state did not satisfy the condition. See the saved state evidence.",
+          "attempt": 1,
+          "durationMs": 660687,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 3,
+              "runsWithTokenUsage": 2,
+              "runsWithReportedCost": 0,
+              "inputTokens": 226456,
+              "outputTokens": 2402,
+              "cachedInputTokens": 180512,
+              "totalTokens": 409370,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 26919,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 3,
+          "runIds": [
+            "f95b0e46-4219-4b51-b889-e548ef769200",
+            "28aa6ea5-1028-44c5-a3e4-1cab2571ba32",
+            "2d75ab16-d8c1-472f-a3b0-b94126a9ad76"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.evidence",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "A final persisted checkpoint is required."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-exhaustion-noisy",
+          "caseId": "accounting-exhaustion-noisy",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Timed out waiting for bounded repairs exhausted; the observed state did not satisfy the condition. See the saved state evidence.",
+          "attempt": 1,
+          "durationMs": 660777,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 3,
+              "runsWithTokenUsage": 2,
+              "runsWithReportedCost": 0,
+              "inputTokens": 589167,
+              "outputTokens": 4706,
+              "cachedInputTokens": 523461,
+              "totalTokens": 1117334,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 56397,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 3,
+          "runIds": [
+            "913aea30-aafe-42a7-b312-528e8a5a048b",
+            "241c8afa-b462-4315-9260-6483bad73dee",
+            "f1ad92f1-d0c4-49b5-9473-0055bcd72af7"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.evidence",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "A final persisted checkpoint is required."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-repair-stop",
+          "caseId": "accounting-repair-stop",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Accounting assertions failed: perturbation",
+          "attempt": 1,
+          "durationMs": 136992,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 3,
+              "runsWithTokenUsage": 2,
+              "runsWithReportedCost": 0,
+              "inputTokens": 228641,
+              "outputTokens": 2935,
+              "cachedInputTokens": 181928,
+              "totalTokens": 413504,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 37162,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 3,
+          "runIds": [
+            "16a25d65-f2bf-46dc-89d7-7c9b395330ab",
+            "57eb0250-0984-41df-9275-b0c6311d7cf1",
+            "3940ae20-0ca9-472f-89cd-65fa3af11e4f"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.perturbation",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each successful provider run actually posted its prescribed attributed comments."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-repair-approval",
+          "caseId": "accounting-repair-approval",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Accounting assertions failed: perturbation",
+          "attempt": 1,
+          "durationMs": 158334,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 3,
+              "runsWithTokenUsage": 3,
+              "runsWithReportedCost": 0,
+              "inputTokens": 1215545,
+              "outputTokens": 10760,
+              "cachedInputTokens": 1095123,
+              "totalTokens": 2321428,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 120541,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 3,
+          "runIds": [
+            "060e51de-f9ec-45f6-9ae1-c1b4ff24ce68",
+            "b2cf4b15-a81a-4cc9-a422-ee7285725f0b",
+            "3ba4c799-0085-4964-85e2-286c09f6f860"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.perturbation",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each successful provider run actually posted its prescribed attributed comments."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.runner-codex.local.accounting-productive-neutral",
+          "caseId": "accounting-productive-neutral",
+          "profileId": "runner-codex",
+          "environmentId": "local",
+          "runtimeMode": "native",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Accounting assertions failed: perturbation, step-2, step-3, step-4, step-5",
+          "attempt": 1,
+          "durationMs": 173167,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 5,
+              "runsWithTokenUsage": 5,
+              "runsWithReportedCost": 5,
+              "inputTokens": 679896,
+              "outputTokens": 6460,
+              "cachedInputTokens": 550165,
+              "totalTokens": 1236521,
+              "reportedCostUsd": 0,
+              "costStatus": "reported"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 102873,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": true
+          },
+          "runCount": 5,
+          "runIds": [
+            "0f2dc86a-6fd5-4062-a872-f2d24b677aa7",
+            "301ca19b-7e17-4b9c-8352-9e808ae8b1e4",
+            "381aa5ce-1d20-4d2b-ab19-d54f0eabb76b",
+            "e3b3c940-ead5-449e-8176-86e6c3b475b6",
+            "44142431-ec1f-4102-8943-3a1ea284fd02"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.perturbation",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each successful provider run actually posted its prescribed attributed comments."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-2",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-3",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-4",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-5",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.runner-codex.local.accounting-productive-noisy",
+          "caseId": "accounting-productive-noisy",
+          "profileId": "runner-codex",
+          "environmentId": "local",
+          "runtimeMode": "native",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Accounting assertions failed: perturbation, step-2, step-3, step-4, step-5",
+          "attempt": 1,
+          "durationMs": 207602,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 5,
+              "runsWithTokenUsage": 5,
+              "runsWithReportedCost": 5,
+              "inputTokens": 1187602,
+              "outputTokens": 9025,
+              "cachedInputTokens": 1044494,
+              "totalTokens": 2241121,
+              "reportedCostUsd": 0,
+              "costStatus": "reported"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 131758,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": true
+          },
+          "runCount": 5,
+          "runIds": [
+            "cae45ce9-5384-4bc1-a8f2-f34d1c587541",
+            "beb65da6-cb23-42cc-a75d-369856ad1803",
+            "ddee4c73-ca44-4ddf-a213-183080dce9d9",
+            "640f8b76-0828-49b9-878b-efed8dda4405",
+            "e650ad50-1f47-414b-85c3-1ff5c1aa1acb"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.perturbation",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each successful provider run actually posted its prescribed attributed comments."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-2",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-3",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-4",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            },
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.step-5",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "Each checkpoint contains exactly its completed records; no replay or premature later step."
+            }
+          ]
+        }
+      ],
+      "interpretation": "Original 0/8 result retained. Fixture issues: within-run identical comment deduplication, rich-text escaping of underscore tokens, and screenshot names rejected by the existing publication allowlist. Both exhaustion cells timed out; neutral retained API state confirms unstarted second repair cancelled as issue_disposition_repair_superseded. No regrading or production fixes."
+    },
+    {
+      "source": {
+        "sha": "379a70315e47de1ac2c8e4eb452eb3121401c5c7",
+        "ref": "refs/heads/codex/lifecycle-behavior-baseline-20260921",
+        "workflowRunUrl": "https://github.com/paperclipai/paperclip/actions/runs/35813099816",
+        "eventName": "workflow_dispatch"
+      },
+      "campaignId": "gha-35813099816-1",
+      "artifactSha256": "25821231dd32b6f0d9b1e1e71249e0ccdc39125582c6873638ea1ef2cf74f4ef",
+      "totals": {
+        "selected": 8,
+        "executed": 8,
+        "passed": 5,
+        "failed": 3,
+        "incomplete": 0,
+        "retries": 0,
+        "cleanupPassed": true
+      },
+      "billing": {
+        "testCount": 8,
+        "agentRunDurationMs": 544232,
+        "leaseDurationMs": 0,
+        "llm": {
+          "runCount": 29,
+          "runsWithTokenUsage": 26,
+          "runsWithReportedCost": 10,
+          "inputTokens": 7627551,
+          "outputTokens": 76366,
+          "cachedInputTokens": 6787126,
+          "totalTokens": 14491043,
+          "reportedCostUsd": 0,
+          "costStatus": "partial"
+        },
+        "reportedLlmCostUsd": 0,
+        "estimatedRuntimeCostUsd": 0,
+        "observedAndEstimatedCostUsd": 0,
+        "testsWithCompleteBilling": 2
+      },
+      "definitionHashes": [
+        "6485ad6c67bc744e6b2a294e0eac7a6b14d2f6d6bbfac4a0012e4812f9605f9e"
+      ],
+      "cells": [
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-productive-neutral",
+          "caseId": "accounting-productive-neutral",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('task-chat-thread')\nExpected: visible\nTimeout: 30000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('task-chat-thread')\u001b[22m\n",
+          "attempt": 1,
+          "durationMs": 124121,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 2,
+              "runsWithTokenUsage": 2,
+              "runsWithReportedCost": 0,
+              "inputTokens": 513544,
+              "outputTokens": 9088,
+              "cachedInputTokens": 446852,
+              "totalTokens": 969484,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 71986,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 2,
+          "runIds": [
+            "74a368e1-32cc-483f-840c-134be1239dc0",
+            "c8dc6d99-e578-43e1-9b0f-b9b4627b7716"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.evidence",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "A final persisted checkpoint is required."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-productive-noisy",
+          "caseId": "accounting-productive-noisy",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "passed",
+          "failureClass": null,
+          "error": null,
+          "attempt": 1,
+          "durationMs": 182620,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 5,
+              "runsWithTokenUsage": 5,
+              "runsWithReportedCost": 0,
+              "inputTokens": 3189876,
+              "outputTokens": 31944,
+              "cachedInputTokens": 2956599,
+              "totalTokens": 6178419,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 122277,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 5,
+          "runIds": [
+            "c3c6fcaf-00e6-4831-ac91-85552d8730ea",
+            "daa2623e-c21e-41cc-81ad-ad7785d6883a",
+            "ef24fff0-7277-4aea-8d21-09afe10509b7",
+            "5ba855d7-dcfd-4511-ad6b-971cf609f7a0",
+            "ff827af8-37ea-4549-8bb2-3ba8688a0e1b"
+          ],
+          "failedMatchers": []
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-exhaustion-neutral",
+          "caseId": "accounting-exhaustion-neutral",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Stopped waiting for bounded repairs exhausted: Unexpected terminated run: cancelled:issue_disposition_repair_superseded",
+          "attempt": 1,
+          "durationMs": 127267,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 3,
+              "runsWithTokenUsage": 2,
+              "runsWithReportedCost": 0,
+              "inputTokens": 337440,
+              "outputTokens": 2900,
+              "cachedInputTokens": 282269,
+              "totalTokens": 622609,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 32035,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 3,
+          "runIds": [
+            "15fe6f7f-63fd-4089-bcb0-442448ae7ebd",
+            "15c2632c-eff1-4485-a5f1-df0255447045",
+            "127fd61b-485d-4bd2-8574-1902313d17c1"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.evidence",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "A final persisted checkpoint is required."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-exhaustion-noisy",
+          "caseId": "accounting-exhaustion-noisy",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "failed",
+          "failureClass": "candidate_failure",
+          "error": "Stopped waiting for bounded repairs exhausted: Unexpected terminated run: cancelled:issue_disposition_repair_superseded",
+          "attempt": 1,
+          "durationMs": 114665,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 3,
+              "runsWithTokenUsage": 2,
+              "runsWithReportedCost": 0,
+              "inputTokens": 232873,
+              "outputTokens": 2755,
+              "cachedInputTokens": 184884,
+              "totalTokens": 420512,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 27850,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 3,
+          "runIds": [
+            "fe2fd386-d3dc-4b34-8f01-b557e83cf302",
+            "42f23bba-84c9-45ec-9c3e-94fdc1fb2ac8",
+            "c2700082-f873-441c-b0a9-082ad0e9c9f5"
+          ],
+          "failedMatchers": [
+            {
+              "matcher": {
+                "kind": "json_path",
+                "path": "accounting.evidence",
+                "expected": true
+              },
+              "passed": false,
+              "detail": "A final persisted checkpoint is required."
+            }
+          ]
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-repair-stop",
+          "caseId": "accounting-repair-stop",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "passed",
+          "failureClass": null,
+          "error": null,
+          "attempt": 1,
+          "durationMs": 123125,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 3,
+              "runsWithTokenUsage": 2,
+              "runsWithReportedCost": 0,
+              "inputTokens": 261481,
+              "outputTokens": 2795,
+              "cachedInputTokens": 205153,
+              "totalTokens": 469429,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 24490,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 3,
+          "runIds": [
+            "c08e7972-bb21-4691-b234-48613d0a6eef",
+            "df60791e-c7de-466e-a151-56a1e9b36c70",
+            "1bd657d2-e5e5-474e-bbfe-c4102bdf5d12"
+          ],
+          "failedMatchers": []
+        },
+        {
+          "executionId": "continuation-accounting.legacy-codex.local.accounting-repair-approval",
+          "caseId": "accounting-repair-approval",
+          "profileId": "legacy-codex",
+          "environmentId": "local",
+          "runtimeMode": "legacy",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "passed",
+          "failureClass": null,
+          "error": null,
+          "attempt": 1,
+          "durationMs": 116072,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 3,
+              "runsWithTokenUsage": 3,
+              "runsWithReportedCost": 0,
+              "inputTokens": 1217324,
+              "outputTokens": 12613,
+              "cachedInputTokens": 1116105,
+              "totalTokens": 2346042,
+              "reportedCostUsd": 0,
+              "costStatus": "unpriced"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 82668,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": false
+          },
+          "runCount": 3,
+          "runIds": [
+            "3701896d-643c-4577-ab28-b1246c2e7dc1",
+            "5a18316f-6379-4352-99e4-f28aa99e322f",
+            "b1608a3c-7bdc-49ef-80d9-bfa11845b234"
+          ],
+          "failedMatchers": []
+        },
+        {
+          "executionId": "continuation-accounting.runner-codex.local.accounting-productive-neutral",
+          "caseId": "accounting-productive-neutral",
+          "profileId": "runner-codex",
+          "environmentId": "local",
+          "runtimeMode": "native",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "passed",
+          "failureClass": null,
+          "error": null,
+          "attempt": 1,
+          "durationMs": 164757,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 5,
+              "runsWithTokenUsage": 5,
+              "runsWithReportedCost": 5,
+              "inputTokens": 1143277,
+              "outputTokens": 7520,
+              "cachedInputTokens": 1004822,
+              "totalTokens": 2155619,
+              "reportedCostUsd": 0,
+              "costStatus": "reported"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 98792,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": true
+          },
+          "runCount": 5,
+          "runIds": [
+            "f284b06e-2fd4-42db-93da-6862512ab60b",
+            "e09209fa-2b83-40fc-a00a-0b1d3d8ddcbc",
+            "9d2da16d-fb7d-40f4-abb5-029a78e0d58f",
+            "00ab467d-0450-4764-b34d-df3f1dfc5619",
+            "04e7aa19-0009-4b3c-b23c-4f94db7da442"
+          ],
+          "failedMatchers": []
+        },
+        {
+          "executionId": "continuation-accounting.runner-codex.local.accounting-productive-noisy",
+          "caseId": "accounting-productive-noisy",
+          "profileId": "runner-codex",
+          "environmentId": "local",
+          "runtimeMode": "native",
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "status": "passed",
+          "failureClass": null,
+          "error": null,
+          "attempt": 1,
+          "durationMs": 131670,
+          "evidenceValid": true,
+          "evidenceErrors": [],
+          "cleanup": "passed",
+          "billing": {
+            "llm": {
+              "runCount": 5,
+              "runsWithTokenUsage": 5,
+              "runsWithReportedCost": 5,
+              "inputTokens": 731736,
+              "outputTokens": 6751,
+              "cachedInputTokens": 590442,
+              "totalTokens": 1328929,
+              "reportedCostUsd": 0,
+              "costStatus": "reported"
+            },
+            "runtime": {
+              "provider": "local",
+              "agentRunDurationMs": 84134,
+              "leaseDurationMs": null,
+              "leaseCount": 0,
+              "costStatus": "not_metered",
+              "costSource": "local_not_metered"
+            },
+            "reportedCostUsd": 0,
+            "estimatedRuntimeCostUsd": 0,
+            "observedAndEstimatedCostUsd": 0,
+            "complete": true
+          },
+          "runCount": 5,
+          "runIds": [
+            "23138f6c-c140-44b8-b737-cdcc92e9dbff",
+            "b13025ef-f45b-430a-a9aa-ad7bdc6ff3dc",
+            "d953117a-1bba-4623-bef7-6dc2204c4797",
+            "d85ba9bd-28d5-4965-a86a-6fba8e0dc462",
+            "fee86140-b7d0-4349-a10c-95cb3575023b"
+          ],
+          "failedMatchers": []
+        }
+      ],
+      "interpretation": "Corrected fixtures: 5/8 passed. Both native productive pairs, legacy noisy productivity, approval and Stop passed. Both legacy exhaustion cases fail with cancelled:issue_disposition_repair_superseded after restart. Legacy quiet stops at a blank task-route reload after two correct persisted steps and a pending question; full workflow remains unverified. No regrading. All eight evidence packages valid, cleanup passed, no retries. Public publication succeeded; reported cost remains partial, not zero actual spending."
+    }
+  ]
+}
