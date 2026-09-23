@@ -135,3 +135,40 @@ and approval workflows retain their authoritative behavior.
 The final measurement also has partial billing: 31/32 run records report usage,
 10 report cost, and one is cancelled before provider execution. No zero-spend
 claim is made. Both post-fix campaigns and the September 22 failures are retained.
+
+## PR integration verification
+
+[PR #13888](https://github.com/paperclipai/paperclip/pull/13888) replays the branch
+onto master `b41ccf097`. The original baseline branch and measurements remain
+unchanged. The combined native startup check needed one ordering correction:
+publish the session handle before reading the durable Stop record, so the waiting
+Stop caller can acknowledge the exact cancellation. The new paired regression
+failed for both native backends before the fix; the full native-session suite then
+passed **447/447**. The lifecycle baseline passed **1,074/1,074**, Product E2E
+support **515/515**, and browser support **11/11**. Recursive typecheck, E2E harness
+typecheck, full build, and token gates passed.
+
+[Campaign 35881382080](https://github.com/paperclipai/paperclip/actions/runs/35881382080)
+measured PR source `e88d210417280140b44a36449027290adcb1aeaa`: **8/8 passed**,
+zero retries, zero incomplete cells, all evidence valid, and cleanup passed.
+It selects only the complete accounting suite, not the complete Product E2E
+catalog. Profiles remain legacy Codex and native Codex on local isolated instances,
+using `gpt-5.6-sol`. The [saved measurement](baselines/2026-09-23-pr-accounting-live.json)
+retains the source, definition hash, timing, run counts, and billing coverage.
+The published normalized report matches the downloaded artifact. Billing remains
+partial: 31/32 run records report usage and 10 report cost; reported zero is not a
+zero-spend claim.
+
+- [Published PR accounting report](https://d1p6rlowie26tp.cloudfront.net/runner-e2e/campaigns/gha-35881382080-1/index.html)
+
+The first PR CI run exposed an old connection-intent browser fixture that used a
+tool and exited without recording completion. Its `scheduled_retry` failure was
+reproduced locally. The fixture now records an agent-authored progress comment
+while waiting and a Done disposition after successful tool use. This respects the
+existing missing-comment compliance policy, which remains a separately recorded
+backlog item. Its assertions also require one resumed tool call and exactly two
+successful runs; no scheduler rule or grading threshold was relaxed.
+The corrected connection-intent journey passed in a fresh local browser/server
+instance. The two CI runtime-service readiness failures also passed unchanged in
+their local suites (34 passed, 3 platform skips); current-head CI remains the
+required cross-platform handoff gate.
