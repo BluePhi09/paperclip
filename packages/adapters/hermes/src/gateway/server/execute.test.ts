@@ -292,7 +292,8 @@ describe("execute", () => {
       timeoutSec: 5,
       payloadTemplate: { input: "Custom gateway instruction." },
     });
-    ctx.context = { ...createPromptContextFixture(), conversationMode: true };
+    const promptContext = createPromptContextFixture();
+    ctx.context = { ...promptContext, conversationMode: true };
     if (resumed) ctx.runtime.sessionId = "prior-session";
 
     const result = await execute(ctx);
@@ -306,10 +307,24 @@ describe("execute", () => {
     expect(input.indexOf("Append the same ledger entry.")).toBeLessThan(input.indexOf("Change the final scope to the launch checklist."));
     expect(input.split("Append the same ledger entry.")).toHaveLength(3);
     expect(input).not.toContain("Structured wake payload JSON:");
+    expect(input.split("Keep this deliberate repetition. Keep this deliberate repetition.")).toHaveLength(2);
+    const continuationHeading = "## Current request and continuation context";
+    const continuationStart = input.indexOf(continuationHeading);
+    const fencedStart = input.indexOf("```text\n", continuationStart);
+    const fencedEnd = input.indexOf("\n```", fencedStart + "```text\n".length);
+    expect(continuationStart).toBeGreaterThanOrEqual(0);
+    expect(fencedStart).toBeGreaterThan(continuationStart);
+    expect(fencedEnd).toBeGreaterThan(fencedStart);
+    const continuation = JSON.parse(input.slice(
+      fencedStart + "```text\n".length,
+      fencedEnd,
+    )) as Record<string, unknown>;
+    expect(continuation.objectiveSource).toEqual(promptContext.executionContinuation.objectiveSource);
     if (resumed) {
-      expect(input).not.toContain("Keep this deliberate repetition. Keep this deliberate repetition.");
+      expect(input).toContain("## Compact assignment");
+      expect(continuation.objective).toBe("Keep this deliberate repetition. Keep this deliberate repetition.");
     } else {
-      expect(input.split("Keep this deliberate repetition. Keep this deliberate repetition.")).toHaveLength(2);
+      expect(continuation).not.toHaveProperty("objective");
     }
   });
 
