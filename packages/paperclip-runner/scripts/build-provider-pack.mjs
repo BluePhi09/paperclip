@@ -191,7 +191,8 @@ try {
   const grokPackage = dirname(packRequire.resolve("@paperclipai/grok-acp/package.json"));
   const grokInstall = spawnSync(process.execPath, [join(grokPackage, "install.mjs")], { stdio: "inherit" });
   if (grokInstall.status !== 0) throw new Error("Pinned Grok installation failed");
-  writePortableExecutableShim("grok", relative(realpathSync(join(temporaryRoot, "node_modules")), join(grokPackage, "bin/grok")));
+  // Native ACP launches the verified absolute package path. Do not expose a
+  // generic grok shim: the legacy adapter owns that command and its version.
   writePortableNodeShim("paperclip-grok-acp", "@paperclipai/grok-acp/launcher.cjs");
   writePortableNodeShim("acpx", "acpx/dist/cli.js");
   writePortableNodeShim(

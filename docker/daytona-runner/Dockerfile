@@ -53,6 +53,7 @@ ENV PATH=${PAPERCLIP_RUNNER_PROVIDER_PACK_ROOT}/node_modules/.bin:/usr/local/sha
 # Never add a second CLI version to work around a runner compatibility pin.
 RUN npm uninstall -g @anthropic-ai/claude-code @openai/codex opencode-ai \
     && npm install -g \
+      @xai-official/grok@1.0.41 \
       @google/gemini-cli@0.58.0 \
       @moonshot-ai/kimi-code@0.41.0 \
     && npm cache clean --force
@@ -94,7 +95,7 @@ RUN set -eu; \
 
 COPY --from=runnerd-build /workspace/packages/paperclip-runner/runner/target/release/paperclip-runnerd /usr/local/bin/paperclip-runnerd
 COPY --from=provider-pack-build /provider-pack /opt/paperclip-runner/provider-pack
-RUN set -eu; for cli in codex claude opencode grok; do \
+RUN set -eu; for cli in codex claude opencode; do \
       printf '#!/bin/sh\nexec /opt/paperclip-runner/provider-pack/node_modules/.bin/%s "$@"\n' "$cli" > "/usr/local/bin/$cli"; \
       chmod 755 "/usr/local/bin/$cli"; \
     done
