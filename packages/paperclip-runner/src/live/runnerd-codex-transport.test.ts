@@ -1089,6 +1089,30 @@ it("quiesces the control route before checkpoint and containment regardless of p
   expect(failedCheckpointSteps).toEqual(["release", "checkpoint", "kill"]);
 });
 
+it("does not release a session before asynchronous process containment settles", async () => {
+  let finishKill!: () => void;
+  const killed = new Promise<void>((resolve) => { finishKill = resolve; });
+  const steps: string[] = [];
+  const released = runnerdRecoveryInternals.releaseRunnerProcessOwnership({
+    runnerSettled: false,
+    release: () => { steps.push("route-closed"); },
+    checkpoint: () => { steps.push("checkpoint"); },
+    forceKill: async () => { steps.push("kill-dispatched"); await killed; steps.push("process-exited"); },
+  }).then(() => { steps.push("session-reusable"); });
+  await new Promise<void>(resolve => setImmediate(resolve));
+  expect(steps).toEqual(["route-closed", "checkpoint", "kill-dispatched"]);
+  finishKill();
+  await released;
+  expect(steps).toEqual(["route-closed", "checkpoint", "kill-dispatched", "process-exited", "session-reusable"]);
+});
+
+it("refuses session reuse when asynchronous process containment fails", async () => {
+  await expect(runnerdRecoveryInternals.releaseRunnerProcessOwnership({
+    runnerSettled: true, release: null, checkpoint: null,
+    forceKill: async () => { throw new Error("remote process still alive"); },
+  })).rejects.toThrow("remote process still alive");
+});
+
 it("waits for the exact durable suspension command behind prior close work", async () => {
   const commands = [
     {

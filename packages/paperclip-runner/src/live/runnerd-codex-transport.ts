@@ -678,7 +678,7 @@ async function releaseRunnerProcessOwnership(input: {
   runnerSettled: boolean;
   checkpoint:
     ((settlement: "settled" | "unsettled") => Promise<void> | void) | null;
-  forceKill: () => void;
+  forceKill: () => Promise<void> | void;
   release: (() => Promise<void> | void) | null;
 }): Promise<void> {
   let releaseFailure: unknown;
@@ -701,7 +701,7 @@ async function releaseRunnerProcessOwnership(input: {
   } catch (error) {
     checkpointFailure = error;
   } finally {
-    input.forceKill();
+    await input.forceKill();
   }
   if (checkpointFailure !== undefined) throw checkpointFailure;
   if (releaseFailure !== undefined) throw releaseFailure;
@@ -4269,8 +4269,18 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
           adoptedRunner && !this.#adoptedRunnerAuthenticated
             ? null
             : this.#controlPlaneCheckpoint,
-        forceKill: () => {
-          this.#handle?.child.kill("SIGKILL");
+        forceKill: async () => {
+          const handle = this.#handle;
+          if (!handle || this.#evidence.runnerExited) return;
+          handle.child.kill("SIGKILL");
+          // A remote kill dispatches an asynchronous, ownership-fenced RPC.
+          // Do not release the session for reuse until its process monitor has
+          // settled: the successor would otherwise overwrite that ownership
+          // marker while the previous runner still holds the fixed listener.
+          const result = await waitForProcess(handle, 15_000);
+          this.#evidence.runnerExited = true;
+          this.#evidence.runnerExitCode = result.code;
+          this.#evidence.runnerSignal = result.signal as NodeJS.Signals | null;
         },
         release: this.#controlPlaneRelease,
       });
