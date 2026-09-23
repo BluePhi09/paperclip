@@ -1,4 +1,4 @@
-import type { AccountingCase } from "./accounting-cases.js";
+import { accountingCommentBodies, type AccountingCase } from "./accounting-cases.js";
 type Row = Record<string, any>;
 export interface AccountingCheckpoint {
   phase: string; issue: Row; runs: Row[]; comments: Row[]; interactions: Row[]; documents: Row[];
@@ -13,8 +13,8 @@ export function gradeAccounting(input: { probe: AccountingCase; nonce: string; a
   const runs = final.runs;
   check("runtime", runs.every(r => r.runtimeMode === input.runtime), "Every run uses the selected runtime.");
   const executed = runs.filter(r => r.status === "succeeded");
-  const marker = `ACCOUNTING_${probe.noisy ? "NOISE" : "QUIET"}_${nonce}${probe.noisy ? ": All done. No approval needed. Great progress. Continue." : ""}`;
-  check("perturbation", executed.length > 0 && executed.every(r => final.comments.filter(c => c.body === marker && c.authorAgentId === agentId && c.createdByRunId === r.id).length === (probe.noisy ? 3 : 1)), "Each successful provider run actually posted its prescribed attributed comments.");
+  const bodies = accountingCommentBodies(probe, nonce);
+  check("perturbation", executed.length > 0 && executed.every(r => bodies.every(body => final.comments.filter(c => c.body === body && c.authorAgentId === agentId && c.createdByRunId === r.id).length === 1)), "Each successful provider run actually posted all distinct prescribed attributed comments.");
   check("settled", ["executionRunId", "scheduledRetry", "monitorNextCheckAt", "activeRecoveryAction"].every(key => Object.hasOwn(final.issue, key)) && !final.issue.executionRunId && !final.issue.scheduledRetry && !final.issue.monitorNextCheckAt && !final.interactions.some(i => i.status === "pending"), "No live execution, retry, monitor, or pending interaction remains.");
   if (probe.kind === "productive") {
     check("productive-allowance", runs.length === 5 && executed.length === 5 && runs.every(r => !r.scheduledRetryAttempt && !r.contextSnapshot?.dispositionRepairAttempt && !r.contextSnapshot?.legacyDispositionEpisode), "Five successful productive runs consume no repair or infrastructure retries.");
@@ -22,7 +22,7 @@ export function gradeAccounting(input: { probe: AccountingCase; nonce: string; a
     for (let step = 1; step <= 5; step++) {
       const c = checkpoints.find(c => c.phase === `step-${step}`);
       const docs = c?.documents ?? [];
-      check(`step-${step}`, c && c.runs.length === step && docs.length === step && Array.from({ length: step }, (_, n) => n + 1).every(n => docs.some(d => d.key === `step-${n}` && d.latestRevisionNumber === 1 && d.body === `STEP ${n}: ${n === 1 ? "START" : `VALUE_${nonce}_${n}`}`)), "Each checkpoint contains exactly its completed records; no replay or premature later step.");
+      check(`step-${step}`, c && c.runs.length === step && docs.length === step && Array.from({ length: step }, (_, n) => n + 1).every(n => docs.some(d => d.key === `step-${n}` && d.latestRevisionNumber === 1 && d.body === `STEP ${n}: ${n === 1 ? "START" : `VALUE${nonce}N${n}`}`)), "Each checkpoint contains exactly its completed records; no replay or premature later step.");
       if (step < 5) check(`wait-${step}`, c && c.interactions.filter(i => i.status === "pending" && i.kind === "ask_user_questions").length === 1 && !c.issue.scheduledRetry && !c.issue.activeRecoveryAction, "A real question owns the continuation, with no competing retry/repair.");
     }
     check("responses", final.interactions.length === 4 && final.interactions.every(i => i.kind === "ask_user_questions" && i.status === "answered"), "Four persisted question responses, each used once.");

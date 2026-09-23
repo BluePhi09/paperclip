@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { accountingCase } from "./accounting-cases.js";
+import { accountingCase, accountingScreenshotFile } from "./accounting-cases.js";
 import { gradeAccounting, type AccountingCheckpoint } from "./accounting-scoring.js";
 import { prepareLegacyContinuationSkill } from "./continuation-fixtures.js";
 import { captureLoadedContinuation } from "./continuation-screenshot.js";
@@ -57,7 +57,7 @@ export async function runAccountingFlow(input: {
     await input.evidence("api-state.json", s);
     if (screenshot) {
       await page.goto(`/${fixtures.company.issuePrefix}/issues/${issue!.identifier ?? issue!.id}`, { waitUntil: "domcontentloaded" });
-      await captureLoadedContinuation(page, String(issue!.title), () => input.capture(phase, `Accounting: ${phase}`, `accounting-${phase}.png`));
+      await captureLoadedContinuation(page, String(issue!.title), () => input.capture(phase, `Accounting: ${phase}`, accountingScreenshotFile(phase)));
     }
   }
   try {
@@ -79,7 +79,7 @@ export async function runAccountingFlow(input: {
           const presentation = chatQuestionPresentation(pending[0].payload);
           expect(presentation.questions).toHaveLength(1);
           expect(presentation.questions[0].answerMode).toBe("text");
-          await page.getByTestId("question-text-answer-composer").last().locator('[contenteditable="true"],textarea').first().fill(`VALUE_${nonce}_${step + 1}`);
+          await page.getByTestId("question-text-answer-composer").last().locator('[contenteditable="true"],textarea').first().fill(`VALUE${nonce}N${step + 1}`);
           await page.getByRole("button", { name: presentation.submitLabel ?? "Submit answers", exact: true }).last().click();
           await pollUntil({ label: "matching answer committed", deadlineAt: input.deadlineAt, load,
             accept: s => s.interactions.some(i => i.id === pending[0].id && i.status === "answered") });

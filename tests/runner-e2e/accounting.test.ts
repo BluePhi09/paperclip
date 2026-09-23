@@ -1,19 +1,22 @@
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { packageEvidence } from "./evidence.js";
 import { describe, expect, it } from "vitest";
-import { accountingCase, accountingCases } from "./accounting-cases.js";
+import { accountingCase, accountingCases, accountingCommentBodies, accountingScreenshotFile } from "./accounting-cases.js";
 import { gradeAccounting, type AccountingCheckpoint } from "./accounting-scoring.js";
 import { parseRunnerSelectors, selectRunnerExecutions } from "./selectors.js";
 function recording(id = "accounting-productive-neutral") {
   const probe = accountingCase(id), nonce = "nonce", agentId = "agent";
   const run = (i: number) => ({ id: `r${i}`, status: "succeeded", runtimeMode: "legacy", scheduledRetryAttempt: 0, contextSnapshot: {} as Record<string, any> });
-  const marker = `ACCOUNTING_${probe.noisy ? "NOISE" : "QUIET"}_${nonce}${probe.noisy ? ": All done. No approval needed. Great progress. Continue." : ""}`;
-  const comments = (runs: any[]) => runs.filter(r => r.status === "succeeded").flatMap(r => Array.from({ length: probe.noisy ? 3 : 1 }, () => ({ body: marker, authorAgentId: agentId, createdByRunId: r.id })));
+  const comments = (runs: any[]) => runs.filter(r => r.status === "succeeded").flatMap(r => accountingCommentBodies(probe, nonce).map(body => ({ body, authorAgentId: agentId, createdByRunId: r.id })));
   const cleanIssue = { status: "done", executionRunId: null, scheduledRetry: null, monitorNextCheckAt: null, activeRecoveryAction: null };
   let checkpoints: AccountingCheckpoint[];
   if (probe.kind === "productive") {
     checkpoints = Array.from({ length: 5 }, (_, i) => {
       const step = i + 1, runs = Array.from({ length: step }, (_, n) => run(n));
       return { phase: `step-${step}`, issue: { ...cleanIssue, status: step < 5 ? "in_review" : "done" }, runs, comments: comments(runs),
-        documents: Array.from({ length: step }, (_, n) => ({ key: `step-${n + 1}`, latestRevisionNumber: 1, body: `STEP ${n + 1}: ${n === 0 ? "START" : `VALUE_nonce_${n + 1}`}` })),
+        documents: Array.from({ length: step }, (_, n) => ({ key: `step-${n + 1}`, latestRevisionNumber: 1, body: `STEP ${n + 1}: ${n === 0 ? "START" : `VALUEnonceN${n + 1}`}` })),
         interactions: Array.from({ length: Math.min(step, 4) }, (_, n) => ({ id: `q${n}`, kind: "ask_user_questions", status: n === i && step < 5 ? "pending" : "answered" })),
       };
     });
@@ -38,6 +41,17 @@ function recording(id = "accounting-productive-neutral") {
 }
 const failures = (r: ReturnType<typeof recording>) => gradeAccounting(r).filter(c => !c.passed).map(c => c.id);
 describe("ACCT calibrated live accounting evidence", () => {
+  it("retains every accounting screenshot through the existing evidence allowlist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "accounting-evidence-"));
+    try {
+      const files = ["step-1", "step-2", "step-3", "step-4", "step-5", "approval", "final"].map(accountingScreenshotFile);
+      for (const file of files) await writeFile(join(root, file), Buffer.from("89504e470d0a1a0a", "hex"));
+      const packaged = await packageEvidence({ privateDir: root, uploadDir: join(root, "packaged"), secrets: [], expectPassScreenshot: false });
+      expect(packaged.leaks).toEqual([]);
+      expect(packaged.files).toEqual(expect.arrayContaining(files));
+      expect(files).toContain("final-state.png");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it("discovers eight explicit-only real-provider cells and excludes unsupported native repair injection", () => {
     const cells = selectRunnerExecutions(parseRunnerSelectors(["--suite", "continuation-accounting"]));
     expect(cells).toHaveLength(8);
@@ -49,8 +63,9 @@ describe("ACCT calibrated live accounting evidence", () => {
   it.each(["accounting-productive-neutral", "accounting-exhaustion-noisy", "accounting-repair-stop", "accounting-repair-approval"])("rejects missing final evidence for %s", id => {
     const r = recording(id); r.checkpoints.pop(); expect(failures(r)).toContain("evidence");
   });
-  it.each(["noise", "extra-run", "wrong-runtime", "pending-retry", "repair-debt", "wrong-document", "premature-document", "missing-answer", "missing-state", "rewritten-document"])("rejects productive %s", mutation => {
+  it.each(["noise", "extra-run", "wrong-runtime", "pending-retry", "repair-debt", "wrong-document", "premature-document", "missing-answer", "missing-state", "rewritten-document", "deduplicated-noise"])("rejects productive %s", mutation => {
     const r = recording("accounting-productive-noisy"), f = r.checkpoints.at(-1)!;
+    if (mutation === "deduplicated-noise") f.comments = f.comments.filter(c => !c.body.includes("N2:") && !c.body.includes("N3:"));
     if (mutation === "noise") f.comments = [];
     if (mutation === "extra-run") f.runs.push(structuredClone(f.runs[0]));
     if (mutation === "wrong-runtime") f.runs[0].runtimeMode = "native";
