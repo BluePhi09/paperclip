@@ -94,6 +94,7 @@ describe("legacy continuation persisted authority", () => {
     await f.finish(first);
     await f.createRecovery().reconcileLegacyContinuation(first.id);
     const second = (await f.runs()).find(r => r.status === "scheduled_retry")!;
+    expect(await f.createRecovery().legacyRepairDispatchBlock(second.id)).toBeNull();
     if (gate === "approval") await db.insert(issueThreadInteractions).values({ companyId: f.companyId, issueId: f.issueId, kind: "request_confirmation", status: "pending", payload: { version: 1, prompt: "Continue?" } });
     if (gate === "budget") await db.update(companies).set({ status: "paused", pauseReason: "budget" }).where(eq(companies.id, f.companyId));
     if (gate === "pause") await db.update(agents).set({ status: "paused" }).where(eq(agents.id, f.agentId));

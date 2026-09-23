@@ -19,7 +19,7 @@ isolated restart mechanism, without editing persisted counters or task data.
 
 The productive pair saves exactly five documents, one per real question/response
 turn, each at revision one. It exceeds the repair/failure allowances without
-spending them. Quiet turns post one attributed marker; noisy turns post three
+spending them. Quiet turns post one attributed marker; noisy turns post three distinct numbered
 attributed misleading historical quotations. The oracle requires those comments
 in actual run evidence, not merely in the prompt. Repair exhaustion retains one
 episode, two attempts and visible board ownership. Restart preserves exact run
