@@ -66,6 +66,15 @@ const support = await getEmbeddedPostgresTestSupport();
     await expect(f.service.request(f.scope, "Changed text", key)).rejects.toMatchObject({ status: 409 });
   });
 
+  it("starts a fresh turn from an active conversation explicitly reopened into review", async () => {
+    const f = await fixture();
+    await db.update(chatConversations).set({ state: "active" }).where(eq(chatConversations.id, f.conversationId));
+    await f.service.request(f.scope, "Continue the read-only conversation", randomUUID());
+    const [issue] = await db.select().from(issues).where(eq(issues.id, f.issueId));
+    expect(issue.status).toBe("todo");
+    expect(f.heartbeat.wakeup).toHaveBeenCalledOnce();
+  });
+
   it("recovers a committed request after interruption without a new comment or admission identity", async () => {
     const f = await fixture();
     const unavailable = slackBoardRepliesService(db, { wakeup: async () => { throw new Error("interrupted"); } });

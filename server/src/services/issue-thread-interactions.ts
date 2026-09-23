@@ -2550,7 +2550,7 @@ export function issueThreadInteractionService(
           || existing.sourceRunId !== input.sourceRunId
           || existing.addresseeUserId !== input.addresseeUserId
           || (existing.kind === "connection_intent"
-            ? (connectionIntentPayloadSchema.parse(existing.payload).serviceSlug !== payload.serviceSlug || connectionIntentPayloadSchema.parse(existing.payload).purpose !== payload.purpose)
+            ? (connectionIntentPayloadSchema.parse(existing.payload).serviceSlug !== payload.serviceSlug || connectionIntentPayloadSchema.parse(existing.payload).purpose !== payload.purpose || connectionIntentPayloadSchema.parse(existing.payload).capabilityProfile !== payload.capabilityProfile || connectionIntentPayloadSchema.parse(existing.payload).authorityFingerprint !== payload.authorityFingerprint || connectionIntentPayloadSchema.parse(existing.payload).conversationFingerprint !== payload.conversationFingerprint)
             : !isDeepStrictEqual(existing.payload, payload))
         ) {
           throw conflict(
@@ -2587,7 +2587,7 @@ export function issueThreadInteractionService(
           eq(issueThreadInteractions.addresseeUserId, input.addresseeUserId),
         ));
         const reusable = pending.find((candidate) =>
-          connectionIntentPayloadSchema.parse(candidate.payload).serviceSlug === payload.serviceSlug && connectionIntentPayloadSchema.parse(candidate.payload).purpose === payload.purpose);
+          connectionIntentPayloadSchema.parse(candidate.payload).serviceSlug === payload.serviceSlug && connectionIntentPayloadSchema.parse(candidate.payload).purpose === payload.purpose && connectionIntentPayloadSchema.parse(candidate.payload).capabilityProfile === payload.capabilityProfile && connectionIntentPayloadSchema.parse(candidate.payload).authorityFingerprint === payload.authorityFingerprint && connectionIntentPayloadSchema.parse(candidate.payload).conversationFingerprint === payload.conversationFingerprint);
         if (reusable) return reusable;
 
         const [sourceRun] = await tx.select({ context: heartbeatRuns.contextSnapshot }).from(heartbeatRuns)
@@ -2641,7 +2641,7 @@ export function issueThreadInteractionService(
             );
             return (
               candidatePayload.success &&
-              candidatePayload.data.serviceSlug === payload.serviceSlug && candidatePayload.data.purpose === payload.purpose
+              candidatePayload.data.serviceSlug === payload.serviceSlug && candidatePayload.data.purpose === payload.purpose && candidatePayload.data.capabilityProfile === payload.capabilityProfile
             );
           })
           .map((candidate) => candidate.id);
@@ -2662,6 +2662,13 @@ export function issueThreadInteractionService(
               updatedAt: now(),
             })
             .where(inArray(issueThreadInteractions.id, supersededIds));
+        }
+        if (payload.capabilityProfile === "slack-public-read-v1") {
+          await enqueueIssueInteractionChatPublications(tx, hydrateInteraction(row));
+          for (const supersededId of supersededIds) {
+            const [expired] = await tx.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, supersededId));
+            if (expired) await enqueueTerminalIssueInteractionChatPublications(tx, hydrateInteraction(expired));
+          }
         }
         await touchIssue(tx, issue.id);
         inserted = true;
@@ -2759,6 +2766,7 @@ export function issueThreadInteractionService(
         if (status === "accepted" || status === "rejected") {
           await tx.insert(connectionIntentDeliveries).values({ interactionId, companyId: issue.companyId }).onConflictDoNothing();
         }
+        await enqueueTerminalIssueInteractionChatPublications(tx, hydrateInteraction(row));
         return row;
       });
       if (!updated) throw interactionAlreadyResolvedError();

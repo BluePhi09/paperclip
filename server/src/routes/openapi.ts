@@ -1276,6 +1276,7 @@ const RUNTIME_TOOLS_OPERATIONS = new Set([
   "POST /mcp/runtime-tools",
   "POST /runtime-tools/connections/search",
   "POST /runtime-tools/connections/request",
+  "POST /runtime-tools/capabilities/ensure",
 ]);
 
 const PUBLIC_OPERATIONS = new Set([
@@ -1434,6 +1435,7 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "GET /api/tools/vercel-connect/callback",
   "GET /api/connection-intents/{interactionId}/setup-options",
   "POST /api/connection-intents/{interactionId}/phase",
+  "POST /api/connection-intents/{interactionId}/slack-read",
   "POST /api/connection-intents/{interactionId}/complete",
   "POST /api/connection-intents/{interactionId}/decline",
   "GET /api/companies/{companyId}/tools/profiles",
@@ -10147,6 +10149,13 @@ registerCurrentRoute({
   summary: "Search connections available to the active heartbeat run",
   body: connectionsSearchInputSchema,
 });
+
+registerCurrentRoute({ method: "post", path: "/runtime-tools/capabilities/ensure", tags: ["connection-intents"],
+  summary: "Resolve a read capability for the active task and responsible user",
+  body: z.object({ capability: z.string().trim().min(1).max(120), reason: z.string().trim().max(500).optional() }).strict() });
+
+registerCurrentRoute({ method: "post", path: "/api/connection-intents/{interactionId}/slack-read", tags: ["connection-intents"],
+  summary: "Start or recover the addressed pilot person's public-channel OAuth authorization" });
 
 registerCurrentRoute({
   method: "post",

@@ -177,12 +177,13 @@ export interface AdapterRuntimeToolAccess {
   guidance: string;
   mcpEndpoint: string;
   rest: {
+    ensureCapability?: string;
     connectionsSearch: string;
     connectionRequest: string;
   };
   bearerToken: string;
   expiresAt: string;
-  tools: readonly ["connections_search", "connection_request"];
+  tools: readonly ("ensure_capability" | "connections_search" | "connection_request")[];
 }
 
 export interface AdapterRuntimeEvent {

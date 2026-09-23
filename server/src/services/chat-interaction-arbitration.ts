@@ -47,10 +47,10 @@ export async function hasChatRunOwnedProviderInteraction(
         eq(issueThreadInteractions.companyId, input.companyId),
         eq(issueThreadInteractions.issueId, input.issueId),
         eq(issueThreadInteractions.sourceRunId, input.runId),
-        inArray(issueThreadInteractions.kind, [
+        or(inArray(issueThreadInteractions.kind, [
           "ask_user_questions",
           "request_confirmation",
-        ]),
+        ]), and(eq(issueThreadInteractions.kind, "connection_intent"), sql`${issueThreadInteractions.payload}->>'capabilityProfile' = 'slack-public-read-v1'`)),
         or(
           and(
             eq(issueThreadInteractions.status, "pending"),

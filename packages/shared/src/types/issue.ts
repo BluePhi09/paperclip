@@ -1341,6 +1341,11 @@ export type ConnectionIntentPhase = "requested" | "authorizing" | "needs_retry";
  */
 export interface ConnectionIntentPayload {
   version: 1;
+  /** Trusted, server-selected pilot bounds; never model-selected OAuth scopes. */
+  capabilityProfile?: "slack-public-read-v1";
+  sourceChannelId?: string;
+  authorityFingerprint?: string;
+  conversationFingerprint?: string;
   /** Runtime authentication requests cannot be satisfied by tool credentials. */
   purpose?: "ai";
   serviceSlug: string;

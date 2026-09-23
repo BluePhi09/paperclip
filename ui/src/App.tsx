@@ -306,6 +306,7 @@ function boardRoutes(streamlinedUiEnabled: boolean) {
       <Route path="issues/recent" element={<Navigate to="/issues" replace />} />
       <Route path="chats/:agentRef" element={<AgentChat />} />
       <Route path="issues/:issueId" element={<IssueDetail />} />
+      <Route path="issues/:issueId/connect-slack-read/:interactionId" element={<IssueDetail />} />
       {import.meta.env.DEV ? (
         <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
       ) : null}
@@ -769,6 +770,7 @@ export function App() {
           <Route path="issues" element={<UnprefixedBoardRedirect />} />
           <Route path="tasks" element={<UnprefixedBoardRedirect />} />
           <Route path="issues/:issueId" element={<UnprefixedBoardRedirect />} />
+          <Route path="issues/:issueId/connect-slack-read/:interactionId" element={<UnprefixedBoardRedirect />} />
           <Route path="routines" element={<UnprefixedBoardRedirect />} />
           <Route path="routines/:routineId" element={<UnprefixedBoardRedirect />} />
           <Route path="review-queue" element={<UnprefixedBoardRedirect />} />

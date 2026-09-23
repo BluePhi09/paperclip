@@ -1075,6 +1075,10 @@ const connectionIntentBrandAssetSchema = z
 
 export const connectionIntentPayloadSchema = z
   .object({
+    capabilityProfile: z.literal("slack-public-read-v1").optional(),
+    sourceChannelId: z.string().regex(/^C[A-Z0-9]+$/).optional(),
+    authorityFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    conversationFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     purpose: z.literal("ai").optional(),
     version: z.literal(1),
     serviceSlug: z.string().trim().min(1).max(120),
@@ -1085,7 +1089,12 @@ export const connectionIntentPayloadSchema = z
     requestingAgentName: z.string().trim().min(1).max(160),
     phase: connectionIntentPhaseSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.capabilityProfile && (value.serviceSlug !== "slack" || value.purpose || !value.sourceChannelId || !value.authorityFingerprint || !value.conversationFingerprint)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Slack read requests require their complete server-owned authority binding" });
+    }
+  });
 
 export const connectionIntentResultSchema = z
   .object({

@@ -51,6 +51,7 @@ describe("connection intent agent guidance", () => {
 
   it("names the canonical tools without embedding secrets or authorization URLs", () => {
     expect(CONNECTION_RUNTIME_TOOL_NAMES).toEqual([
+      "ensure_capability",
       "connections_search",
       "connection_request",
     ]);

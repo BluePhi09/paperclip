@@ -1,8 +1,11 @@
 import { connectionIntentService } from "./connection-intents.js";
+import { authorizeSlackReadIntent, SLACK_READ_CONTINUATION_SOURCE } from "./slack-read-intents.js";
+import { SLACK_READ_PROFILE } from "./slack-read-profile.js";
 import { and, eq, isNull, lte, asc, notInArray, desc, sql } from "drizzle-orm";
 import { connectionIntentDeliveries, issueThreadInteractions, issues, agentWakeupRequests, companyMemberships, heartbeatRuns, chatConversations, chatEndpoints, type Db } from "@paperclipai/db";
 import type { heartbeatService } from "./heartbeat.js";
 import { issueService } from "./issues.js";
+import { resolveChatOriginPublicationBindings } from "./issues.js";
 import { issueRecoveryActionService } from "./issue-recovery-actions.js";
 import { logActivity, publishActivity, type ActivityPublication } from "./activity-log.js";
 type Heartbeat = ReturnType<typeof heartbeatService>;
@@ -16,6 +19,8 @@ export async function wakeConnectionIntentAfterResolution(
     };
     status: string;
     actorId: string;
+    slackReadOriginCommentIds?: string[];
+    slackReadExternal?: boolean;
   },
 ) {
   const agentId = input.loaded.issue.assigneeAgentId;
@@ -36,6 +41,7 @@ export async function wakeConnectionIntentAfterResolution(
     idempotencyKey: `connection-intent:${input.loaded.interaction.id}:${input.status}`,
     requestedByActorType: "user",
     requestedByActorId: input.actorId,
+    allowRunCoalescing: input.slackReadOriginCommentIds ? false : undefined,
     contextSnapshot: {
       issueId: input.loaded.issue.id,
       taskId: input.loaded.issue.id,
@@ -44,7 +50,10 @@ export async function wakeConnectionIntentAfterResolution(
       interactionStatus: input.status,
       mutation: "interaction",
       wakeReason: "issue_commented",
-      source: "connection_intent.resolved",
+      source: input.slackReadOriginCommentIds ? SLACK_READ_CONTINUATION_SOURCE : "connection_intent.resolved",
+      ...(input.slackReadOriginCommentIds ? { wakeCommentIds: input.slackReadOriginCommentIds,
+        wakeCommentId: input.slackReadOriginCommentIds.at(-1), externalChatContinuation: input.slackReadExternal === true,
+        slackReadPrivate: input.slackReadExternal !== true } : {}),
       ...(interactionResolvedAt
         ? { interactionResolvedAt }
         : {}),
@@ -117,7 +126,7 @@ export function connectionIntentDeliveryService(db: Db, heartbeat: Pick<Heartbea
       .from(issueThreadInteractions).innerJoin(issues, eq(issues.id, issueThreadInteractions.issueId))
       .where(and(eq(issueThreadInteractions.id, interactionId), eq(issueThreadInteractions.companyId, claimed.companyId), eq(issues.companyId, claimed.companyId)));
     const interaction = loaded?.interaction;
-    const payload = interaction?.payload as { requestingAgentId?: string; serviceSlug?: string; purpose?: "ai" } | undefined;
+    const payload = interaction?.payload as { requestingAgentId?: string; serviceSlug?: string; purpose?: "ai"; capabilityProfile?: typeof SLACK_READ_PROFILE } | undefined;
     if (!loaded || !interaction || !["accepted", "rejected"].includes(interaction.status)
       || ["done", "cancelled"].includes(loaded.issue.status) || loaded.issue.assigneeAgentId !== payload?.requestingAgentId) {
       await db.update(connectionIntentDeliveries).set({ deliveredAt: new Date() }).where(eq(connectionIntentDeliveries.interactionId, interactionId));
@@ -136,7 +145,8 @@ export function connectionIntentDeliveryService(db: Db, heartbeat: Pick<Heartbea
     }
     if (interaction.status === "accepted") {
       const ready = await connectionIntentService(db).usableConnectionForAgent({ companyId: claimed.companyId,
-        agentId: payload!.requestingAgentId!, responsibleUserId: userId!, serviceSlug: payload!.serviceSlug!, purpose: payload!.purpose });
+        agentId: payload!.requestingAgentId!, responsibleUserId: userId!, serviceSlug: payload!.serviceSlug!, purpose: payload!.purpose,
+        capabilityProfile: payload?.capabilityProfile, issueId: loaded.issue.id });
       if (!ready) return;
     }
     if (interaction.status === "accepted" && payload?.purpose === "ai" && loaded.issue.status === "blocked") {
@@ -153,7 +163,10 @@ export function connectionIntentDeliveryService(db: Db, heartbeat: Pick<Heartbea
     // Check before dispatch: the previous worker may have crashed after enqueueing.
     if (!(await durableWake()).length) {
       try {
-        await wakeConnectionIntentAfterResolution(heartbeat, { loaded, status: interaction.status, actorId: interaction.resolvedByUserId ?? interaction.addresseeUserId! });
+        if (payload?.capabilityProfile === SLACK_READ_PROFILE) await authorizeSlackReadIntent(db, interaction.id, claimed.companyId);
+        await wakeConnectionIntentAfterResolution(heartbeat, { loaded, status: interaction.status, actorId: interaction.resolvedByUserId ?? interaction.addresseeUserId!,
+          ...(payload?.capabilityProfile === SLACK_READ_PROFILE ? { slackReadOriginCommentIds: interaction.originCommentIds,
+            slackReadExternal: (await resolveChatOriginPublicationBindings(db, claimed.companyId, loaded.issue.id, interaction.sourceRunId)).length > 0 } : {}) });
       } catch (error) {
         // The unique wake key also protects overlapping leases. Other failures retry.
         if (!(await durableWake()).length) throw error;

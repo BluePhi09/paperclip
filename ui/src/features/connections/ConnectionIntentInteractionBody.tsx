@@ -55,6 +55,7 @@ export function ConnectionIntentInteractionBody({
   );
   const isPending = interaction.status === "pending";
   const isAi = interaction.payload.purpose === "ai";
+  const isSlackRead = interaction.payload.capabilityProfile === "slack-public-read-v1";
   const focusTargetId = `connection-intent-focus-target-${interaction.id}`;
 
   const invalidateTask = async (
@@ -100,7 +101,7 @@ export function ConnectionIntentInteractionBody({
   const setupQuery = useQuery({
     queryKey: ["connection-intent", interaction.id, "setup-options"],
     queryFn: () => connectionIntentsApi.setupOptions(interaction.id),
-    enabled: isAddressee && isPending,
+    enabled: isAddressee && isPending && !isSlackRead,
     refetchInterval: isPending && (open || interaction.payload.phase === "authorizing") ? 2_000 : false,
   });
 
@@ -135,6 +136,29 @@ export function ConnectionIntentInteractionBody({
       connectionIntentsApi.setPhase(interaction.id, phase),
     onSuccess: invalidateTask,
   });
+  const slackReadMutation = useMutation({
+    mutationFn: () => connectionIntentsApi.startSlackRead(interaction.id),
+    onSuccess: async (result) => {
+      if (result.status === "CONNECTED") { await invalidateTask(); return; }
+      const target = new URL(result.authorizationUrl);
+      if (target.origin !== "https://slack.com" || target.pathname !== "/oauth/v2_user/authorize") throw new Error("Unexpected authorization address. Return to this task and try again.");
+      window.location.assign(target.href);
+    },
+  });
+  const beginSlackRead = slackReadMutation.mutate;
+  useEffect(() => {
+    if (!isSlackRead || !isAddressee || !isPending) return;
+    const current = new URL(window.location.href);
+    const handoffSuffix = `/connect-slack-read/${interaction.id}`;
+    const pathHandoff = current.pathname.endsWith(handoffSuffix);
+    if (!pathHandoff && current.searchParams.get("connectSlackRead") !== interaction.id) return;
+    // Consume a Slack button navigation once, before starting the request.
+    // Refresh/back/cancel must not silently start another authorization flow.
+    current.searchParams.delete("connectSlackRead");
+    if (pathHandoff) current.pathname = current.pathname.slice(0, -handoffSuffix.length);
+    window.history.replaceState(window.history.state, "", current.href);
+    beginSlackRead();
+  }, [isSlackRead, isAddressee, isPending, interaction.id, beginSlackRead]);
   const mutatePhase = phaseMutation.mutate;
   const handlePhaseChange = useCallback(
     (phase: ConnectionIntentInteraction["payload"]["phase"]) =>
@@ -256,6 +280,24 @@ export function ConnectionIntentInteractionBody({
 
   const needsRetry = interaction.payload.phase === "needs_retry";
   const authorizing = interaction.payload.phase === "authorizing";
+
+  if (isSlackRead) return <div id={focusTargetId} ref={focusTargetRef} tabIndex={-1} data-testid="slack-read-consent">
+    <p className="font-medium text-foreground">Connect Slack to review papercuts</p>
+    <p className="mt-1 text-sm text-muted-foreground">
+      Slack grants your personal identity public-channel metadata and history access. Paperclip restricts this pilot to channel {interaction.payload.sourceChannelId}, the last seven days, and at most 200 messages.
+      The CEO will suggest up to three fixes with source links. It will not implement them. Your original request continues after authorization.
+    </p>
+    <div className="mt-4 flex items-center justify-between gap-2">
+      <Button variant="ghost" disabled={slackReadMutation.isPending || declineMutation.isPending} onClick={() => declineMutation.mutate()}>Not now</Button>
+      <Button disabled={slackReadMutation.isPending || declineMutation.isPending} onClick={() => beginSlackRead()}>
+        {slackReadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
+        {slackReadMutation.isPending ? "Connecting…" : needsRetry || authorizing ? "Continue connecting Slack" : "Connect Slack"}
+      </Button>
+    </div>
+    {slackReadMutation.isError || declineMutation.isError ? <p className="mt-3 text-sm text-destructive" role="alert">
+      {(slackReadMutation.error ?? declineMutation.error)?.message ?? "Couldn’t connect Slack. Try again from this task."}
+    </p> : null}
+  </div>;
 
   const repair = setupQuery.data?.aiRepair;
   const selectedReady = repair && setupQuery.data?.existingConnections.some((connection) => connection.id === repair.connection.id);

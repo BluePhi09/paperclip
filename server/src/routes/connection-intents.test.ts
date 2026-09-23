@@ -14,7 +14,7 @@ describe("runtime connection MCP contract", () => {
     expect(
       RUNTIME_CONNECTION_TOOL_DEFINITIONS.map((tool) => tool.name),
     ).toEqual(CONNECTION_RUNTIME_TOOL_NAMES);
-    expect(RUNTIME_CONNECTION_TOOL_DEFINITIONS).toEqual([
+    expect(RUNTIME_CONNECTION_TOOL_DEFINITIONS.slice(1)).toEqual([
       {
         name: "connections_search",
         description: CONNECTIONS_SEARCH_TOOL_DESCRIPTION,

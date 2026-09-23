@@ -19,7 +19,7 @@ type Scope = { companyId: string; endpointId: string; conversationId: string; us
 
 /** Current, company-scoped authority for the pilot person's existing bot DM.
  * This does not turn a board comment into a fabricated Slack inbound event. */
-async function authorize(db: Db, scope: Scope, receipt?: Action) {
+export async function authorizeSlackPilotConversation(db: Db, scope: Scope, receipt?: Action) {
   const [row] = await db.select({ endpoint: chatEndpoints, conversation: chatConversations, issue: issues })
     .from(chatEndpoints)
     .innerJoin(chatConversations, and(eq(chatConversations.endpointId, chatEndpoints.id), eq(chatConversations.companyId, chatEndpoints.companyId)))
@@ -57,6 +57,8 @@ async function authorize(db: Db, scope: Scope, receipt?: Action) {
       receipt.principalId !== identity.principal.id)) throw forbidden("Slack reply authorization changed; submit a new request");
   return { ...row, identity, fence };
 }
+
+const authorize = authorizeSlackPilotConversation;
 
 function scopeFor(action: Action): Scope {
   if (!action.conversationId || typeof action.payload.userId !== "string") throw forbidden("Invalid Slack reply request");
@@ -186,6 +188,16 @@ export function slackBoardRepliesService(db: Db, heartbeat: IssueAssignmentWakeu
         as busy`);
       if (busy?.busy) throw conflict("Wait for the current task turn or approval before requesting a Slack reply");
       const comment = await issueService(tx as unknown as Db).addComment(issue.id, body, { userId: scope.userId }, { authorType: "user" }, tx);
+      // A new explicit reply authorizes a new turn, even when the operator
+      // reopened a completed conversation into review. Do not leave that turn
+      // in review (which triggers generic review-path recovery after answering).
+      // All pending approvals, blockers and review execution state were checked
+      // above; an unrelated status edit alone must not be auto-settled to idle.
+      if (issue.status === "in_review") {
+        await issueService(tx as unknown as Db).update(issue.id, {
+          status: "todo", actorUserId: scope.userId, companyGuard: scope.companyId,
+        }, tx);
+      }
       const [created] = await tx.insert(chatActions).values({ id: randomUUID(), companyId: scope.companyId,
         endpointId: scope.endpointId, conversationId: scope.conversationId, principalId: current.identity.principal.id,
         kind: KIND, providerActionId: key, status: "queued", payload: { version: 1, userId: scope.userId,

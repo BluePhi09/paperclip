@@ -1,5 +1,6 @@
 import { buildChatCommunicationGuidance } from "./chat-communication-guidance.js";
 import { slackBoardRepliesService, slackBoardReplyBinding } from "./slack-board-replies.js";
+import { authorizeSlackReadIntent, slackReadContinuationBinding } from "./slack-read-intents.js";
 import { SLACK_ADAPTER_BOT_SCOPES, SLACK_CEO_DM_SCOPES, SLACK_CEO_DM_PROFILE, slackBotOAuthStatus, slackBotOAuthConfig, slackBotOAuthBinding, slackBotAuthorizationUrl, exchangeSlackBotCode, assertSlackBotOAuthActor, slackDmPilotRequestAllowed } from "./slack-bot-oauth.js";
 import { toolOauthStates } from "@paperclipai/db";
 import { instanceSettingsService } from "./instance-settings.js";
@@ -13675,6 +13676,21 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           )
       : [];
     try {
+      if (publication.payload.interactionId) {
+        const [readIntent] = await tx.select().from(issueThreadInteractions).where(and(
+          eq(issueThreadInteractions.id, String(publication.payload.interactionId)), eq(issueThreadInteractions.companyId, publication.companyId)));
+        if ((readIntent?.payload as { capabilityProfile?: string } | undefined)?.capabilityProfile === "slack-public-read-v1") {
+          const current = await authorizeSlackReadIntent(tx as unknown as Db, readIntent.id, publication.companyId);
+          if (current.authority.endpoint.id !== publication.endpointId || current.authority.conversation.id !== publication.conversationId) return false;
+          const { resolveChatOriginPublicationBindings } = await import("./issues.js");
+          const bindings = await resolveChatOriginPublicationBindings(tx, publication.companyId, publication.issueId, readIntent.sourceRunId);
+          return bindings.some(binding => binding.endpointId === publication.endpointId && binding.conversationId === publication.conversationId);
+        }
+      }
+      if (run?.contextSnapshot?.source === "slack.read.continued") {
+        const checked = await slackReadContinuationBinding(tx as unknown as Db, publication.companyId, publication.issueId, run.id);
+        return checked.bindings.some(binding => binding.endpointId === publication.endpointId && binding.conversationId === publication.conversationId);
+      }
       const committed = run?.resultJson?.nativeCommittedChatResponse;
       if (committed !== undefined) {
         if (
@@ -19939,6 +19955,9 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         !currentInteraction ||
         currentInteraction.companyId !== claimed.companyId ||
         currentInteraction.kind !== payload.interactionKind ||
+        // Retire any legacy chat wake created for a connection intent. Its
+        // dedicated delivery worker owns continuation and original provenance.
+        currentInteraction.kind === "connection_intent" ||
         currentInteraction.status !== payload.interactionStatus ||
         currentIssue.assigneeAgentId !== payload.agentId ||
         currentIssue.status === "done" ||

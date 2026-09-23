@@ -1,4 +1,7 @@
 import { githubGuestBotConnectionForSession, githubBotToolsForSession } from "./chat-github-tools.js";
+import { authorizeSlackReadContext, governedSlackReadArguments, hasSlackReadRuntimeScopes, isSlackReadProfile, object as slackReadObject, validateSlackReadToolSchema } from "./slack-read-profile.js";
+import { resolveSlackReadGrant } from "./slack-read-access.js";
+import { reserveSlackReadBudget } from "./slack-read-budget.js";
 import { githubChatReviewService } from "./chat-github-reviews.js";
 import { runIdentityContexts } from "@paperclipai/db";
 import { captureRunIdentity } from "./run-identity.js";
@@ -1242,6 +1245,7 @@ export function createToolGatewayService(
 
     const eligibleRows = rows.filter(
       ({ catalogEntry, connection, application }) =>
+        (!isSlackReadProfile(connection) || validateSlackReadToolSchema(catalogEntry.toolName, catalogEntry.inputSchema)) &&
         !isRetiredComposioConnection(connection) &&
         !(isRailwayEndpoint(connection.config.url) && (isRailwayToolBlocked(catalogEntry.toolName) || (normalizeRailwayToolName(catalogEntry.toolName).startsWith(RAILWAY_TOOL_PREFIX) && connection.config.railwayApiStatus !== "available"))) &&
         ((connection.transport === "mcp_remote" &&
@@ -4346,6 +4350,10 @@ export function createToolGatewayService(
     const actingUserId = session.identityContextId
       ? (session.responsibleUserId ?? null)
       : (run?.responsibleUserId ?? session.responsibleUserId ?? null);
+    if (isSlackReadProfile(connection)) {
+      if (!session.runId || !session.issueId || !session.agentId || !actingUserId) throw new ToolGatewayHttpError(403, "Slack reads require a task-bound responsible person", "slack_read_identity_required");
+      return resolveSlackReadGrant(db, connection, { companyId: session.companyId, agentId: session.agentId, userId: actingUserId, issueId: session.issueId }, true);
+    }
     if (
       session.identityContextId &&
       session.agentId &&
@@ -4723,7 +4731,12 @@ export function createToolGatewayService(
     parameters: unknown,
   ): Promise<unknown> {
     if (tool.providerType !== "mcp_remote_http") return parameters;
-    const { connection } = await resolveConnectedRemoteTool(session, tool);
+    const { connection, entry } = await resolveConnectedRemoteTool(session, tool);
+    if (isSlackReadProfile(connection)) {
+      await resolveConnectionGrant(session, connection);
+      return governedSlackReadArguments({ toolName: entry.toolName, schema: entry.inputSchema, parameters,
+        channelId: String(slackReadObject(connection.config.slackReadPilot).channelId), nowSeconds: Math.floor(session.createdAt.getTime() / 1000) });
+    }
     return projectedConnectionToolArguments(connection, parameters);
   }
 
@@ -5804,6 +5817,26 @@ export function createToolGatewayService(
       ...projectedConnectionHeaders(connection),
       ...(await resolveCredentialHeaders(session, connection, grant)),
     };
+    if (isSlackReadProfile(connection)) {
+      const context = { companyId: session.companyId, agentId: session.agentId!, userId: grant.subjectUserId!, issueId: session.issueId! };
+      const authority = await authorizeSlackReadContext(db, context);
+      parameters = governedSlackReadArguments({ toolName: entry.toolName, schema: entry.inputSchema, parameters, channelId: authority.binding.channelId, nowSeconds: Math.floor(session.createdAt.getTime() / 1000) });
+      const request = options.remoteHttpRequest ?? ((url: string, init: RequestInit) => guardedRemoteHttpFetch(url, init, remoteHttpFetchOptions()));
+      const auth = await request("https://slack.com/api/auth.test", { headers: { Authorization: credentialHeaders.Authorization }, signal: AbortSignal.timeout(15_000) });
+      const identity = slackReadObject(await auth.json().catch(() => null));
+      const scopes = (auth.headers.get("x-oauth-scopes") ?? "").split(/[ ,]+/).filter(Boolean);
+      if (!auth.ok || identity.ok !== true || identity.team_id !== authority.binding.teamId || identity.user_id !== authority.binding.slackUserId || identity.bot_id ||
+          !hasSlackReadRuntimeScopes(scopes)) {
+        throw new ToolGatewayHttpError(403, "Slack read identity or actual scopes changed; reconnect", "slack_read_identity_changed");
+      }
+      const response = await request(`https://slack.com/api/conversations.info?channel=${encodeURIComponent(authority.binding.channelId)}`, { headers: { Authorization: credentialHeaders.Authorization }, signal: AbortSignal.timeout(15_000) });
+      const info = slackReadObject(await response.json().catch(() => null));
+      const channel = slackReadObject(info.channel);
+      if (!response.ok || info.ok !== true || channel.id !== authority.binding.channelId || channel.is_private !== false || channel.is_im === true || channel.is_mpim === true) throw new ToolGatewayHttpError(403, "The approved source is no longer a visible public channel", "slack_read_channel_changed");
+      await reserveSlackReadBudget(db, { companyId: session.companyId, issueId: session.issueId!, endpointId: authority.endpoint.id,
+        conversationId: authority.conversation.id, generation: authority.conversation.sessionGeneration,
+        invocationId, toolName: entry.toolName, limit: Number(slackReadObject(parameters).limit) });
+    }
     let builtHeaders = buildRemoteHeaders({
       session,
       connection,

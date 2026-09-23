@@ -62,7 +62,7 @@ async function assessSlackConversation(db: Db, companyId: string, issueId: strin
     // A successful internal board turn has no provider publication by design.
     // Settle only its exact final presentation; never use this branch to hide
     // failed external delivery, unfinished work, or an explicitly shared turn.
-    const internalBoardTurn = run.runtimeMode === "legacy" && context.source === "issue.comment" &&
+    const internalBoardTurn = run.runtimeMode === "legacy" && (context.source === "issue.comment" || (context.source === "slack.read.continued" && context.slackReadPrivate === true)) &&
       wake.authorType === "user" && Boolean(wake.authorUserId) && !wake.authorAgentId &&
       commentIds.length === 1 && commentIds[0] === wake.id;
     const [evidence] = await tx.execute<{ ready: boolean }>(sql`select

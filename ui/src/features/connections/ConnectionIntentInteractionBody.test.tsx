@@ -21,6 +21,7 @@ const setupOptionsMock = vi.hoisted(() => vi.fn());
 const completeMock = vi.hoisted(() => vi.fn());
 const declineMock = vi.hoisted(() => vi.fn());
 const setPhaseMock = vi.hoisted(() => vi.fn());
+const slackReadMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/connection-intents", () => ({
   connectionIntentsApi: {
@@ -28,6 +29,7 @@ vi.mock("@/api/connection-intents", () => ({
     complete: (...args: unknown[]) => completeMock(...args),
     decline: (...args: unknown[]) => declineMock(...args),
     setPhase: (...args: unknown[]) => setPhaseMock(...args),
+    startSlackRead: (...args: unknown[]) => slackReadMock(...args),
   },
 }));
 
@@ -158,10 +160,13 @@ function button(label: string) {
 }
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/");
   setupOptionsMock.mockReset();
   completeMock.mockReset();
   declineMock.mockReset();
   setPhaseMock.mockReset();
+  slackReadMock.mockReset();
+  slackReadMock.mockResolvedValue({ status: "CONNECTED", connectionId: "read-connection" });
   setupOptionsMock.mockResolvedValue({
     requestedAgentId:
       pendingConnectionIntentInteraction.payload.requestingAgentId,
@@ -183,6 +188,39 @@ afterEach(async () => {
 });
 
 describe("ConnectionIntentInteractionBody states and audience", () => {
+  it("consumes the credential-free Slack handoff path once across remounts", async () => {
+    const interaction = { ...pendingConnectionIntentInteraction, payload: { ...pendingConnectionIntentInteraction.payload,
+      capabilityProfile: "slack-public-read-v1" as const, sourceChannelId: "CAPPROVED" } };
+    window.history.replaceState(null, "", `/TES/issues/TES-2/connect-slack-read/${interaction.id}`);
+    renderBody(interaction); await flush();
+    expect(slackReadMock).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/TES/issues/TES-2");
+    await act(() => root?.unmount()); host?.remove(); root = null; host = null;
+    renderBody(interaction); await flush();
+    expect(slackReadMock).toHaveBeenCalledTimes(1);
+  });
+  it("offers direct personal Slack consent without the generic setup wizard", async () => {
+    const interaction = { ...pendingConnectionIntentInteraction, payload: { ...pendingConnectionIntentInteraction.payload,
+      capabilityProfile: "slack-public-read-v1" as const, sourceChannelId: "CAPPROVED" } };
+    renderBody(interaction);
+    await flush();
+    expect(document.body.textContent).toContain("at most 200 messages");
+    expect(document.body.textContent).toContain("It will not implement them");
+    expect(setupOptionsMock).not.toHaveBeenCalled();
+    await act(async () => button("Connect Slack")!.click());
+    await flush();
+    expect(slackReadMock).toHaveBeenCalledWith(interaction.id);
+    expect(document.querySelector("[data-testid=shared-connection-setup]")).toBeNull();
+  });
+  it("shows an actionable Slack authorization failure and permits declining", async () => {
+    slackReadMock.mockRejectedValue(new Error("Source channel configuration changed"));
+    const interaction = { ...pendingConnectionIntentInteraction, payload: { ...pendingConnectionIntentInteraction.payload, capabilityProfile: "slack-public-read-v1" as const, sourceChannelId: "CAPPROVED" } };
+    renderBody(interaction);
+    await act(async () => button("Connect Slack")!.click());
+    await waitForAssertion(() => expect(document.querySelector("[role=alert]")?.textContent).toContain("Source channel configuration changed"));
+    await act(async () => button("Not now")!.click());
+    expect(declineMock).toHaveBeenCalledWith(interaction.id);
+  });
   it.each([
     [pendingConnectionIntentInteraction, "Connect"],
     [

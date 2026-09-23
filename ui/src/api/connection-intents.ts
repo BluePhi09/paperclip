@@ -5,6 +5,9 @@ import type {
 import { api } from "./client";
 
 export const connectionIntentsApi = {
+  startSlackRead: (interactionId: string) => api.post<
+    { status: "AUTH_REQUIRED"; authorizationUrl: string } | { status: "CONNECTED"; connectionId: string }
+  >(`/connection-intents/${interactionId}/slack-read`, {}),
   setupOptions: (interactionId: string) =>
     api.get<ConnectionIntentSetupOptions>(
       `/connection-intents/${interactionId}/setup-options`,

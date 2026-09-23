@@ -32,6 +32,7 @@ export const CONNECTION_REQUEST_TOOL_DESCRIPTION = [
 ].join(" ");
 
 export const CONNECTION_RUNTIME_TOOL_NAMES = [
+  "ensure_capability",
   "connections_search",
   "connection_request",
 ] as const;

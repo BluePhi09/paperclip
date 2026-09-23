@@ -8,6 +8,7 @@ import { isConnectorTool, executeConnectorTool, type ConnectorAssignment } from 
 import { resolveNativeRuntimeMcpSnapshot } from "./runtime-context.js";
 import { connectionIntentService } from "../connection-intents.js";
 import { RUNTIME_CONNECTION_TOOL_DEFINITIONS } from "../connection-tool-definitions.js";
+import { slackReadAgentGuidance } from "../slack-read-profile.js";
 import { connectionsSearchInputSchema, connectionRequestInputSchema, CONNECTION_INTENT_AGENT_GUIDANCE } from "@paperclipai/shared";
 import { createHash } from "node:crypto";
 import { paperclipChatFilePreparationDelivery } from "@paperclipai/adapter-utils/chat-file-delivery";
@@ -253,6 +254,7 @@ export class PaperclipRunnerToolAuthority {
         run_id: this.binding.runId, responsible_user_id: run.responsibleUserId,
       };
       const connections = connectionIntentService(this.db);
+      if (call.tool === "ensure_capability") return connections.ensureCapability(claims, call.arguments);
       if (call.tool === "connections_search") return connections.search(claims, connectionsSearchInputSchema.parse(call.arguments).query);
       const result = await connections.request(claims, connectionRequestInputSchema.parse(call.arguments).service);
       if (result.state === "ready" && this.binding.pinnedMcpDigest && this.binding.enqueueWakeup) {
@@ -395,7 +397,7 @@ export class PaperclipRunnerToolAuthority {
             status: context.run.status,
             invocationSource: context.run.invocationSource,
           },
-          connectionGuidance: CONNECTION_INTENT_AGENT_GUIDANCE,
+          connectionGuidance: [CONNECTION_INTENT_AGENT_GUIDANCE, slackReadAgentGuidance({ ...this.binding, responsibleUserId: context.run.responsibleUserId })].filter(Boolean).join("\n\n"),
           acceptedPlan: await this.#acceptedPlan(context.run.contextSnapshot),
           sourcePlanApproval: await handoffPlanContext(this.db, context.issue),
           childReviewOutcomes: await childReviewOutcomes(this.db, this.binding.companyId, this.binding.issueId),

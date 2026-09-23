@@ -1,4 +1,7 @@
 import { isRemoteMcpConnectorMethod, connectionPurposeTransportSchema } from "@paperclipai/shared";
+import { isSlackReadProfile, object as slackReadObject, SLACK_READ_SCOPES, SLACK_READ_TOKEN_URL, validateSlackReadTokenResponse, validateSlackReadToolSchema } from "./slack-read-profile.js";
+import { assertSlackReadConnection } from "./slack-read-access.js";
+import { authorizeSlackReadIntent } from "./slack-read-intents.js";
 import { instanceSettingsService } from "./instance-settings.js";
 import { githubBotRequest } from "./chat-github-client.js";
 import { syncConnectionCredentialBindings } from "./connection-credential-bindings.js";
@@ -8403,6 +8406,11 @@ export function toolAccessService(
     connection: typeof toolConnections.$inferSelect,
     provider: string,
   ) {
+    if (isSlackReadProfile(connection)) return {
+      clientIdEnv: "PAPERCLIP_SLACK_CEO_POC_CLIENT_ID", clientSecretEnv: "PAPERCLIP_SLACK_CEO_POC_CLIENT_SECRET",
+      clientId: process.env.PAPERCLIP_SLACK_CEO_POC_CLIENT_ID ?? null,
+      clientSecret: process.env.PAPERCLIP_SLACK_CEO_POC_CLIENT_SECRET ?? null,
+    };
     if (isSmokeLabOAuthFixture(connection) && provider === "smoke_lab") {
       return {
         clientIdEnv: "SMOKE_LAB_FIXED_CLIENT_ID",
@@ -10085,7 +10093,7 @@ export function toolAccessService(
       body.set("grant_type", "authorization_code");
       body.set("code", input.code ?? "");
       body.set("redirect_uri", input.redirectUri ?? "");
-      body.set("code_verifier", input.codeVerifier ?? "");
+      if (input.codeVerifier && input.codeVerifier !== "slack-confidential-read") body.set("code_verifier", input.codeVerifier);
     }
     const tokenEndpointAuthMethod =
       input.tokenEndpointAuthMethod ??
@@ -10185,9 +10193,11 @@ export function toolAccessService(
       refreshToken:
         typeof record.refresh_token === "string" ? record.refresh_token : null,
       expiresIn: Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : null,
-      scope: typeof record.scope === "string" ? record.scope : null,
+      scope: input.tokenUrl === SLACK_READ_TOKEN_URL
+        ? String(slackReadObject(record.authed_user).scope ?? record.scope ?? "").split(/[ ,]+/).filter(Boolean).join(" ")
+        : typeof record.scope === "string" ? record.scope : null,
       tokenType:
-        typeof record.token_type === "string" ? record.token_type : "Bearer",
+        input.tokenUrl === SLACK_READ_TOKEN_URL && ["user", "bearer"].includes(String(record.token_type).toLowerCase()) ? "Bearer" : typeof record.token_type === "string" ? record.token_type : "Bearer",
       raw: record,
     };
   }
@@ -14054,6 +14064,14 @@ export function toolAccessService(
       return requested;
     })();
     const starterBinding = actorBinding(input.actor);
+    if (isSlackReadProfile(connection)) {
+      if (!input.subjectUserId || input.subjectUserId !== starterBinding.actorId || !starterBinding.sessionId || !input.issueId || !input.interactionId || input.subjectAgentId) throw forbidden("Slack reads require an addressed personal OAuth session");
+      const binding = slackReadObject(connection.config.slackReadPilot);
+      await assertSlackReadConnection(db, connection, { companyId, agentId: String(binding.agentId), userId: input.subjectUserId, issueId: input.issueId });
+      const { intent } = await authorizeSlackReadIntent(db, input.interactionId, companyId);
+      if (intent.status !== "pending" || intent.addresseeUserId !== input.subjectUserId || intent.issueId !== input.issueId) throw forbidden("Slack read intent is not pending for this person/task");
+      if (!input.scopes || input.scopes.length !== SLACK_READ_SCOPES.length || SLACK_READ_SCOPES.some(scope => !input.scopes!.includes(scope))) throw forbidden("Slack read OAuth scope mismatch");
+    }
     const fixedPersonalIdentity = await fixedPersonalIdentityForReconnect(
       connection,
       input.subjectUserId,
@@ -14327,7 +14345,7 @@ export function toolAccessService(
       .where(lt(toolOauthStates.expiresAt, new Date()));
 
     const state = randomOauthToken();
-    const codeVerifier = randomOauthToken(48);
+    const codeVerifier = isSlackReadProfile(connection) ? "slack-confidential-read" : randomOauthToken(48);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     const binding = starterBinding;
     if (!binding.actorType || !binding.actorId) {
@@ -14364,11 +14382,13 @@ export function toolAccessService(
     authorizationUrl.searchParams.set("client_id", client.clientId);
     authorizationUrl.searchParams.set("redirect_uri", input.redirectUri);
     authorizationUrl.searchParams.set("state", state);
+    if (!isSlackReadProfile(connection)) {
     authorizationUrl.searchParams.set(
       "code_challenge",
       base64UrlSha256(codeVerifier),
     );
     authorizationUrl.searchParams.set("code_challenge_method", "S256");
+    } else authorizationUrl.searchParams.set("team", String(slackReadObject(connection.config.slackReadPilot).teamId));
     // RFC 8707: name the MCP server the resulting token is for, so an
     // authorization server that serves several resources can audience-restrict it.
     if (endpoints.resource)
@@ -14598,6 +14618,8 @@ export function toolAccessService(
       throw badRequest("OAuth state was not found or has already been used");
     if (stateRow.expiresAt.getTime() <= Date.now())
       throw badRequest("OAuth state has expired");
+    const stateConnection = await getConnectionRow(stateRow.connectionId, stateRow.companyId);
+    if (isSlackReadProfile(stateConnection)) assertSameOAuthActor(stateRow, actor);
     if (stateRow.subjectUserId) {
       if (
         actor?.actorType !== "user" ||
@@ -14774,8 +14796,9 @@ export function toolAccessService(
     );
     const enabledCatalog = input.catalog.filter(
       (entry) =>
-        entry.status === "active" ||
-        (input.activateQuarantined === true && entry.status === "quarantined"),
+        (!isSlackReadProfile(input.connection) || validateSlackReadToolSchema(entry.toolName, entry.inputSchema)) &&
+        (entry.status === "active" ||
+        (input.activateQuarantined === true && entry.status === "quarantined")),
     );
     const finished = await finishGalleryAppConnection(
       input.connection.companyId,
@@ -15588,6 +15611,26 @@ export function toolAccessService(
       code: input.code,
       resource: endpoints.resource,
     });
+    let slackReadProof: Record<string, unknown> | undefined;
+    if (isSlackReadProfile(connection)) {
+      if (!stateRow.issueId || !stateRow.subjectUserId || stateRow.subjectUserId !== input.actor?.actorId) throw forbidden("Slack read callback has no addressed user");
+      if (!stateRow.interactionId) throw forbidden("Slack read callback has no intent");
+      const { intent } = await authorizeSlackReadIntent(db, stateRow.interactionId, connection.companyId);
+      if (intent.status !== "pending" || intent.addresseeUserId !== stateRow.subjectUserId || intent.issueId !== stateRow.issueId) throw forbidden("Slack read request is no longer pending");
+      const configured = slackReadObject(connection.config.slackReadPilot);
+      const authority = await assertSlackReadConnection(db, connection, { companyId: connection.companyId, agentId: String(configured.agentId), userId: stateRow.subjectUserId, issueId: stateRow.issueId });
+      const identityResponse = await fetchRemoteHttpUrl("https://slack.com/api/auth.test", {
+        method: "POST", headers: { Authorization: `Bearer ${token.accessToken}` },
+      });
+      const identity = identityResponse.ok ? await identityResponse.json().catch(() => null) : null;
+      const proof = validateSlackReadTokenResponse(token.raw, authority.binding, identity);
+      const checked = await fetchRemoteHttpUrl(`https://slack.com/api/conversations.info?channel=${encodeURIComponent(authority.binding.channelId)}`, { headers: { Authorization: `Bearer ${token.accessToken}` } });
+      const info = slackReadObject(await checked.json().catch(() => null));
+      const channel = slackReadObject(info.channel);
+      if (!checked.ok || info.ok !== true || channel.id !== authority.binding.channelId || channel.is_private !== false || channel.is_im === true || channel.is_mpim === true) throw forbidden("The configured Slack source must be a visible public channel");
+      slackReadProof = { ...proof, fingerprint: authority.binding.fingerprint };
+      token.scope = proof.scopes.join(" ");
+    }
     const connectedAt = now();
     const expiresAt = token.expiresIn
       ? new Date(connectedAt.getTime() + token.expiresIn * 1000).toISOString()
@@ -15682,6 +15725,7 @@ export function toolAccessService(
         const grantValues = {
           providerTenant: {
             ...(existingUserGrant?.providerTenant ?? {}),
+            ...(slackReadProof ? { slackReadPilot: slackReadProof } : {}),
             oauth: {
               ...asRecord(asRecord(existingUserGrant?.providerTenant).oauth),
               strategy: "direct_oauth",
@@ -16086,6 +16130,20 @@ export function toolAccessService(
    * token to the consenting user's grant first. Only this explicit endpoint may
    * promote it to company-scoped secrets.
    */
+  /** Recover after tokens were saved but catalog setup/callback delivery failed.
+   * This never asks Slack to redeem the spent authorization code again. */
+  async function reconcileSlackReadOAuth(companyId: string, connectionId: string, interactionId: string, actor: ActorInfo) {
+    const connection = await getConnectionRow(connectionId, companyId);
+    const { intent } = await authorizeSlackReadIntent(db, interactionId, companyId);
+    if (!isSlackReadProfile(connection) || actor.actorType !== "user" || actor.actorId !== intent.addresseeUserId || intent.status !== "pending") throw forbidden("Slack read recovery needs its addressed person");
+    const refresh = await refreshCatalog(connection.id, actor, { enableAllByDefault: false, skipDefaultProfileSync: true });
+    if (!["slack_read_channel", "slack_read_thread"].every(name => refresh.catalog.some(entry => entry.toolName === name && validateSlackReadToolSchema(name, entry.inputSchema)))) {
+      throw unprocessable("Slack authorized your identity, but its read tools are not available with the reviewed schema. Check the app's MCP access; do not add broader scopes.");
+    }
+    return finishOAuthCatalogWithRecommendedDefaults({ connection, interactionId, catalog: refresh.catalog, activateQuarantined: true,
+      suggestedDefaults: { access: { agentIds: [] }, askFirstRiskLevels: [] }, actor });
+  }
+
   async function finalizeOAuthAccess(
     companyId: string,
     connectionId: string,
@@ -16103,6 +16161,9 @@ export function toolAccessService(
     const actorUserId = actor?.actorType === "user" ? actor.actorId : null;
     if (!actorUserId)
       throw badRequest("Finishing browser sign-in requires a signed-in user");
+    if (isSlackReadProfile(connection) && (input.grantKind !== "user" ||
+        requestingAgentId !== slackReadObject(connection.config.slackReadPilot).agentId ||
+        actorUserId !== slackReadObject(connection.config.slackReadPilot).userId)) throw forbidden("Pilot reads cannot be shared or delegated beyond the configured person and CEO");
 
     const [personalGrant] = await db
       .select()
@@ -16439,7 +16500,7 @@ export function toolAccessService(
       companyId,
       connection.id,
       {
-        enabledCatalogEntryIds: catalog.map((entry) => entry.id),
+        enabledCatalogEntryIds: catalog.filter(entry => !isSlackReadProfile(connection) || validateSlackReadToolSchema(entry.toolName, entry.inputSchema)).map((entry) => entry.id),
         askFirstCatalogEntryIds: catalog
           .filter((entry) => askFirstRiskLevels.has(entry.riskLevel))
           .map((entry) => entry.id),
@@ -16725,6 +16786,7 @@ export function toolAccessService(
     completeOAuthCallback,
     refreshOAuthGrantCredentials,
     finalizeOAuthAccess,
+    reconcileSlackReadOAuth,
 
     listExamples: async (companyId: string): Promise<ToolExampleSummary[]> => {
       return Promise.all(

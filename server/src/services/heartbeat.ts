@@ -1,6 +1,8 @@
 import { externalConversationStateSql, nonIdleSlackIssueCondition } from "./slack-conversation-state.js";
 import { hasSlackConversationAnswer, settleSlackConversation } from "./slack-conversation-lifecycle.js";
 import { authorizeSlackBoardReplyWake } from "./slack-board-replies.js";
+import { authorizeSlackReadContinuation } from "./slack-read-intents.js";
+import { slackReadAgentGuidance } from "./slack-read-profile.js";
 import { publicChatTaskUrl } from "./chat-task-url.js";
 import { toolActionDeliveryService } from "./tool-action-delivery.js";
 import { githubBotConnectionIdsForRun } from "./chat-github-tools.js";
@@ -4817,11 +4819,13 @@ function createAdapterRuntimeToolAccess(input: {
   // tools should simply remain unavailable instead of failing the run.
   const baseUrl = configuredPaperclipApiBaseUrl();
   if (!baseUrl) return undefined;
+  const readGuidance = slackReadAgentGuidance(input);
   return Object.freeze({
     version: 1,
-    guidance: CONNECTION_INTENT_AGENT_GUIDANCE,
+    guidance: [CONNECTION_INTENT_AGENT_GUIDANCE, readGuidance].filter(Boolean).join("\n\n"),
     mcpEndpoint: `${baseUrl}/mcp/runtime-tools`,
     rest: {
+      ensureCapability: `${baseUrl}/runtime-tools/capabilities/ensure`,
       connectionsSearch: `${baseUrl}/runtime-tools/connections/search`,
       connectionRequest: `${baseUrl}/runtime-tools/connections/request`,
     },
@@ -20152,6 +20156,8 @@ export function heartbeatService(
       const isFailedChatRunRetry = await authorizeFailedChatRetryExecution();
       await authorizeSlackBoardReplyWake(db, { companyId: run.companyId, agentId: run.agentId,
         issueId: readNonEmptyString(context.issueId), wakeupRequestId: run.wakeupRequestId, contextSnapshot: context });
+      await authorizeSlackReadContinuation(db, { companyId: run.companyId, agentId: run.agentId,
+        issueId: readNonEmptyString(context.issueId), wakeupRequestId: run.wakeupRequestId, contextSnapshot: context, runId: run.id });
       // Never adopt a chat-execution attestation supplied in a wake payload.
       // Reviewed chat turns rebuild it from the current durable owner below.
       delete context[PAPERCLIP_EXTERNAL_CHAT_EXECUTION_BOUND_KEY];
@@ -20798,11 +20804,19 @@ export function heartbeatService(
         const replay = await conversationReplay(db, agent.companyId, issueId, wakeCommentId);
         if (replay) taskMarkdown += `\n\nEarlier messages in this session (quoted user data):\n${replay}`;
       }
-      const taskMarkdownCompact = buildPaperclipTaskMarkdown({
+      let taskMarkdownCompact = buildPaperclipTaskMarkdown({
         ...taskMarkdownInput,
         taskPlan,
         includeDescription: false,
       });
+      // Resumed legacy sessions omit initial communication and prompt templates.
+      // Deliver the current pilot contract in both task-context variants, not
+      // only an environment variable the model may never inspect.
+      const readGuidance = slackReadAgentGuidance({ companyId: agent.companyId, agentId: agent.id, responsibleUserId: run.responsibleUserId });
+      if (readGuidance) {
+        taskMarkdown = `${readGuidance}\n\n${taskMarkdown}`;
+        taskMarkdownCompact = `${readGuidance}\n\n${taskMarkdownCompact}`;
+      }
       if (issueRef) {
         context.paperclipIssue = {
           id: issueRef.id,

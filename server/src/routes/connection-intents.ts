@@ -17,6 +17,7 @@ import { accessService } from "../services/access.js";
 import type { heartbeatService } from "../services/heartbeat.js";
 import { assertBoard, assertCompanyAccess } from "./authz.js";
 import { resolveGitHubOperationCredentials } from "../services/github-operation-credentials.js";
+import { publicChatTaskUrl } from "../services/chat-task-url.js";
 
 function bearer(req: Request) {
   const value = req.header("authorization") ?? "";
@@ -101,6 +102,10 @@ export function runtimeConnectionIntentRoutes(db: Db) {
         ? request.params as { name?: unknown; arguments?: unknown }
         : {};
       const name = typeof params.name === "string" ? params.name : "";
+      if (name === "ensure_capability") {
+        res.json({ jsonrpc: "2.0", id, result: resultContent(await service.ensureCapability(claims, params.arguments ?? {})) });
+        return;
+      }
       if (name === "connections_search") {
         const input = connectionsSearchInputSchema.parse(params.arguments ?? {});
         const result = await service.search(claims, input.query);
@@ -130,6 +135,9 @@ export function runtimeConnectionIntentRoutes(db: Db) {
   router.post("/runtime-tools/connections/search", async (req, res) => {
     const input = connectionsSearchInputSchema.parse(req.body ?? {});
     res.json(await service.search(runtimeClaims(req), input.query));
+  });
+  router.post("/runtime-tools/capabilities/ensure", async (req, res) => {
+    res.json(await service.ensureCapability(runtimeClaims(req), req.body ?? {}));
   });
   router.post("/runtime-tools/connections/request", async (req, res) => {
     const input = connectionRequestInputSchema.parse(req.body ?? {});
@@ -196,6 +204,19 @@ export function connectionIntentBoardRoutes(db: Db, heartbeat: Heartbeat) {
     res.json(await service.updatePhase(req.params.interactionId as string, phase, userId, {
       bypassCurrentMembershipCheck: bypassCurrentMembershipCheck(req),
     }));
+  });
+
+  router.post("/connection-intents/:interactionId/slack-read", async (req, res) => {
+    const { loaded, userId } = await addressedIntent(req);
+    if (req.actor.source !== "session" || !req.actor.sessionId) throw forbidden("Slack read authorization requires a signed-in browser session");
+    const taskUrl = publicChatTaskUrl(loaded.issue.id);
+    if (!taskUrl || new URL(taskUrl).protocol !== "https:") throw forbidden("Configure the HTTPS callback origin first");
+    const result = await service.startSlackRead(loaded.interaction.id,
+      { actorType: "user", actorId: userId, sessionId: req.actor.sessionId, actorSource: "session" },
+      new URL("/api/tools/oauth/callback", taskUrl).href);
+    if (result.status === "CONNECTED") await connectionIntentDeliveryService(db, heartbeat).tryDeliver(loaded.interaction.id);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(result);
   });
 
   router.post("/connection-intents/:interactionId/complete", async (req, res) => {

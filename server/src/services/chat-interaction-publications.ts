@@ -1,4 +1,5 @@
 import { nativePhotonInteraction } from "./photon/interactions.js";
+import { authorizeSlackReadIntent } from "./slack-read-intents.js";
 import { randomBytes } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
@@ -35,6 +36,13 @@ type ChatPublicationDb = Pick<Db, "select" | "insert" | "update">;
 function terminalNativeInteractionCopy(
   interaction: IssueThreadInteraction,
 ): { body: string; text: string } | null {
+  if (interaction.kind === "connection_intent" && interaction.payload.capabilityProfile === "slack-public-read-v1") {
+    if (interaction.status === "pending") return null;
+    const body = interaction.status === "accepted" ? "Slack read access connected. Continuing your request."
+      : interaction.status === "rejected" ? "Slack read access declined. No channel content was read."
+      : "This Slack read request is no longer active.";
+    return { body, text: body };
+  }
   if (interaction.kind === "request_confirmation") {
     if (interaction.status === "accepted")
       return { body: "Accepted", text: "Accepted." };
@@ -227,6 +235,7 @@ export async function enqueueIssueInteractionChatPublications(
   interaction: IssueThreadInteraction,
 ) {
   if (interaction.status !== "pending") return [];
+  const slackRead = interaction.kind === "connection_intent" && interaction.payload.capabilityProfile === "slack-public-read-v1";
   // The first native-chat wave intentionally externalizes only questions and
   // confirmations. Other governance interactions have richer partial and
   // terminal semantics that are authoritative in Paperclip; projecting a
@@ -234,7 +243,7 @@ export async function enqueueIssueInteractionChatPublications(
   // provider prompts after a board decision.
   if (
     interaction.kind !== "ask_user_questions" &&
-    interaction.kind !== "request_confirmation"
+    interaction.kind !== "request_confirmation" && !slackRead
   ) {
     return [];
   }
@@ -281,6 +290,15 @@ export async function enqueueIssueInteractionChatPublications(
     );
   if (bindings.length === 0) return [];
 
+  let readBindings: Array<{ endpointId: string; conversationId: string }> = [];
+  if (slackRead) {
+    const current = await authorizeSlackReadIntent(db as Db, interaction.id, interaction.companyId);
+    const { resolveChatOriginPublicationBindings } = await import("./issues.js");
+    readBindings = (await resolveChatOriginPublicationBindings(db, interaction.companyId, interaction.issueId, interaction.sourceRunId ?? null))
+      .filter(binding => binding.endpointId === current.authority.endpoint.id && binding.conversationId === current.authority.conversation.id);
+    if (!readBindings.length) return [];
+  }
+
   const taskUrl = publicChatInteractionTaskUrl(interaction.issueId);
   const question =
     interaction.kind === "ask_user_questions"
@@ -289,6 +307,7 @@ export async function enqueueIssueInteractionChatPublications(
   const inserted: Array<typeof chatPublications.$inferSelect> = [];
   for (const { conversation, endpoint } of bindings) {
     if (endpoint.assignedAgentId !== interaction.createdByAgentId) continue;
+    if (slackRead && !readBindings.some(binding => binding.endpointId === endpoint.id && binding.conversationId === conversation.id)) continue;
     const formDraft =
       interaction.kind === "ask_user_questions" &&
       (endpoint.provider === "slack" ||
@@ -334,7 +353,13 @@ export async function enqueueIssueInteractionChatPublications(
     ) {
       throw new Error("Generated Telegram question action exceeds 64 bytes");
     }
-    const actions: SafeExternalChatCardAction[] = formDraft
+    const actions: SafeExternalChatCardAction[] = slackRead && taskUrl
+      // Query strings/fragments are intentionally stripped at publication.
+      // A credential-free path keeps the handoff intact and the two Slack
+      // link-button action IDs distinct after projection.
+      ? [{ type: "link", label: "Connect Slack", url: `${taskUrl}/connect-slack-read/${interaction.id}` },
+          { type: "link", label: "Not now", url: taskUrl }]
+      : formDraft
       ? [
           {
             type: "callback" as const,
@@ -371,8 +396,9 @@ export async function enqueueIssueInteractionChatPublications(
                 },
               ]
             : [];
-    const text =
-      interaction.kind === "ask_user_questions"
+    const text = slackRead
+      ? `Connect Slack to review recent posts in the approved public channel. Slack grants public-channel metadata/history access to your personal identity; Paperclip restricts this pilot to one channel. No implementation or posting permission is added. ${taskUrl ?? ""}`
+      : interaction.kind === "ask_user_questions"
         ? textForQuestionInteraction(interaction, taskUrl)
         : genericInteractionText(taskUrl);
     const payload = projectSafeChatPublication({
@@ -389,8 +415,8 @@ export async function enqueueIssueInteractionChatPublications(
               : interaction.kind === "request_confirmation"
                 ? "confirmation"
                 : "status",
-          title:
-            interaction.kind === "ask_user_questions"
+          title: slackRead ? "Connect Slack to review papercuts"
+            : interaction.kind === "ask_user_questions"
               ? (question?.prompt ??
                 interaction.payload.title ??
                 interaction.title ??
@@ -398,8 +424,8 @@ export async function enqueueIssueInteractionChatPublications(
               : interaction.kind === "request_confirmation"
                 ? interaction.payload.prompt
                 : "Response needed in Paperclip",
-          body:
-            interaction.kind === "ask_user_questions"
+          body: slackRead ? "Read-only, last seven days, at most 200 messages. Your original request will continue after authorization. Not now opens the task so you can decline."
+            : interaction.kind === "ask_user_questions"
               ? (question?.helpText ?? undefined)
               : interaction.kind === "request_confirmation"
                 ? (interaction.payload.detailsMarkdown ?? undefined)
@@ -610,6 +636,9 @@ export async function enqueueTerminalIssueInteractionChatPublications(
   const resolutionOutcome = (interaction.result as { outcome?: unknown } | null)
     ?.outcome;
   const continuationWakeRequired =
+    // Connection intents already have a durable continuation outbox. A second
+    // chat wake would use a different key and may replay an old inbound DM.
+    interaction.kind !== "connection_intent" &&
     interaction.status !== "expired" &&
     resolutionOutcome !== "skipped" &&
     !(
