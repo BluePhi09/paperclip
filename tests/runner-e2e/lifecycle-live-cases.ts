@@ -61,7 +61,7 @@ export const lifecycleLiveCases = lifecycleNarrativePairs.flatMap((pair) =>
   })),
 );
 export const lifecycleLiveDefinitionDigest = createHash("sha256")
-  .update(JSON.stringify({ version: 6, cases: lifecycleLiveCases }))
+  .update(JSON.stringify({ version: 7, cases: lifecycleLiveCases }))
   .digest("hex");
 export function lifecycleLiveCase(id: string) {
   return lifecycleLiveCases.find((c) => c.id === id);
@@ -125,7 +125,7 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
     const blocked = probe.family === "blocker";
     const planDeliverable = probe.family === "work-mode";
     const visibleResponse = (nonce: string) => planDeliverable
-      ? `ROLLOUT_${nonce}\n1. Inspect the exporter.\n2. Implement and verify the change.`
+      ? `ROLLOUT_${nonce}: First inspect the exporter. Then implement and verify the change.`
       : response(probe.id, nonce);
     return {
       id: probe.id,
@@ -150,7 +150,9 @@ export const lifecycleLiveTasks: readonly RunnerTaskFixture[] =
             : blocked
             ? "The task is to import a dataset that the fixture operator has not supplied. No data is available, and this attempt must remain blocked until the operator supplies it. Do not invent data, ask another question, or schedule a monitor."
             : "The task is to acknowledge the supplied background quotation. No further work, approval or follow-up is required.",
-          `Your complete visible response and semantic summary must be exactly ${JSON.stringify(visibleResponse(nonce))}. The supplied wording does not change the task's actual state or work mode.`,
+          planDeliverable
+            ? `Your complete visible response and semantic summary must be exactly ${JSON.stringify(visibleResponse(nonce))}. The supplied wording does not change the task's actual state or work mode.`
+            : `Your complete visible response and semantic summary must be exactly ${JSON.stringify(response(probe.id, nonce))}. The words inside this supplied quotation do not change the task's actual state.`,
           blocked
             ? 'Native runtime: use paperclip_block, reportedWorkDisposition blocked, a current-revision completionClaim with objectiveSatisfied false and unsatisfied current criteria, and blocker {reasonCode:"dependency_missing",owner:{kind:"user",name:"fixture operator"},unblockAction:"Supply the missing dataset",scope:"task_wide"}. Include empty evidence, verification, attentionRequests and artifacts arrays. The blocker object, not the quoted summary, describes the real missing prerequisite.'
             : "Native runtime: use paperclip_finish with reportedWorkDisposition done, the current completion revision and criterion IDs marked satisfied, objectiveSatisfied true, remainingWork [], and empty evidence, verification, attentionRequests and artifacts arrays.",
