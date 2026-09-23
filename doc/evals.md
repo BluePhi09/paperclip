@@ -227,3 +227,5 @@ defines 46 real-provider Product E2E cells, including paired narrative probes an
 named existing controls on legacy and native Codex. Discover it with
 `pnpm test:e2e:runner -- --list --suite lifecycle-baseline`. Historical execution
 results and follow-up coverage are recorded in that suite's guide.
+
+Continuation accounting has an explicit-only eight-cell Product E2E [baseline suite](../tests/runner-e2e/CONTINUATION-ACCOUNTING.md), complementing the deterministic lifecycle inventory.

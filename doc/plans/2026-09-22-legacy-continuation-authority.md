@@ -133,3 +133,5 @@ Reference reports: `tests/lifecycle-baseline/BASELINE-2026-09-21.md`,
 `LIVE-BASELINE-2026-09-21.md`, `LIVE-FIXES-2026-09-21.md`, and `README.md`.
 Live follow-up: 40/40 Product E2E passed on App `331e89bb3`; original protocol
 correction: 8/8 passed. Those results do not establish prose-free authority.
+
+Accounting test-first follow-up: [scenario matrix and executable layers](2026-09-22-continuation-accounting-baseline.md). Production fixes for newly exposed cross-lane accounting failures remain a separate slice.

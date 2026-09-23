@@ -5,6 +5,7 @@ export const lanes = {
   unit: {
     files: [
       "tests/lifecycle-baseline/authority.test.ts",
+      "tests/lifecycle-baseline/accounting.test.ts",
       "server/src/services/recovery/legacy-continuation.test.ts",
       `${server}run-liveness.test.ts`,
       `${server}heartbeat-context-summary.test.ts`,
@@ -44,6 +45,7 @@ export const lanes = {
     files: [
       "tests/runner-e2e/lifecycle-baseline.test.ts",
       "tests/runner-e2e/lifecycle-live.test.ts",
+      "tests/runner-e2e/accounting.test.ts",
       "tests/runner-e2e/continuation.test.ts",
     ],
   },
@@ -67,6 +69,7 @@ const runner = (pattern) =>
     pattern,
   );
 export const scenarios = [
+
   {
     id: "LCA-01",
     name: "Ordinary completion",
@@ -289,6 +292,17 @@ export const scenarios = [
     ],
     live: ["runner-evals:request-task-review"],
   },
+  ...[
+    ["ACCT-01", "Separate productive, repair and infrastructure allowances", "Each lane spends only its own allowance"],
+    ["ACCT-02", "False progress and exhaustion", "Comments, wording and raw tool counts cannot replenish attempts"],
+    ["ACCT-03", "Late gates", "Stop, approvals, ownership, pause and spending gates remain authoritative"],
+    ["ACCT-04", "Restart and replay accounting", "Consumed allowances and causal receipts survive restart and duplicates"],
+  ].map(([id, name, expected]) => ({ id, name, expected, coverage: [
+    ref("unit", "tests/lifecycle-baseline/accounting.test.ts", id),
+    ...(id === "ACCT-01" || id === "ACCT-02" ? [integ("heartbeat-retry-scheduling", id)] : []),
+    ...(id === "ACCT-02" || id === "ACCT-03" ? [integ("legacy-continuation-authority", id)] : []),
+    ref("grading", "tests/runner-e2e/accounting.test.ts"),
+  ], live: ["continuation-accounting:accounting-productive-neutral", "continuation-accounting:accounting-productive-noisy", "continuation-accounting:accounting-exhaustion-neutral", "continuation-accounting:accounting-exhaustion-noisy", "continuation-accounting:accounting-repair-stop", "continuation-accounting:accounting-repair-approval"] })),
 ];
 export const combinations = [
   ["completion then failure/cancellation", "LCA-11"],
