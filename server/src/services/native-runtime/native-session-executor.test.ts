@@ -5074,7 +5074,12 @@ describe("native session cancellation", () => {
     });
   });
 
-  it.each([true, false])("waits for an in-flight startup handle before acknowledging Stop (runnerd=%s)", async (useRunnerd) => {
+  it.each([
+    { useRunnerd: true, durableIntentVisible: false },
+    { useRunnerd: false, durableIntentVisible: false },
+    { useRunnerd: true, durableIntentVisible: true },
+    { useRunnerd: false, durableIntentVisible: true },
+  ])("waits for an in-flight startup handle before acknowledging Stop (runnerd=$useRunnerd, durable intent=$durableIntentVisible)", async ({ useRunnerd, durableIntentVisible }) => {
     const root = await mkdtemp(join(tmpdir(), "native-startup-stop-"));
     const previous = process.env.PAPERCLIP_RUNNER_STATE_DIR;
     process.env.PAPERCLIP_RUNNER_STATE_DIR = root;
@@ -5097,8 +5102,9 @@ describe("native session cancellation", () => {
         highestContiguousSourceSeq: 0,
       };
     });
+    const runResultJson: Record<string, unknown> = {};
     const running = executePaperclipNativeSession({
-      db: leaseDb(), execution, runnerInstanceId: "runner", useRunnerd,
+      db: leaseDb(execution, {}, runResultJson), execution, runnerInstanceId: "runner", useRunnerd,
     });
     const outcome = running.catch(error => error);
     const persistence = cancellationDb();
@@ -5116,6 +5122,9 @@ describe("native session cancellation", () => {
       await new Promise(resolve => setImmediate(resolve));
       expect(acknowledged).toBe(false);
       expect(persistence.getResultJson().nativeCancellation).toMatchObject({ dispatchState: "pending" });
+      // Production execution sees the same durable Stop intent as its API caller.
+      // Exercise that read as well as the in-memory startup handoff.
+      if (durableIntentVisible) Object.assign(runResultJson, persistence.getResultJson());
       open();
       await expect(stopping).resolves.toMatchObject({ dispatched: true });
       expect(state.cancel).toHaveBeenCalledOnce();

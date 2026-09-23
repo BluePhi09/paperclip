@@ -8352,6 +8352,18 @@ async function executePaperclipNativeSessionWithinScope(
               if (session) {
                 const active: ActiveNativeSession = { session, cancelRequested: false };
                 activeNativeSessions.set(input.execution.binding.runId, active);
+                const startup = nativeSessionStartups.get(input.execution.binding.runId);
+                startup?.resolve(active);
+                if (startup?.stopRequested) {
+                  // Publication wakes the Stop caller; wait for its durable ACK
+                  // before unwinding. No provider turn may be submitted between
+                  // session startup and the execution-owned cleanup below.
+                  await startup.cancellationSettled;
+                  // If startup exceeded the caller's deadline, its late handle
+                  // must still be cancelled instead of escaping the Stop fence.
+                  await cancelNativeSession(input.execution.binding.runId, "Stop requested during native startup");
+                  throw new Error("native_finalization_missing: session returned no semantic result");
+                }
                 // Stop can win after the coordinator claim while the provider
                 // session is still opening. Publishing the handle before this
                 // read closes both sides of the race: earlier Stop is durable;
@@ -8377,18 +8389,6 @@ async function executePaperclipNativeSessionWithinScope(
                 if (session.resolveRuntimeRequest) await liveQuestions.attach();
                 if (nativeRunsDetachingForRestart.has(input.execution.binding.runId)) {
                   if (session.detachControllerForRestart) await detachActiveNativeSessionForRestart(active);
-                }
-                const startup = nativeSessionStartups.get(input.execution.binding.runId);
-                startup?.resolve(active);
-                if (startup?.stopRequested) {
-                  // Publication wakes the Stop caller; wait for its durable ACK
-                  // before unwinding. No provider turn may be submitted between
-                  // session startup and the execution-owned cleanup below.
-                  await startup.cancellationSettled;
-                  // If startup exceeded the caller's deadline, its late handle
-                  // must still be cancelled instead of escaping the Stop fence.
-                  await cancelNativeSession(input.execution.binding.runId, "Stop requested during native startup");
-                  throw new Error("native_finalization_missing: session returned no semantic result");
                 }
                 if (active.cancelRequested) throw new NativeCancellationPendingRecoveryError();
               } else {
