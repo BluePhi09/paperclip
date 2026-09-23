@@ -79,6 +79,10 @@ export async function stageManagedGrokCredential(input: {
           } finally { await auth.close(); }
         }
       }
+      // Grok diagnostics can contain account/authentication fields. They are
+      // disposable, unlike session history, and must not outlive this owner.
+      // close is invoked only after the provider has been contained.
+      await rm(join(input.agentHomeDirectory, "logs"), { recursive: true, force: true });
       await lease.close();
       closed = true;
       })().finally(() => { closing = null; });

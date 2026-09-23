@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   access,
+  cp,
   lstat,
   mkdir,
   mkdtemp,
@@ -1809,6 +1810,40 @@ describe("split durable provider checkpoint identity", () => {
 });
 
 describe("remote provider checkpoint snapshots", () => {
+  it("excludes Grok credentials and diagnostic logs from real checkpoint copies while retaining sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "grok-checkpoint-"));
+    try {
+      const source = join(root, "source");
+      const target = join(root, "backup");
+      const sessionDirectory = acpxRuntimeSessionDirectoryName("session");
+      const relativeHome = join("acpx", sessionDirectory, "grok-home");
+      const home = join(source, relativeHome);
+      await mkdir(join(home, "logs"), { recursive: true });
+      await mkdir(join(home, "sessions"));
+      await writeFile(join(home, "logs", "unified.jsonl"), "AUTH_SENTINEL");
+      await writeFile(join(home, "auth.json"), "AUTH_SENTINEL");
+      await writeFile(join(home, "auth-refresh.json"), "AUTH_SENTINEL");
+      await writeFile(join(home, "sessions", "session.json"), "resume-state");
+      const profile = resolveNativeHarnessPersistenceProfile({
+        provider: { kind: "acpx", agent: "grok" },
+        session: { normalizedSessionId: "session", driverKind: "acpx_runtime" },
+      } as unknown as NativeExecutionInputV1);
+      const execute = async ({ command, args }: { command: string; args: string[] }) => ({
+        exitCode: 0, timedOut: false, stdout: execFileSync(command, args, { encoding: "utf8" }), stderr: "",
+      });
+      const syncOut = async (operations: Array<{ files: Array<{ sourcePath: string; targetPath: string }> }>) => {
+        for (const operation of operations) for (const file of operation.files)
+          await cp(file.sourcePath, file.targetPath, { recursive: true });
+      };
+      await syncRemoteRunnerDirectoryOut({ runner: { execute, syncOut } as never,
+        sourcePath: source, targetPath: target, mode: 0o700,
+        excludeEntries: profile.directories.find(directory => directory.name === "acpx")!.excludeEntries });
+      for (const entry of ["auth.json", "auth-refresh.json", "logs"])
+        await expect(access(join(target, relativeHome, entry))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(join(target, relativeHome, "sessions", "session.json"), "utf8")).toBe("resume-state");
+      expect(await readFile(join(home, "logs", "unified.jsonl"), "utf8")).toBe("AUTH_SENTINEL");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it("excludes Codex scratch and credential state without mutating the live provider home", async () => {
     const execute = vi
       .fn()

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,6 +28,20 @@ describe("Grok isolated credentials", () => {
     await expect(readFile(join(directory, "auth.json"))).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(join(directory, "auth-refresh.json"), "utf8")).toBe(refreshed);
     await lease.close();
+  });
+  it.each([true, false])("removes diagnostic logs after shutdown without removing session history (admitted=%s)", async retainRefresh => {
+    const directory = await home();
+    const lease = await stageManagedGrokCredential({ agentHomeDirectory: directory,
+      environment: { PAPERCLIP_ACPX_GROK_AUTH_JSON_SECRET: credential }, retainRefresh: () => retainRefresh });
+    await mkdir(join(directory, "logs"));
+    await mkdir(join(directory, "sessions"));
+    await writeFile(join(directory, "logs", "unified.jsonl"), credential, { mode: 0o600 });
+    await writeFile(join(directory, "sessions", "session.json"), "resume-state", { mode: 0o600 });
+    await lease.close();
+    await expect(stat(join(directory, "logs"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(join(directory, "sessions", "session.json"), "utf8")).toBe("resume-state");
+    if (retainRefresh) expect(await readFile(join(directory, "auth-refresh.json"), "utf8")).toBe(credential);
+    else await expect(stat(join(directory, "auth-refresh.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
   it("does not stage subscription credentials for an explicit API key", async () => {
     const directory = await home();

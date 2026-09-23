@@ -36,9 +36,10 @@ existing Grok login when no company login has been selected.
 Only the selected credential is staged in the private runtime home. An ownership
 lease fences concurrent processes. After the provider exits, refreshed credentials
 are copied back through Grok's existing identity and refresh checks. Runtime
-credentials and refresh handoffs are excluded from workspace backups and removed
-on close. Host configuration, other provider credentials and unselected keys are
-not forwarded to Grok.
+credentials, refresh handoffs, and diagnostic logs are excluded from workspace
+backups and removed on close. Session history remains available for resume. Host
+configuration, other provider credentials and unselected keys are not forwarded
+to Grok.
 
 ## Evaluation
 

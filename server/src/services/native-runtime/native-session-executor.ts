@@ -5301,10 +5301,11 @@ export function resolveNativeHarnessPersistenceProfile(
               // Codex creates process-local executable aliases in tmp/arg0;
               // they may point outside the runtime tree and are neither safe
               // nor necessary to restore. Credentials and launch-time config
-              // are also re-materialized in the replacement sandbox.
+              // are also re-materialized in the replacement sandbox. Grok
+              // diagnostics can contain auth fields and are not session state.
               excludeEntries:
                 execution.provider.agent === "grok"
-                  ? ["auth.json", "auth-refresh.json", "auth-refresh.json.tmp", "config.toml"].map((entry) =>
+                  ? ["auth.json", "auth-refresh.json", "auth-refresh.json.tmp", "config.toml", "logs"].map((entry) =>
                     `acpx/${acpxRuntimeSessionDirectoryName(nativeSessionKey(execution))}/grok-home/${entry}`)
                   : execution.provider.agent === "codex"
                   ? CODEX_HOME_NON_PERSISTENT_ENTRIES.map(
