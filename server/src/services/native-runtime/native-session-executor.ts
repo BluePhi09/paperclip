@@ -389,6 +389,7 @@ type WarmNativeSession = {
   session: NativeSession;
   ownerToken: symbol;
   configDigest: string;
+  ownerScope: string;
   companyId: string;
   environmentId: string | null;
   busy: boolean;
@@ -1446,6 +1447,7 @@ class SessionToolAuthorityEpoch {
 const sessionToolAuthorityEpochs = new Map<string, SessionToolAuthorityEpoch>();
 const initializingSessionToolAuthorities = new Set<string>();
 const executingRunnerdSessionScopes = new Map<string, string>();
+const executingNativeOwnerScopes = new Map<string, symbol>();
 
 function nativeSessionKey(execution: NativeExecutionInput): string {
   return (
@@ -1515,6 +1517,45 @@ function nativeSessionScopeKey(execution: NativeExecutionInput): string {
     },
     normalizedSessionId: nativeSessionKey(execution),
   });
+}
+
+// A plan acceptance or explicit reset can rotate the provider/session identity
+// while retaining the same task sandbox and its fixed ingress port.
+function nativeSessionOwnerScope(
+  execution: NativeExecutionInput,
+  environmentId: string | null,
+): string {
+  return canonicalJson({
+    companyId: execution.binding.companyId,
+    agentId: execution.binding.agentId,
+    issueId: execution.binding.issueId,
+    workspace: nativeSessionWorkspaceScope(execution),
+    environmentId,
+  });
+}
+
+async function retireSupersededWarmNativeSessions(
+  ownerScope: string,
+  nextSessionScope: string,
+): Promise<void> {
+  for (const [scope, entry] of warmNativeSessions) {
+    if (scope === nextSessionScope || entry.ownerScope !== ownerScope) continue;
+    if (entry.busy || executingRunnerdSessionScopes.has(scope)) {
+      throw new Error("native_session_supervisor_busy");
+    }
+    if (entry.idleTimer !== null) clearTimeout(entry.idleTimer);
+    entry.idleTimer = null;
+    entry.busy = true;
+    entry.closeOnReleaseReason = "warm native session identity changed";
+    try {
+      await closeWarmNativeSession(entry, entry.closeOnReleaseReason);
+      if (warmNativeSessions.get(scope) === entry) warmNativeSessions.delete(scope);
+    } finally {
+      // A failed close retains the owner and prevents launch. A later attempt
+      // must retry retirement, never adopt this partially closed transport.
+      entry.busy = false;
+    }
+  }
 }
 
 function legacyCompanyNativeSessionScopeKey(
@@ -7165,7 +7206,20 @@ export async function executePaperclipNativeSession(input: {
   let sessionScopeId: string | null = null;
   let ownsSessionScope = false;
   let executionFailure: unknown;
+  const ownerScope = nativeSessionOwnerScope(
+    input.execution,
+    input.runnerExecutionTarget?.environmentId ?? null,
+  );
+  const ownerToken = Symbol("native execution owner");
   try {
+    // Reserve across session identities before retiring or staging anything.
+    if (executingNativeOwnerScopes.has(ownerScope)) {
+      throw new Error("native_session_supervisor_busy");
+    }
+    executingNativeOwnerScopes.set(ownerScope, ownerToken);
+    await retireSupersededWarmNativeSessions(
+      ownerScope, nativeSessionScopeKey(input.execution),
+    );
     if (!input.useRunnerd) {
       return await executePaperclipNativeSessionWithinScope(input);
     }
@@ -7235,6 +7289,9 @@ export async function executePaperclipNativeSession(input: {
     executionFailure = error;
     throw error;
   } finally {
+    if (executingNativeOwnerScopes.get(ownerScope) === ownerToken) {
+      executingNativeOwnerScopes.delete(ownerScope);
+    }
     startup.resolve(null);
     if (nativeSessionStartups.get(runId) === startup) {
       nativeSessionStartups.delete(runId);
@@ -7973,6 +8030,7 @@ async function executePaperclipNativeSessionWithinScope(
         (hasBrokerCapability &&
           entry.credentialRunId !== input.execution.binding.runId);
       if (
+        entry.closeOnReleaseReason !== undefined ||
         entry.configDigest !== warmConfigDigest ||
         entry.managedAiCredentialIdentity !== input.managedAiCredentialIdentity ||
         credentialRunChanged ||
@@ -8337,6 +8395,9 @@ async function executePaperclipNativeSessionWithinScope(
                     session,
                     ownerToken: warmSessionOwnerToken,
                     configDigest: warmConfigDigest,
+                    ownerScope: nativeSessionOwnerScope(
+                      input.execution, input.runnerExecutionTarget?.environmentId ?? null,
+                    ),
                     companyId: input.execution.binding.companyId,
                     environmentId:
                       input.runnerExecutionTarget?.environmentId ?? null,
@@ -12598,8 +12659,8 @@ async function createRunnerdBackendWithinSessionClaim(
     if (isGrok && grokCredential?.home && !boundManagedSessions.has(session)) {
       boundManagedSessions.add(session);
       const relativeHome = `acpx/${acpxRuntimeSessionDirectoryName(nativeSessionKey(input.execution))}/grok-home`;
-      const localHome = join(root, "acpx", relativeHome);
-      const remoteHome = remoteRunnerFilesystemRoot ? posix.join(remoteRunnerFilesystemRoot, "acpx", relativeHome) : null;
+      const localHome = resolve(resolvePaperclipInstanceRoot(), "runtime", "paperclip-runner", relativeHome);
+      const remoteHome = remoteRunnerFilesystemRoot ? posix.join(remoteRunnerFilesystemRoot, relativeHome) : null;
       const readAuth = async (name: string): Promise<Buffer> => {
         if (!remoteHome || !remoteCommandRunner) return Buffer.from(await readLocalAiCredentialFile(join(localHome, name)));
         const script = `const fs=require('node:fs'),path=require('node:path');let fd;try{const file=process.argv[1];let parent=path.dirname(file);while(true){if(!fs.lstatSync(parent).isDirectory())throw Error('directory');const next=path.dirname(parent);if(next===parent)break;parent=next;}fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);const st=fs.fstatSync(fd);if(!st.isFile()||st.uid!==process.getuid()||(st.mode&511)!==384||st.size>65536)throw Error('credential');const b=Buffer.alloc(65537);let n=0;while(n<b.length){const k=fs.readSync(fd,b,n,b.length-n,n);if(!k)break;n+=k;}if(n>65536)throw Error('size');process.stdout.write(b.subarray(0,n).toString('base64'));b.fill(0);}catch(e){process.exitCode=e.code==='ENOENT'?66:1;}finally{if(fd!==undefined)fs.closeSync(fd);}`;

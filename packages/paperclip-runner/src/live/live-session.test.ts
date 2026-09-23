@@ -895,7 +895,7 @@ describe("Capability live runnerd and Codex session", () => {
         (request) => request.method === "thread/start",
       )?.params.baseInstructions,
     ).toBe(
-      "Native instructions\n\nRead-only instruction sibling root: /runtime/instructions",
+      'Native instructions\n\nRead-only instruction sibling root: /runtime/instructions\nFor native paperclip_finish/paperclip_block reports, completionContract={"revision":"paperclip-capability-live-v1","criterionIds":["objective"]}. This report does not change mock task state; use the exposed semantic tools for task changes.',
     );
     await service.shutdown(session.id);
   });
