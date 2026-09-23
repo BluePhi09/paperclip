@@ -25,8 +25,8 @@ describe("telemetry retention contract", () => {
   });
 
   it("connector telemetry uses enum/count retention", () => {
-    expect(EVENT_RETENTION_CLASS["connector.connection_created"]).toBe("operational_enum_count");
-    expect(EVENT_RETENTION_CLASS["connector.connection_updated"]).toBe("operational_enum_count");
-    expect(EVENT_RETENTION_CLASS["connector.invocation_completed"]).toBe("operational_enum_count");
+    expect(EVENT_RETENTION_CLASS["connection.created"]).toBe("operational_enum_count");
+    expect(EVENT_RETENTION_CLASS["connection.updated"]).toBe("operational_enum_count");
+    expect(EVENT_RETENTION_CLASS["connection.invoked"]).toBe("operational_enum_count");
   });
 });
