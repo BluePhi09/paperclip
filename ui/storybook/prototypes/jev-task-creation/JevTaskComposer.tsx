@@ -13,7 +13,6 @@ import {
   JEV_MIN_PROMPT_LENGTH,
   JEV_MODEL,
   JEV_NAME,
-  JEV_NO_PROJECT,
   JEV_PROJECTS,
   agentContextCoverage,
   stabilizeRouting,
@@ -26,7 +25,7 @@ import {
 
 export type JevTaskComposerProps = {
   /**
-   * Both flows update mode, owner, and project live while you type. The title is
+   * Both flows update mode and owner live while you type. The title is
    * drafted once, when the task is started (Start task or Enter), like Claude
    * Code naming a session after the first message.
    * `suggest-first`: review the live suggestions, then create.
@@ -173,7 +172,6 @@ export function JevTaskComposer({
         const changed: Partial<Record<JevField, boolean>> = previous ? {
           workMode: previous.workMode !== next.workMode,
           assignee: previous.assigneeId !== next.assigneeId,
-          project: previous.projectId !== next.projectId,
         } : {};
         routingRef.current = next;
         setRouting(next);
@@ -241,7 +239,8 @@ export function JevTaskComposer({
   const effective = useMemo(() => ({
     title: overrides.title ?? suggestedTitle ?? "",
     assignee: overrides.assignee ?? routing?.assigneeId ?? null,
-    project: overrides.project !== undefined ? overrides.project : routing?.projectId ?? null,
+    // Project is not predicted; it stays a manual choice.
+    project: overrides.project ?? null,
     workMode: overrides.workMode ?? routing?.workMode ?? "standard",
   }), [overrides, routing, suggestedTitle]);
 
@@ -517,7 +516,7 @@ function RoutingPanel({
       return `${JEV_NAME} wasn't sure who should own this (${percent(routing!.confidence.assignee)}), so it goes to ${fallbackOwner.name}, ${why}.`;
     }
     if (status === "idle" && promptLength === 0 && !created) {
-      return `As you type, ${JEV_NAME} picks the mode, owner, and project. The title is written when you ${flow === "instant" ? "start" : "create"} the task.`;
+      return `As you type, ${JEV_NAME} picks the mode and owner. The title is written when you ${flow === "instant" ? "start" : "create"} the task.`;
     }
     if (status === "idle" && promptLength > 0 && promptLength < JEV_MIN_PROMPT_LENGTH) return "Keep going. Suggestions start once there's a bit more to go on.";
     return null;
@@ -596,10 +595,8 @@ function RoutingPanel({
           <PropertyChip
             label="Project"
             valueKey={effective.project ?? "none"}
-            flash={flash.project}
-            loading={loading}
-            suggested={fromJev("project") && effective.project !== null}
-            onReset={resetFor("project")}
+            loading={false}
+            suggested={false}
             display={<><FolderKanban aria-hidden className="size-3.5" />{JEV_PROJECTS.find((project) => project.id === effective.project)?.name ?? "No project"}</>}
           >
             {(close) => [
@@ -607,7 +604,6 @@ function RoutingPanel({
                 <MenuItem
                   key={project.id}
                   selected={project.id === effective.project}
-                  probability={probabilities?.project[project.id]}
                   onClick={() => { setField("project", project.id); close(); }}
                 >
                   {project.name}
@@ -616,7 +612,6 @@ function RoutingPanel({
               <MenuItem
                 key="none"
                 selected={effective.project === null}
-                probability={probabilities?.project[JEV_NO_PROJECT]}
                 onClick={() => { setField("project", null); close(); }}
               >
                 No project
@@ -652,7 +647,7 @@ function RoutingPanel({
   );
 }
 
-const FIELD_LABELS: Record<JevField, string> = { workMode: "Mode", assignee: "Assignee", project: "Project" };
+const FIELD_LABELS: Record<JevField, string> = { workMode: "Mode", assignee: "Assignee" };
 
 function choiceLabel(field: JevField, routing: JevRouting): string {
   if (field === "assignee") {
@@ -661,12 +656,11 @@ function choiceLabel(field: JevField, routing: JevRouting): string {
       ? `${name(routing.assigneeId)} (fallback; ${JEV_NAME} leaned ${name(routing.jevAssigneeId)})`
       : name(routing.assigneeId);
   }
-  if (field === "project") return JEV_PROJECTS.find((project) => project.id === routing.projectId)?.name ?? "No project";
   return workModeMetaFor(routing.workMode).label;
 }
 
 function ConfidenceDetails({ routing, prompt, agents, liveStats }: { routing: JevRouting; prompt: string; agents: typeof JEV_AGENTS; liveStats: LiveStats }) {
-  const fields: JevField[] = ["workMode", "assignee", "project"];
+  const fields: JevField[] = ["workMode", "assignee"];
   return (
     <div className="mt-2 flex flex-col gap-2 pl-4">
       <dl className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1.5">

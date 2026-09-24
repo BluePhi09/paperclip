@@ -17,8 +17,8 @@ Two models do the work, because they are good at different things:
 
 - **[Jev](https://openrouter.ai/docs/guides/community/jev)** (`typesafe/jev-1.13`,
   TypeSafe's decision model on OpenRouter) answers typed `choice` questions for
-  the task's **mode**, which is its type (Auto, Plan, or Ask), plus its
-  **assignee** and **project**. It returns a choice, a
+  the task's **mode**, which is its type (Auto, Plan, or Ask), and its
+  **assignee**. It returns a choice, a
   confidence, and a probability for every option. It is fast and cheap: you pay
   for input tokens only, and output tokens are free. It does not generate text or
   explain its answers.
@@ -27,7 +27,7 @@ Two models do the work, because they are good at different things:
 
 ## What the prototype shows
 
-- **Live routing while you type.** Mode, assignee, and project re-route about
+- **Live routing while you type.** Mode and assignee re-route about
   250 ms after each pause in typing, and at least every 800 ms during continuous
   typing. Jev is fast and cheap enough for this: a call costs about $0.00004.
 - **Steady suggestions.** A chip only switches when Jev's new pick leads the
@@ -41,6 +41,9 @@ Two models do the work, because they are good at different things:
   **Enter**, like Claude Code naming a session after the first message. It types
   into the header breadcrumb and you can click it to edit. Shift+Enter adds a new
   line.
+- **Project is not predicted.** It stays a plain manual picker (default "No
+  project"). Project leads still appear in each agent's description, because
+  they help Jev pick the owner.
 - **Mode is the task's type** and uses the shipped `IssueWorkMode` values and
   labels:
   - **Auto** (`standard`): the agent does the work.
@@ -74,8 +77,8 @@ Two models do the work, because they are good at different things:
 ## What's real and what's simulated
 
 `jev-classifier.ts` builds the real Decisions API request body
-(`buildJevDecisionRequest`): the prompt, the company's agents and projects in
-`state`, and three `choice` questions. The request and response types follow the
+(`buildJevDecisionRequest`): the prompt and the company's agents in `state`,
+and two `choice` questions. The request and response types follow the
 OpenRouter docs.
 
 Each agent's option in the assignee question is described by
@@ -106,7 +109,7 @@ too (`draftTitle`). No API is called and no task is persisted.
 
 1. Add a company-scoped server route, for example
    `POST /api/companies/:companyId/issues/suggest`. It builds the request from
-   the company's active agents and projects, leaving out paused agents and agents
+   the company's active agents and their context, leaving out paused agents and agents
    over budget. It calls `POST https://openrouter.ai/api/alpha/decisions` with the
    instance's OpenRouter key, and a small chat model for the title, in parallel.
    Keep the key on the server.

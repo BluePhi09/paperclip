@@ -8,8 +8,7 @@ import type { IssueWorkMode } from "@paperclipai/shared";
  * does not generate text or explain itself. So routing is split in two:
  *
  * - Jev (`POST /api/alpha/decisions`, model `typesafe/jev-1.13`) answers `choice`
- *   questions for the task's mode (its type: Auto, Plan, or Ask), assignee, and
- *   project.
+ *   questions for the task's mode (its type: Auto, Plan, or Ask) and assignee.
  * - A small text model drafts the title, the way Claude Code names a session.
  *
  * `buildJevDecisionRequest` produces the real request body. The response is
@@ -191,7 +190,6 @@ export function agentContextCoverage(agents: JevAgent[], projects: JevProject[] 
   };
 }
 
-export const JEV_NO_PROJECT = "none";
 
 // ---------------------------------------------------------------------------
 // Request builder: this is what a server would send to OpenRouter.
@@ -205,7 +203,6 @@ export function buildJevDecisionRequest(prompt: string, agents: JevAgent[] = JEV
       task_prompt: prompt,
       // Each agent's full description lives in the assignee criteria, so it is sent once.
       agents: available.map(({ id, name, title, reportsTo }) => ({ id, name, title, reports_to: reportsTo ?? "board" })),
-      projects: JEV_PROJECTS.map(({ id, name, description, leadAgentId }) => ({ id, name, description, lead_agent_id: leadAgentId })),
     },
     questions: {
       work_mode: {
@@ -221,14 +218,6 @@ export function buildJevDecisionRequest(prompt: string, agents: JevAgent[] = JEV
         type: "choice",
         instructions: "Which agent should own this task?",
         criteria: Object.fromEntries(available.map((agent) => [agent.id, describeAgentForJev(agent)])),
-      },
-      project: {
-        type: "choice",
-        instructions: "Which project does this task belong to?",
-        criteria: {
-          ...Object.fromEntries(JEV_PROJECTS.map((project) => [project.id, project.description])),
-          [JEV_NO_PROJECT]: "None of the projects fit.",
-        },
       },
     },
   };
@@ -257,12 +246,6 @@ const AREA_OWNER: Record<WorkArea, string> = {
   design: "agent-design-system",
   qa: "agent-qa",
   ops: "agent-darnold",
-};
-
-const PROJECT_KEYWORDS: Record<string, string[]> = {
-  "project-board-ui": ["ui", "board", "dashboard", "page", "button", "dialog", "sidebar", "inbox", "screen", "mobile", "login", "storybook"],
-  "project-agent-runtime": ["agent", "runtime", "heartbeat", "adapter", "wake", "codex", "claude", "runner", "session"],
-  "project-budget-guardrails": ["budget", "spend", "cost", "billing", "limit", "invoice", "quota"],
 };
 
 function score(text: string, keywords: string[]): number {
@@ -310,11 +293,6 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
   const assigneeTotal = Object.values(assigneeProbabilities).reduce((sum, value) => sum + value, 0);
   for (const id of Object.keys(assigneeProbabilities)) assigneeProbabilities[id]! /= assigneeTotal;
 
-  const projectScores: Record<string, number> = {
-    ...Object.fromEntries(Object.entries(PROJECT_KEYWORDS).map(([id, keywords]) => [id, score(text, keywords)])),
-    [JEV_NO_PROJECT]: 0.5,
-  };
-
   const isQuestion = /\?\s*$/.test(prompt.trim()) || (/^(how|why|what|which|should|is|are|can|does)\b/.test(text) && !/^(can|could|would) you\b/.test(text));
   const isLarge = /\b(plan|roadmap|migrate|migration|redesign|rewrite|overhaul|multi-step|phases?)\b/.test(text);
   const isInvestigation = /^(investigate|research|find out|figure out|look into|compare|evaluate)\b/.test(text);
@@ -327,7 +305,6 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
     answers: {
       work_mode: choiceAnswer(softmax(modeScores)),
       assignee: choiceAnswer(assigneeProbabilities),
-      project: choiceAnswer(softmax(projectScores, 2.4)),
     },
     // Output tokens are free on Jev; $0.042 per million input tokens.
     usage: { input_tokens: inputTokens, output_tokens: 0, cost: (inputTokens * 0.042) / 1_000_000 },
@@ -337,7 +314,7 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
 // ---------------------------------------------------------------------------
 // What the composer consumes
 
-export type JevField = "workMode" | "assignee" | "project";
+export type JevField = "workMode" | "assignee";
 
 /**
  * Who gets a task when Jev isn't confident about the owner: the org's first
@@ -356,7 +333,6 @@ export type JevRouting = {
   assigneeSource: "jev" | "fallback";
   /** Jev's own top pick, kept even when the fallback is used. */
   jevAssigneeId: string;
-  projectId: string | null;
   confidence: Record<JevField, number>;
   probabilities: Record<JevField, Record<string, number>>;
   /** Jev's likely owners other than the one assigned, offered when Jev is unsure. */
@@ -365,7 +341,7 @@ export type JevRouting = {
 };
 
 export function routingFromJev(response: JevDecisionResponse, agents: JevAgent[] = JEV_AGENTS): JevRouting {
-  const { work_mode: mode, assignee, project } = response.answers as Record<string, JevChoiceAnswer>;
+  const { work_mode: mode, assignee } = response.answers as Record<string, JevChoiceAnswer>;
   const fallbackId = assignee!.confidence < JEV_CONFIDENCE_THRESHOLD ? fallbackAssigneeId(agents) : null;
   const assigneeId = fallbackId ?? assignee!.choice;
   const alternateAssigneeIds = Object.entries(assignee!.probabilities)
@@ -377,9 +353,8 @@ export function routingFromJev(response: JevDecisionResponse, agents: JevAgent[]
     assigneeId,
     assigneeSource: fallbackId ? "fallback" : "jev",
     jevAssigneeId: assignee!.choice,
-    projectId: project!.choice === JEV_NO_PROJECT ? null : project!.choice,
-    confidence: { workMode: mode!.confidence, assignee: assignee!.confidence, project: project!.confidence },
-    probabilities: { workMode: mode!.probabilities, assignee: assignee!.probabilities, project: project!.probabilities },
+    confidence: { workMode: mode!.confidence, assignee: assignee!.confidence },
+    probabilities: { workMode: mode!.probabilities, assignee: assignee!.probabilities },
     alternateAssigneeIds,
     usage: response.usage,
   };
@@ -398,8 +373,6 @@ export function stabilizeRouting(previous: JevRouting | null, next: JevRouting):
     (next.probabilities[field][nextChoice] ?? 0) - (next.probabilities[field][previousChoice] ?? 0) < JEV_SWITCH_MARGIN;
   const result: JevRouting = { ...next };
   if (keepPrevious("workMode", previous.workMode, next.workMode)) result.workMode = previous.workMode;
-  const projectKey = (id: string | null) => id ?? JEV_NO_PROJECT;
-  if (keepPrevious("project", projectKey(previous.projectId), projectKey(next.projectId))) result.projectId = previous.projectId;
   if (previous.assigneeSource === "jev" && next.assigneeSource === "jev" && keepPrevious("assignee", previous.assigneeId, next.assigneeId)) {
     result.assigneeId = previous.assigneeId;
     result.jevAssigneeId = previous.assigneeId;
