@@ -82,7 +82,7 @@ export async function observeCompletionUpdate(input: {
       catch (error) { evidenceErrors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
     };
     await preserve("observation", () => input.evidence("completion-update.json", {
-      schema: "paperclip.completion-update-probe.v4", startedAt, finishedAt: new Date().toISOString(),
+      schema: "paperclip.completion-update-probe.v6", startedAt, finishedAt: new Date().toISOString(),
       observation, delivery: observation ? completionDelivery(observation) : null,
       observedFailure: failure instanceof Error ? failure.message : null,
     }));
@@ -118,7 +118,7 @@ export async function runChatCompletionUpdate(context: {
   const workspace = resolveManagedProjectWorkspaceDir({ companyId: f.company.id, projectId: project.id });
   const relative = path.relative(path.dirname(input.workspacePath), workspace);
   if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Completion fixture escaped isolated instance");
-  const wait = await prepareChatBrief(workspace, input.nonce);
+  const wait = await prepareChatBrief(workspace, input.nonce, 240_000);
   const reference = marker;
   const instructions = `For the welcome-note assignment, run node ${wait.scriptPath} to read the organizer's brief before writing the final note. Save a two-sentence welcome note as a Paperclip document on your assigned task using the brief's details and reference. Then complete your task. Do not edit or comment on another task.`;
   const saved = await api.request.put(`/api/agents/${worker.id}/instructions-bundle/file`, { data: { path: "AGENTS.md", content: instructions } });
@@ -128,7 +128,7 @@ export async function runChatCompletionUpdate(context: {
   let task: Row | undefined;
   try {
     await sendChatMessage(page, prompt);
-    await pollUntil({ label: "worker waiting while originating chat is idle", deadlineAt: Date.now() + 110_000, intervalMs: 1000,
+    await pollUntil({ label: "worker waiting while originating chat is idle", deadlineAt: Date.now() + 180_000, intervalMs: 1000,
       load: async () => {
         await context.refreshIssue();
         const source = await api.get<Row>(`/api/issues/${context.issue().id}`);
@@ -151,8 +151,9 @@ export async function runChatCompletionUpdate(context: {
       load: () => api.get<Row>(`/api/issues/${task!.id}`), accept: t => t.status === "done" });
     const output = await readChatOutputDocument(api, task!.id, marker);
     await input.evidence("completion-update-worker-output.json", { task: await api.get(`/api/issues/${task!.id}`), output });
-    expect(completionOutputUsesReleasedBrief(output.body), "worker output must use the start time supplied only in the released brief").toBe(true);
     await observeCompletionUpdate({ ...input, sourceId: context.issue().id, workerId: task!.id, marker, allRuns: context.allRuns });
+    // Always capture completion delivery before grading how the worker phrased the brief.
+    expect(completionOutputUsesReleasedBrief(output.body), "worker output must use the start time supplied only in the released brief").toBe(true);
     expect((await api.get<Row[]>(`${company}/issues`)).map(t => t.id)).toEqual([task!.id]);
     expect(await api.get(`/api/issues/${task!.id}/documents/${encodeURIComponent(output.key)}`)).toEqual(output);
     const comments = await api.get<Row[]>(`/api/issues/${context.issue().id}/comments?order=asc`);

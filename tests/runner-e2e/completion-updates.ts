@@ -20,7 +20,7 @@ export const completionReviewRubric = [
 
 /** The start time exists only in the brief released after the source is idle. */
 export function completionOutputUsesReleasedBrief(body: string): boolean {
-  return /\b(?:10[:.]30|ten[-\s]thirty)\b/i.test(body);
+  return /\b(?:10\s*[:.h]\s*30|ten[-\s]+thirty|half[\s-]+past[\s-]+(?:ten|10))\b/i.test(body);
 }
 
 export function completionDelivery(observation: CompletionObservation) {

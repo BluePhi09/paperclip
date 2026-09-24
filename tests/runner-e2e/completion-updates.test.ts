@@ -13,7 +13,7 @@ const example: CompletionObservation = {
 const failures = (e: CompletionObservation) => completionDelivery(e).checks.filter(c => !c.passed).map(c => c.id);
 describe("completion-update delivery oracle", () => {
   it("requires a released brief fact rather than only the known request marker", () => {
-    for (const time of ["10:30", "10.30", "ten-thirty", "ten thirty"])
+    for (const time of ["10:30", "10.30", "10h30", "ten-thirty", "ten thirty", "half past ten", "half-past-ten", "half past 10"])
       expect(completionOutputUsesReleasedBrief(`Meet at ${time}. GARDEN123`)).toBe(true);
     for (const body of ["Welcome on Friday. GARDEN123", "Meet at 11:30. GARDEN123"])
       expect(completionOutputUsesReleasedBrief(body)).toBe(false);

@@ -37,8 +37,11 @@ existing pre-execution native runtime switch, retaining the production persona.
 The chat cell asks the agent to delegate one welcome note to a named worker and
 report its result without another user message. A bounded local file read in
 the managed project workspace delays completion until the source chat is positively
-observed idle. The brief is then released, the worker must save the output and
-reach Done. Its output must include the start time supplied only in that brief.
+observed idle, with a three-minute handoff setup budget and a four-minute worker
+wait limit. The brief is then released, the worker must save the output and
+reach Done. Its output must include the start time supplied only in that brief, allowing
+ordinary numeric and written forms. That check runs after completion observation
+so a content mismatch cannot suppress the communication evidence.
 The source thread is observed for 120 seconds. The probe retains a later
 correction even if an earlier reply already passes delivery and access. A later
 clarification does not erase an earlier accessible delivery.
