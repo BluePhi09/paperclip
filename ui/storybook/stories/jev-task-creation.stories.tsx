@@ -21,7 +21,7 @@ const meta = {
       description: {
         component:
           "Prototype: prompt-first task creation. You write what you need. Jev (`typesafe/jev-1.13`, TypeSafe's decision model on OpenRouter) answers " +
-          "`choice` questions for task type, assignee, project, and work mode, with a confidence and per-option probabilities. Jev doesn't generate text, so a separate small text model drafts the title, like Claude Code naming a session. " +
+          "`choice` questions for the task's mode, which is its type (Auto, Plan, or Ask), plus its assignee and project, each with a confidence and per-option probabilities. Jev doesn't generate text, so a separate small text model drafts the title, like Claude Code naming a session. " +
           "Suggested values carry a sparkle. Anything you change is yours and is never overwritten; the undo icon restores the suggestion. " +
           "Below the confidence threshold the task goes to the org's first active agent that reports to the board (else its first active agent), and Jev's best guesses appear as one-click buttons. **Instant** stories create first; the title and routing arrive a moment later. " +
           "Jev's answers are simulated locally in the documented response shape (`prototypes/jev-task-creation/jev-classifier.ts`); **How sure Jev is → Request sent to Jev** shows the real request body. No API is called and no task is persisted.",
@@ -44,12 +44,12 @@ export const WatchItSuggest: Story = {
   name: "02 · Watch Jev suggest while you type",
   args: { initialPrompt: PROMPTS.bug, typeOnMount: true },
 };
-export const Bug: Story = { name: "03 · Bug → CodexCoder", args: { initialPrompt: PROMPTS.bug } };
-export const Feature: Story = { name: "04 · Feature → CodexCoder", args: { initialPrompt: PROMPTS.feature } };
-export const Research: Story = { name: "05 · Question → CTO in Ask mode", args: { initialPrompt: PROMPTS.research } };
-export const Design: Story = { name: "06 · Design → DesignSystemCoder", args: { initialPrompt: PROMPTS.design } };
-export const QA: Story = { name: "07 · QA → QAChecker", args: { initialPrompt: PROMPTS.qa } };
-export const LargeScope: Story = { name: "08 · Large scope → Plan mode", args: { initialPrompt: PROMPTS.planning } };
+export const Bug: Story = { name: "03 · Login bug → Auto mode, CodexCoder", args: { initialPrompt: PROMPTS.bug } };
+export const Feature: Story = { name: "04 · CSV export → Auto mode, CodexCoder", args: { initialPrompt: PROMPTS.feature } };
+export const Research: Story = { name: "05 · Question → Ask mode, CTO", args: { initialPrompt: PROMPTS.research } };
+export const Design: Story = { name: "06 · Spacing pass → Auto mode, DesignSystemCoder", args: { initialPrompt: PROMPTS.design } };
+export const QA: Story = { name: "07 · Release checks → Auto mode, QAChecker", args: { initialPrompt: PROMPTS.qa } };
+export const LargeScope: Story = { name: "08 · Phased migration → Plan mode, CodexCoder", args: { initialPrompt: PROMPTS.planning } };
 export const LowConfidence: Story = {
   name: "09 · Unsure · Goes to the agent reporting to the board",
   args: { initialPrompt: PROMPTS.ambiguous },
@@ -75,6 +75,14 @@ export const AssigneeProbabilities: Story = {
   args: { initialPrompt: PROMPTS.ambiguous },
   play: async ({ canvasElement }) => {
     const chip = await within(canvasElement).findByRole("button", { name: /^Assignee/ }, { timeout: 4000 });
+    await userEvent.click(chip);
+  },
+};
+export const ModeProbabilities: Story = {
+  name: "11c · Mode menu shows Jev's probabilities",
+  args: { initialPrompt: PROMPTS.planning },
+  play: async ({ canvasElement }) => {
+    const chip = await within(canvasElement).findByRole("button", { name: /^Mode/ }, { timeout: 4000 });
     await userEvent.click(chip);
   },
 };

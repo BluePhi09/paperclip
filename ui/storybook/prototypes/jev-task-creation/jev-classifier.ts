@@ -8,7 +8,8 @@ import type { IssueWorkMode } from "@paperclipai/shared";
  * does not generate text or explain itself. So routing is split in two:
  *
  * - Jev (`POST /api/alpha/decisions`, model `typesafe/jev-1.13`) answers `choice`
- *   questions for task type, assignee, project, and work mode.
+ *   questions for the task's mode (its type: Auto, Plan, or Ask), assignee, and
+ *   project.
  * - A small text model drafts the title, the way Claude Code names a session.
  *
  * `buildJevDecisionRequest` produces the real request body. The response is
@@ -47,17 +48,6 @@ export type JevDecisionResponse = {
 
 // ---------------------------------------------------------------------------
 // Company fixtures (match the Storybook company)
-
-export type JevTaskType = "bug" | "feature" | "research" | "design" | "qa" | "ops";
-
-export const JEV_TASK_TYPES: { value: JevTaskType; label: string; hint: string }[] = [
-  { value: "bug", label: "Bug", hint: "Something is broken or regressed" },
-  { value: "feature", label: "Feature", hint: "Build or change product behavior" },
-  { value: "research", label: "Research", hint: "Investigate, compare, or answer a question" },
-  { value: "design", label: "Design", hint: "UI, UX, or visual work" },
-  { value: "qa", label: "QA", hint: "Verify, test, or reproduce" },
-  { value: "ops", label: "Ops", hint: "Admin, release, or coordination work" },
-];
 
 export type JevAgent = {
   id: string;
@@ -103,10 +93,14 @@ export function buildJevDecisionRequest(prompt: string, agents: JevAgent[] = JEV
       projects: JEV_PROJECTS.map(({ id, name, description }) => ({ id, name, description })),
     },
     questions: {
-      task_type: {
+      work_mode: {
         type: "choice",
-        instructions: "What kind of work does the task prompt describe?",
-        criteria: Object.fromEntries(JEV_TASK_TYPES.map((option) => [option.value, option.hint])),
+        instructions: "What type of task is this: should the agent do the work, plan it first, or answer a question?",
+        criteria: {
+          standard: "Auto: a clear, bounded request the agent can carry out directly.",
+          planning: "Plan: large, risky, or multi-step work that needs a reviewed plan before anything changes.",
+          ask: "Ask: a question or investigation to answer without changing anything.",
+        },
       },
       assignee: {
         type: "choice",
@@ -121,23 +115,17 @@ export function buildJevDecisionRequest(prompt: string, agents: JevAgent[] = JEV
           [JEV_NO_PROJECT]: "None of the projects fit.",
         },
       },
-      work_mode: {
-        type: "choice",
-        instructions: "How should the assignee approach this task?",
-        criteria: {
-          standard: "Do the work directly.",
-          planning: "Large or risky scope: write a plan for review before doing the work.",
-          ask: "A question: answer it without changing anything.",
-        },
-      },
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// Local simulation of Jev's answers
+// Local simulation of Jev's answers. Work areas are internal signals for
+// picking an owner; they are not shown or stored.
 
-const TYPE_KEYWORDS: Record<JevTaskType, string[]> = {
+type WorkArea = "bug" | "feature" | "research" | "design" | "qa" | "ops";
+
+const AREA_KEYWORDS: Record<WorkArea, string[]> = {
   bug: ["bug", "broken", "fix", "crash", "error", "regress", "fails", "failing", "500", "stuck", "doesn't", "does not", "not working", "wrong"],
   feature: ["add", "build", "implement", "support", "create", "new", "allow", "enable", "endpoint", "integrate", "make", "improve", "faster", "performance"],
   research: ["research", "investigate", "compare", "evaluate", "why", "how does", "figure out", "explore", "options", "should we"],
@@ -146,8 +134,8 @@ const TYPE_KEYWORDS: Record<JevTaskType, string[]> = {
   ops: ["release", "deploy", "rotate", "invoice", "schedule", "onboard", "hire", "budget report", "coordinate", "follow up", "email"],
 };
 
-/** Which agent usually owns each type. Assignee probabilities follow type probabilities. */
-const TYPE_OWNER: Record<JevTaskType, string> = {
+/** Which agent usually owns each work area. */
+const AREA_OWNER: Record<WorkArea, string> = {
   bug: "agent-codex",
   feature: "agent-codex",
   research: "agent-cto",
@@ -191,17 +179,17 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
   const prompt = String(request.state.task_prompt ?? "");
   const text = prompt.toLowerCase();
 
-  const typeScores = Object.fromEntries(
-    (Object.keys(TYPE_KEYWORDS) as JevTaskType[]).map((type) => [type, score(text, TYPE_KEYWORDS[type])]),
-  ) as Record<JevTaskType, number>;
+  const areaScores = Object.fromEntries(
+    (Object.keys(AREA_KEYWORDS) as WorkArea[]).map((area) => [area, score(text, AREA_KEYWORDS[area])]),
+  ) as Record<WorkArea, number>;
   // No signal at all reads as an open question.
-  if (Object.values(typeScores).every((value) => value === 0)) typeScores.research = 0.6;
-  const typeProbabilities = softmax(typeScores);
+  if (Object.values(areaScores).every((value) => value === 0)) areaScores.research = 0.6;
+  const areaProbabilities = softmax(areaScores);
 
   const assigneeQuestion = request.questions.assignee as JevChoiceQuestion;
   const assigneeProbabilities: Record<string, number> = Object.fromEntries(Object.keys(assigneeQuestion.criteria).map((id) => [id, 0.02]));
-  for (const [type, probability] of Object.entries(typeProbabilities)) {
-    const owner = TYPE_OWNER[type as JevTaskType];
+  for (const [area, probability] of Object.entries(areaProbabilities)) {
+    const owner = AREA_OWNER[area as WorkArea];
     if (owner in assigneeProbabilities) assigneeProbabilities[owner]! += probability;
   }
   const assigneeTotal = Object.values(assigneeProbabilities).reduce((sum, value) => sum + value, 0);
@@ -214,16 +202,16 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
 
   const isQuestion = /\?\s*$/.test(prompt.trim()) || (/^(how|why|what|which|should|is|are|can|does)\b/.test(text) && !/^(can|could|would) you\b/.test(text));
   const isLarge = /\b(plan|roadmap|migrate|migration|redesign|rewrite|overhaul|multi-step|phases?)\b/.test(text);
-  const modeScores = { standard: 1, planning: isLarge ? 3 : 0, ask: isQuestion ? 3 : 0 };
+  const isInvestigation = /^(investigate|research|find out|figure out|look into|compare|evaluate)\b/.test(text);
+  const modeScores = { standard: 1, planning: isLarge ? 3 : 0, ask: isQuestion ? 3 : isInvestigation ? 1.6 : 0 };
 
   const inputTokens = 380 + Math.round(prompt.length / 4);
   return {
     model: request.model,
     answers: {
-      task_type: choiceAnswer(typeProbabilities),
+      work_mode: choiceAnswer(softmax(modeScores)),
       assignee: choiceAnswer(assigneeProbabilities),
       project: choiceAnswer(softmax(projectScores, 2.4)),
-      work_mode: choiceAnswer(softmax(modeScores)),
     },
     // Output tokens are free on Jev; $0.042 per million input tokens.
     usage: { input_tokens: inputTokens, output_tokens: 0, cost: (inputTokens * 0.042) / 1_000_000 },
@@ -233,7 +221,7 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
 // ---------------------------------------------------------------------------
 // What the composer consumes
 
-export type JevField = "type" | "assignee" | "project" | "workMode";
+export type JevField = "workMode" | "assignee" | "project";
 
 /**
  * Who gets a task when Jev isn't confident about the owner: the org's first
@@ -245,14 +233,14 @@ export function fallbackAssigneeId(agents: JevAgent[]): string | null {
 }
 
 export type JevRouting = {
-  type: JevTaskType;
+  /** The task's type. */
+  workMode: IssueWorkMode;
   /** The owner to use: Jev's pick, or the fallback when Jev is unsure. */
   assigneeId: string;
   assigneeSource: "jev" | "fallback";
   /** Jev's own top pick, kept even when the fallback is used. */
   jevAssigneeId: string;
   projectId: string | null;
-  workMode: IssueWorkMode;
   confidence: Record<JevField, number>;
   probabilities: Record<JevField, Record<string, number>>;
   /** Jev's likely owners other than the one assigned, offered when Jev is unsure. */
@@ -261,7 +249,7 @@ export type JevRouting = {
 };
 
 export function routingFromJev(response: JevDecisionResponse, agents: JevAgent[] = JEV_AGENTS): JevRouting {
-  const { task_type: type, assignee, project, work_mode: mode } = response.answers as Record<string, JevChoiceAnswer>;
+  const { work_mode: mode, assignee, project } = response.answers as Record<string, JevChoiceAnswer>;
   const fallbackId = assignee!.confidence < JEV_CONFIDENCE_THRESHOLD ? fallbackAssigneeId(agents) : null;
   const assigneeId = fallbackId ?? assignee!.choice;
   const alternateAssigneeIds = Object.entries(assignee!.probabilities)
@@ -269,14 +257,13 @@ export function routingFromJev(response: JevDecisionResponse, agents: JevAgent[]
     .slice(0, 2)
     .map(([id]) => id);
   return {
-    type: type!.choice as JevTaskType,
+    workMode: mode!.choice as IssueWorkMode,
     assigneeId,
     assigneeSource: fallbackId ? "fallback" : "jev",
     jevAssigneeId: assignee!.choice,
     projectId: project!.choice === JEV_NO_PROJECT ? null : project!.choice,
-    workMode: mode!.choice as IssueWorkMode,
-    confidence: { type: type!.confidence, assignee: assignee!.confidence, project: project!.confidence, workMode: mode!.confidence },
-    probabilities: { type: type!.probabilities, assignee: assignee!.probabilities, project: project!.probabilities, workMode: mode!.probabilities },
+    confidence: { workMode: mode!.confidence, assignee: assignee!.confidence, project: project!.confidence },
+    probabilities: { workMode: mode!.probabilities, assignee: assignee!.probabilities, project: project!.probabilities },
     alternateAssigneeIds,
     usage: response.usage,
   };

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { IssueWorkMode } from "@paperclipai/shared";
-import { AlertTriangle, Check, ChevronDown, FolderKanban, Pencil, RotateCcw, Sparkles, Tag, Undo2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, FolderKanban, Pencil, RotateCcw, Sparkles, Undo2 } from "lucide-react";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,13 +15,11 @@ import {
   JEV_NAME,
   JEV_NO_PROJECT,
   JEV_PROJECTS,
-  JEV_TASK_TYPES,
   buildJevDecisionRequest,
   draftTaskTitle,
   routeTaskWithJev,
   type JevField,
   type JevRouting,
-  type JevTaskType,
 } from "./jev-classifier";
 
 export type JevTaskComposerProps = {
@@ -47,7 +45,7 @@ export type JevTaskComposerProps = {
   mobile?: boolean;
 };
 
-type Overrides = Partial<{ title: string; type: JevTaskType; assignee: string; project: string | null; workMode: IssueWorkMode }>;
+type Overrides = Partial<{ title: string; workMode: IssueWorkMode; assignee: string; project: string | null }>;
 type OverrideField = keyof Overrides;
 type Status = "idle" | "thinking" | "ready" | "error";
 
@@ -157,7 +155,6 @@ export function JevTaskComposer({
 
   const effective = useMemo(() => ({
     title: overrides.title ?? suggestedTitle ?? "",
-    type: overrides.type ?? routing?.type ?? null,
     assignee: overrides.assignee ?? routing?.assigneeId ?? null,
     project: overrides.project !== undefined ? overrides.project : routing?.projectId ?? null,
     workMode: overrides.workMode ?? routing?.workMode ?? "standard",
@@ -241,7 +238,7 @@ export function JevTaskComposer({
               }}
               placeholder={flow === "instant"
                 ? "What should get done? It gets a title and an owner once you start."
-                : "What should get done? A title, type, and owner are suggested as you write."}
+                : "What should get done? A title, mode, and owner are suggested as you write."}
               className="min-h-36 resize-none border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
           </div>
@@ -379,7 +376,6 @@ function ComposerHeader({
 
 type Effective = {
   title: string;
-  type: JevTaskType | null;
   assignee: string | null;
   project: string | null;
   workMode: IssueWorkMode;
@@ -427,7 +423,7 @@ function RoutingPanel({
       const why = fallbackOwner.reportsTo === null ? "who reports to the board" : "the first agent in your org";
       return `${JEV_NAME} wasn't sure who should own this (${percent(routing!.confidence.assignee)}), so it goes to ${fallbackOwner.name}, ${why}.`;
     }
-    if (status === "idle" && flow === "instant" && !created) return `${JEV_NAME} picks the type and owner after you start. You can change anything later.`;
+    if (status === "idle" && flow === "instant" && !created) return `${JEV_NAME} picks the mode and owner after you start. You can change anything later.`;
     if (status === "idle" && promptLength > 0 && promptLength < JEV_MIN_PROMPT_LENGTH) return "Keep going. Suggestions start once there's a bit more to go on.";
     return null;
   })();
@@ -458,28 +454,14 @@ function RoutingPanel({
 
       {showChips ? (
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <PropertyChip
-            label="Type"
+          <WorkModeChip
             loading={loading}
-            suggested={fromJev("type")}
-            onReset={resetFor("type")}
-            display={<><Tag aria-hidden className="size-3.5" />{JEV_TASK_TYPES.find((option) => option.value === effective.type)?.label ?? "Type"}</>}
-          >
-            {(close) => JEV_TASK_TYPES.map((option) => (
-              <MenuItem
-                key={option.value}
-                selected={option.value === effective.type}
-                probability={probabilities?.type[option.value]}
-                onClick={() => { setField("type", option.value); close(); }}
-              >
-                <span className="flex flex-col">
-                  <span>{option.label}</span>
-                  <span className="text-xs text-muted-foreground">{option.hint}</span>
-                </span>
-              </MenuItem>
-            ))}
-          </PropertyChip>
-
+            mode={effective.workMode}
+            suggested={fromJev("workMode")}
+            probabilities={probabilities?.workMode}
+            onChange={(mode) => setField("workMode", mode)}
+            onReset={resetFor("workMode")}
+          />
           <PropertyChip
             label="Assignee"
             loading={loading}
@@ -534,13 +516,6 @@ function RoutingPanel({
             ]}
           </PropertyChip>
 
-          <WorkModeChip
-            loading={loading}
-            mode={effective.workMode}
-            suggested={fromJev("workMode") && effective.workMode !== "standard"}
-            probabilities={probabilities?.workMode}
-            onChange={(mode) => setField("workMode", mode)}
-          />
         </div>
       ) : null}
 
@@ -569,10 +544,9 @@ function RoutingPanel({
   );
 }
 
-const FIELD_LABELS: Record<JevField, string> = { type: "Type", assignee: "Assignee", project: "Project", workMode: "Mode" };
+const FIELD_LABELS: Record<JevField, string> = { workMode: "Mode", assignee: "Assignee", project: "Project" };
 
 function choiceLabel(field: JevField, routing: JevRouting): string {
-  if (field === "type") return JEV_TASK_TYPES.find((option) => option.value === routing.type)?.label ?? routing.type;
   if (field === "assignee") {
     const name = (id: string) => JEV_AGENTS.find((agent) => agent.id === id)?.name ?? id;
     return routing.assigneeSource === "fallback"
@@ -584,7 +558,7 @@ function choiceLabel(field: JevField, routing: JevRouting): string {
 }
 
 function ConfidenceDetails({ routing, prompt, agents }: { routing: JevRouting; prompt: string; agents: typeof JEV_AGENTS }) {
-  const fields: JevField[] = ["type", "assignee", "project", "workMode"];
+  const fields: JevField[] = ["workMode", "assignee", "project"];
   return (
     <div className="mt-2 flex flex-col gap-2 pl-4">
       <dl className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1.5">
@@ -699,53 +673,72 @@ function MenuItem({
   );
 }
 
+const WORK_MODE_HINTS: Partial<Record<IssueWorkMode, string>> = {
+  standard: "The agent does the work",
+  planning: "The agent writes a plan for your review first",
+  ask: "The agent answers without changing anything",
+};
+
+/** The task's type. Uses the shipped work-mode labels, icons, and colors. */
 function WorkModeChip({
   mode,
   loading,
   suggested,
   probabilities,
   onChange,
+  onReset,
 }: {
   mode: IssueWorkMode;
   loading: boolean;
   suggested: boolean;
   probabilities?: Record<string, number>;
   onChange: (mode: IssueWorkMode) => void;
+  onReset?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const meta = workModeMetaFor(mode);
   const Icon = meta.icon;
   if (loading) return <span aria-label="Mode loading" className="h-7 w-20 animate-pulse rounded-md border border-border bg-muted/60" />;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Mode${suggested ? ` (suggested by ${JEV_NAME})` : ""}`}
-          className={cn("inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-sm transition-colors", meta.classes.chip)}
-        >
-          {suggested ? <Sparkles aria-hidden className="size-3" /> : null}
-          <Icon aria-hidden className="size-3.5" />
-          {meta.label}
-          <ChevronDown aria-hidden className="size-3 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-1">
-        {workModeMetaList().map((option) => {
-          const OptionIcon = option.icon;
-          return (
-            <MenuItem
-              key={option.value}
-              selected={option.value === mode}
-              probability={probabilities?.[option.value]}
-              onClick={() => { onChange(option.value); setOpen(false); }}
-            >
-              <OptionIcon aria-hidden className={cn("size-3.5", option.classes.menuItem)} />
-              {option.label}
-            </MenuItem>
-          );
-        })}
-      </PopoverContent>
-    </Popover>
+    <span className="inline-flex items-center">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Mode${suggested ? ` (suggested by ${JEV_NAME})` : ""}`}
+            className={cn("inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-sm transition-colors", meta.classes.chip)}
+          >
+            {suggested ? <Sparkles aria-hidden className="size-3" /> : null}
+            <Icon aria-hidden className="size-3.5" />
+            {meta.label}
+            <ChevronDown aria-hidden className="size-3 opacity-60" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 p-1">
+          {workModeMetaList().map((option) => {
+            const OptionIcon = option.icon;
+            return (
+              <MenuItem
+                key={option.value}
+                selected={option.value === mode}
+                probability={probabilities?.[option.value]}
+                onClick={() => { onChange(option.value); setOpen(false); }}
+              >
+                <OptionIcon aria-hidden className={cn("size-3.5 shrink-0", option.classes.menuItem)} />
+                <span className="flex flex-col">
+                  <span>{option.label}</span>
+                  <span className="text-xs text-muted-foreground">{WORK_MODE_HINTS[option.value]}</span>
+                </span>
+              </MenuItem>
+            );
+          })}
+        </PopoverContent>
+      </Popover>
+      {onReset ? (
+        <Button variant="ghost" size="icon-xs" className="text-muted-foreground" onClick={onReset} title={`Use ${JEV_NAME}'s suggestion`}>
+          <Undo2 />
+        </Button>
+      ) : null}
+    </span>
   );
 }

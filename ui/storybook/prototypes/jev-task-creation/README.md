@@ -16,8 +16,9 @@ after you start it.
 Two models do the work, because they are good at different things:
 
 - **[Jev](https://openrouter.ai/docs/guides/community/jev)** (`typesafe/jev-1.13`,
-  TypeSafe's decision model on OpenRouter) answers typed `choice` questions:
-  task type, assignee, project, and work mode. It returns a choice, a
+  TypeSafe's decision model on OpenRouter) answers typed `choice` questions for
+  the task's **mode**, which is its type (Auto, Plan, or Ask), plus its
+  **assignee** and **project**. It returns a choice, a
   confidence, and a probability for every option. It is fast and cheap: you pay
   for input tokens only, and output tokens are free. It does not generate text or
   explain its answers.
@@ -28,8 +29,12 @@ Two models do the work, because they are good at different things:
 
 - The **title** types into the header breadcrumb (`PAP › Fix login redirect
   loop…`) when it arrives. Click it to edit.
-- **Type**, **assignee**, **project**, and **mode** appear as chips under the
-  prompt, usually before the title, because Jev answers faster.
+- **Mode**, **assignee**, and **project** appear as chips under the prompt,
+  usually before the title, because Jev answers faster. Mode is the task's type
+  and uses the shipped `IssueWorkMode` values and labels:
+  - **Auto** (`standard`): the agent does the work.
+  - **Plan** (`planning`): the agent writes a plan for review first.
+  - **Ask** (`ask`): the agent answers without changing anything.
 - Suggested values carry a sparkle. When you change a value, the sparkle goes
   away and the value is never overwritten. The undo icon restores the suggestion.
 - Every chip menu shows Jev's probability for each option.
@@ -83,7 +88,5 @@ too (`draftTitle`). No API is called and no task is persisted.
 
 ## Open questions
 
-- Does task **type** need to be a real field? Today `IssueWorkMode` and labels
-  cover part of it.
 - Should Jev's criteria for each agent come from agent instructions or role
   metadata, rather than a hand-written "owns" line?
