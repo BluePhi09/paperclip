@@ -760,6 +760,13 @@ describe("runner E2E failure policy", () => {
     expect(shouldRetryFailure(failureClass)).toBe(true);
   });
 
+  it("disables both automatic retry classes when the policy is zero", () => {
+    expect(shouldRetryFailure("transient_infrastructure", 0)).toBe(false);
+    expect(shouldRetryFailure("provider_variance", 0)).toBe(false);
+    expect(shouldRetryFailure("transient_infrastructure", 1)).toBe(true);
+    expect(shouldRetryFailure("provider_variance", 1)).toBe(true);
+  });
+
   it("retries only transient infrastructure failures", () => {
     expect(
       classifyFailure(new Error("Daytona preview connection timed out")),
