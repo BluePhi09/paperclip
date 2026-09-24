@@ -53,14 +53,34 @@ change the next run reverts.
 
 ## Generator preconditions
 
-- **Corpus.** `scripts/ingest-app-definitions.mjs` resolves
-  `PAPERCLIP_CONTENT_TEMPLATES`, defaulting to
+- **Corpus, and how to author without it.** `scripts/ingest-app-definitions.mjs`
+  resolves `PAPERCLIP_CONTENT_TEMPLATES`, defaulting to
   `../../paperclip-content/research/connections/vercel/templates`. It throws
   `Expected 99 captures, found N` unless exactly 99 `.md` files (excluding
-  `INDEX.md`) are present. A new provider needs no capture of its own; the
-  corpus still has to be complete. The corpus lives in the non-public
-  `paperclip-content` repository: if you do not have it, this whole path is
-  closed to you and you report that rather than stubbing the guard out.
+  `INDEX.md`) are present. A new provider needs no capture of its own. That
+  corpus is in the non-public `paperclip-content` repository.
+
+  Two corrections to what that implies, both executed at `066a4e8019`:
+
+  - **When the default path does not exist you get a raw `ENOENT` out of
+    `fs.readdirSync`, not the `Expected 99 captures` guard.** The guard only
+    runs once the directory has been read. Do not read that `ENOENT` as a
+    broken checkout; it is the missing corpus.
+  - **`--definitions-only` skips the corpus entirely, and it is enough to
+    author a definition.** `node scripts/ingest-app-definitions.mjs
+    --definitions-only`, with no corpus present and `PAPERCLIP_CONTENT_TEMPLATES`
+    unset, reproduced all 72 checked-in `app-definitions/<slug>.json` files and
+    `app-definitions.generated.ts` byte-for-byte — `git status` was clean
+    afterwards. Adding one throwaway provider tuple and re-running emitted 73
+    definitions and changed exactly the new `<slug>.json` plus the positional
+    registry.
+
+  What the flag costs you is `app-definitions.ingestion-report.json`, which it
+  does not write. The report is built from corpus captures, so a provider with
+  no capture of its own contributes nothing to it and it is correctly left
+  unchanged — in the run above it stayed clean. If your change *does* need the
+  report refreshed, you need the corpus, and you say so rather than stubbing
+  the guard out.
 - **Branding.** `brandingFor` throws
   `<slug>: missing local branding provenance` unless the slug has a manifest row
   (only `oauth-generic` and `api-key-generic` are exempt). Branding precedes
@@ -82,6 +102,15 @@ change the next run reverts.
 - `method(key, transport, auth, defaults, riskTier, guidanceMd, extra)` fills
   `ownershipModes` as `["customer", "dcr"]` for `oauth` and `["customer"]`
   otherwise, plus a default `whenToUse`.
+
+  **That default is a capability claim, and it is silent.** Using the helper
+  asserts both that the provider accepts an operator-registered client
+  (`customer`) and that Paperclip may auto-register one (`dcr`). Neither is
+  free: omit `dcr` for a provider Paperclip must not auto-register, and omit
+  `customer` for a provider with no way for an operator to register a client of
+  their own. Pass `ownershipModes` explicitly in `extra` whenever your probe did
+  not establish both, and say in your report which of the two you observed
+  advertised rather than inherited from the helper.
 - `featured` is a hard-coded six-slug list in the mapper. Do not add to it as
   part of authoring a new provider.
 
@@ -128,6 +157,33 @@ found")` in `server/src/services/tool-access.ts`), filtered out of agent
 connection intents (`server/src/services/connection-intents.ts`), and rendered
 as a disabled card with the reason in `ConnectionSetupFlow.tsx` and
 `Browse.tsx`.
+
+### Executing the unlisted path
+
+The second state is the *default* outcome of offline authoring, not an
+exception, so here are its mechanics in full. Three edits, all required, and
+one thing not to do:
+
+1. **`packages/shared/src/app-definitions.ts`** — add the slug to
+   `CONNECTABLE_APP_SLUGS` *and* to `APP_STORE_HIDDEN_SLUGS`. Missing the first
+   makes the definition unreachable; missing the second makes it listed.
+2. **`packages/shared/src/app-definitions.test.ts`** — add the slug to the exact
+   sorted list in the `APP_STORE_HIDDEN_SLUGS` assertion. It is `toEqual`
+   against a literal array and it is sorted, so insert it in position rather
+   than appending.
+3. **`ui/public/brands/apps/manifest.json`** — the branding row still has to
+   exist, because `brandingFor` throws without it, but set
+   `"catalogVisible": false`. The manifest-parity assertion compares the
+   `catalogVisible` set against the *store-visible* set, so an unlisted slug
+   left `catalogVisible: true` fails it.
+4. **Do not touch the store count.** `APP_STORE_DEFINITIONS` excludes hidden
+   slugs, so its length does not change. Bumping it — the instruction the
+   store-visible path gives — fails the test by one in the other direction.
+
+Checked against `18dac1e1`: all 20 slugs in `APP_STORE_HIDDEN_SLUGS` have a
+manifest row, every one carries `catalogVisible: false`, and the 56 rows with
+`catalogVisible: true` are exactly `APP_STORE_DEFINITIONS`. The four steps above
+are what the existing unlisted providers already do.
 
 ## Assertions with exact counts or sets
 

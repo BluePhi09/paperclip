@@ -6,6 +6,13 @@ you have permission to write to the repository, when another task owns the
 working tree, or when you want to prove a failure is attributable to your change
 and not to the environment.
 
+**Check whether you need it first.** If you are already working in a disposable
+worktree you created and own — the normal shape — the harness buys you little:
+what it protects is a checkout other people depend on, and you do not have one.
+Run the ladder in `references/catalog-contract.md` directly and `git status` at
+the end. Reach for the harness when the checkout is shared, is someone else's,
+or has to be provably untouched.
+
 The recipe below builds it. It exports the needed files with `git archive` and
 `git show` at a pinned commit and symlinks `node_modules` read-only, so the
 checkout is untouched.

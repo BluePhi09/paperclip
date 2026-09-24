@@ -105,11 +105,13 @@ Collect these before step 1. Ask only for what you cannot determine safely.
    without a live provider proof belongs in the third state, not the second.
    See the visibility chain in `references/catalog-contract.md`.
 5. **Location of the ingestion corpus** (`paperclip-content`), or the value for
-   `PAPERCLIP_CONTENT_TEMPLATES`. This corpus is in a non-public repository; the
-   generator refuses to run without it. If you do not have it, this skill's
-   path is closed to you — say so plainly rather than editing the guard, and
-   note that connecting the server directly (`connect-agent-tools` path 2) is a
-   different thing, not a lesser substitute.
+   `PAPERCLIP_CONTENT_TEMPLATES`, *or* a decision to run the generator with
+   `--definitions-only`. The corpus is in a non-public repository, but it is
+   not a gate on authoring: `--definitions-only` skips it and still emits every
+   definition and the positional registry, verified byte-for-byte. What it does
+   not write is `app-definitions.ingestion-report.json`, which a provider with
+   no capture of its own does not change anyway. See **Generator preconditions**
+   in `references/catalog-contract.md`. Never edit the guard.
 6. **The deployment you will validate on.** An isolated self-hosted instance is
    the expected answer and is sufficient.
 
@@ -136,7 +138,8 @@ reviewable claim and must come from the provider's own metadata or documentation
   script, a definition, connection config, application metadata, a committed
   fixture, a comment, a screenshot, a trace, a HAR file, or a report. If you are
   handed a credential, propose it as a Paperclip secret immediately and never
-  echo it. Assert absence in a test rather than merely not printing it.
+  echo it. Assert absence in a test rather than merely not printing it —
+  see **Asserting absence** below for the canary that does not false-positive.
 - **No external writes during research.** Unauthenticated metadata reads are
   allowed. Dynamic client registration, consent, account mutation, and any write
   tool call are not research — they need explicit authorization.
@@ -146,6 +149,47 @@ reviewable claim and must come from the provider's own metadata or documentation
   all release-stage actions that require explicit human authorization. This
   skill ends at a verified local change.
 - **No roadmap claims.** Do not write "coming soon" or promise a future method.
+
+### Asserting absence
+
+"Assert absence in a test" is easy to get wrong in one specific way, so here is
+the shape that works.
+
+The obvious canary — grep the definition for `/bearer|token|secret|key/i` —
+fails on the checked-in catalog before you have added anything. `keyPlacement`
+legitimately carries `"prefix": "Bearer "`, and at `18dac1e1` the shipped
+definitions carry three such values (`"Bearer "`, `"Basic "`, `"Token token="`).
+A canary that fires on a clean tree gets deleted within the week, which leaves
+you with no canary at all.
+
+Assert on **values and shapes**, not on the words that describe them:
+
+```ts
+it("ships no credential value for acme", () => {
+  const definition = APP_DEFINITIONS.find((app) => app.slug === "acme")!;
+  const fields = definition.methods.flatMap((m) => m.credentialFields ?? []);
+
+  // A credential field declares how to collect a secret. It never carries one.
+  for (const field of fields) {
+    expect(field).not.toHaveProperty("value");
+    expect(field).not.toHaveProperty("default");
+  }
+
+  // Value-shaped canary over the whole serialized definition. `"Bearer "` is a
+  // scheme name and does not match; a real token does.
+  expect(JSON.stringify(definition)).not.toMatch(
+    /\b(?:sk|pk|rk)-[A-Za-z0-9]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}/,
+  );
+});
+```
+
+Executed over the 72 checked-in definitions: the naive pattern fires on
+**72 of 72**, the value-shaped one on **0 of 72**, and it still matches
+`sk-…`, `ghp_…` and `xoxb-…` test strings.
+
+Run the same value-shaped canary over every artifact you produce, not only the
+definition: your report, any fixture, and any captured output. A credential that
+never reached the definition but did reach the report is the same incident.
 
 ## Step 1 — Discover The Current Contract
 
@@ -349,7 +393,9 @@ Stop and report rather than working around any of these:
 
 - An applicable research gate has not been taken, or does not cover this
   provider.
-- The ingestion corpus is unavailable, so the generator cannot run.
+- The change needs `app-definitions.ingestion-report.json` refreshed and the
+  ingestion corpus is unavailable. Authoring a definition does not — use
+  `--definitions-only`.
 - The provider has no compatible MCP server, or needs a transport with no execution
   path.
 - The only viable method is Cloud-gated (`platform_shared` Paperclip-managed
