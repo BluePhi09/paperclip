@@ -22,7 +22,7 @@ export function completionDelivery(observation: CompletionObservation) {
   const { worker, documents, comments, runs, sourceId, marker } = observation;
   const completedAt = Date.parse(worker.completedAt);
   const outputs = documents.filter(d => d.issueId === worker.id &&
-    !/plan|summary|proposal/i.test(d.key ?? "") && typeof d.body === "string" && d.body.includes(marker));
+    !new Set(["plan", "summary", "proposal"]).has(String(d.key ?? "").toLowerCase()) && typeof d.body === "string" && d.body.includes(marker));
   const responses = comments.filter(c => c.issueId === sourceId && c.authorAgentId &&
     Number.isFinite(completedAt) && Date.parse(c.createdAt) >= completedAt &&
     runs.some(r => r.id === c.createdByRunId && r.agentId === c.authorAgentId &&

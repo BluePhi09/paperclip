@@ -54,8 +54,19 @@ export async function observeCompletionUpdate(input: {
       const url = new URL(link, input.api.baseURL);
       expect(url.origin).toBe(new URL(input.api.baseURL).origin);
       await expect(reply.locator(`a[href=${JSON.stringify(link)}]`).first()).toBeVisible();
-      const response = await input.api.request.get(`${url.pathname}${url.search}`);
-      expect(response.ok()).toBe(true);
+      const sourceUrl = input.page.url();
+      try {
+        // A client-side route can return HTTP 200 even when the task is missing.
+        // Open the actual rendered target and prove that its task loaded.
+        await input.page.goto(url.href, { waitUntil: "domcontentloaded" });
+        await expect(input.page.getByRole("heading", { name: String(observation!.worker.title), exact: true })).toBeVisible();
+        const accessibleWorker = await input.api.get<Row>(`/api/issues/${encodeURIComponent(observation!.worker.identifier ?? input.workerId)}`);
+        expect(accessibleWorker.id).toBe(input.workerId);
+        const accessibleOutput = await readChatOutputDocument(input.api, accessibleWorker.id, input.marker);
+        expect(observation!.documents.some(d => d.id === accessibleOutput.id && d.body === accessibleOutput.body)).toBe(true);
+      } finally {
+        await input.page.goto(sourceUrl, { waitUntil: "domcontentloaded" });
+      }
     } else {
       await expect(reply).toContainText(input.marker);
     }
@@ -64,14 +75,31 @@ export async function observeCompletionUpdate(input: {
     failure = error;
     throw error;
   } finally {
-    await input.evidence("completion-update.json", {
-      schema: "paperclip.completion-update-probe.v1", startedAt, finishedAt: new Date().toISOString(),
+    const evidenceErrors: string[] = [];
+    const preserve = async (label: string, collect: () => Promise<void>) => {
+      try { await collect(); }
+      catch (error) { evidenceErrors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
+    };
+    await preserve("observation", () => input.evidence("completion-update.json", {
+      schema: "paperclip.completion-update-probe.v2", startedAt, finishedAt: new Date().toISOString(),
       observation, delivery: observation ? completionDelivery(observation) : null,
       observedFailure: failure instanceof Error ? failure.message : null,
+    }));
+    await preserve("screenshot", () => input.capture("completion-update", "Originating thread after delegated completion", "completion-update.png"));
+    if (observation) await preserve("run evidence", async () => {
+      const results = await Promise.allSettled(observation!.runs.map(run => collectChatRunEvidence(input.api, run as ChatRun)));
+      await input.evidence("completion-update-run-evidence.json", results.map((result, index) => {
+        if (result.status === "fulfilled") return result.value;
+        const error = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        evidenceErrors.push(`run ${observation!.runs[index]!.id}: ${error}`);
+        return { runId: observation!.runs[index]!.id, evidenceError: error };
+      }));
     });
-    await input.capture("completion-update", "Originating thread after delegated completion", "completion-update.png");
-    if (observation) await input.evidence("completion-update-run-evidence.json", await Promise.all(
-      observation.runs.map(run => collectChatRunEvidence(input.api, run as ChatRun))));
+    if (evidenceErrors.length) {
+      await input.evidence("completion-update-evidence-errors.json", { errors: evidenceErrors }).catch(() => {});
+      // Preserve the behavior failure. A successful probe still needs its evidence.
+      if (!failure) throw new Error(`Completion evidence collection failed: ${evidenceErrors.join("; ")}`);
+    }
   }
 }
 

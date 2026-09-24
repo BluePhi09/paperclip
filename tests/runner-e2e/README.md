@@ -45,7 +45,8 @@ turn. The existing onboarding cell records its naturally occurring timing.
 The mechanical oracle requires a run-attributed source reply after durable
 completion, plus the actual saved output or a navigable task/output link.
 Browser verification checks that reply after reload, including the UI's automatic
-task-reference links. Known request markers, identifiers without a rendered link,
+task-reference links. It opens the rendered result target, checks the task heading,
+and reads its saved output through the public API. Known request markers, identifiers without a rendered link,
 successful runs without Done, user-authored replies,
 and replies on the worker task do not satisfy it. Extra tasks and modified
 worker output are rejected by the chat story. Provider turns are bounded by

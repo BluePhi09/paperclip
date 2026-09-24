@@ -35,6 +35,12 @@ describe("completion-update delivery oracle", () => {
   ] as const)("rejects %s", (_label, change, check) => {
     expect(failures({ ...example, ...change } as CompletionObservation)).toContain(check);
   });
+  it("accepts descriptive output keys and excludes only planning document keys", () => {
+    for (const key of ["plants-welcome-note", "welcome-note-summary", "proposal-followup-note"])
+      expect(failures({ ...example, documents: [{ ...example.documents[0], key }] })).toEqual([]);
+    for (const key of ["plan", "summary", "proposal"])
+      expect(failures({ ...example, documents: [{ ...example.documents[0], key }] })).toContain("completion-output-saved");
+  });
   it("explicitly leaves semantic accuracy to review even if delivery/access pass", () => {
     const delivery = completionDelivery({ ...example, comments: [{ ...example.comments[0], body: "It is still running. [Task](/FIR/issues/FIR-2)" }], renderedLinks: [{ commentId: "reply", href: "/FIR/issues/FIR-2" }] });
     expect(delivery.checks.every(c => c.passed)).toBe(true);
