@@ -38,7 +38,8 @@ The chat cell asks the agent to delegate one welcome note to a named worker and
 report its result without another user message. A bounded local file read in
 the managed project workspace delays completion until the source chat is positively
 observed idle. The brief is then released, the worker must save the output and
-reach Done, and the source thread is observed for 120 seconds. The probe retains a later
+reach Done. Its output must include the start time supplied only in that brief.
+The source thread is observed for 120 seconds. The probe retains a later
 correction even if an earlier reply already passes delivery and access. A later
 clarification does not erase an earlier accessible delivery.
 This proves the **after-idle** boundary, not completion during an active chat

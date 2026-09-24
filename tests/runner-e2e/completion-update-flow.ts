@@ -5,7 +5,7 @@ import { resolveManagedProjectWorkspaceDir } from "../../server/src/home-paths.j
 import { pollUntil, type RunnerApi } from "./api.js";
 import { sendChatMessage, readChatOutputDocument, collectChatRunEvidence, type ChatFlowInput, type ChatRun } from "./chat-flow.js";
 import { prepareChatBrief } from "./chat-stories.js";
-import { completionDelivery, type CompletionObservation } from "./completion-updates.js";
+import { completionDelivery, completionOutputUsesReleasedBrief, type CompletionObservation } from "./completion-updates.js";
 
 type Row = Record<string, any>;
 export async function observeCompletionUpdate(input: {
@@ -82,7 +82,7 @@ export async function observeCompletionUpdate(input: {
       catch (error) { evidenceErrors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
     };
     await preserve("observation", () => input.evidence("completion-update.json", {
-      schema: "paperclip.completion-update-probe.v3", startedAt, finishedAt: new Date().toISOString(),
+      schema: "paperclip.completion-update-probe.v4", startedAt, finishedAt: new Date().toISOString(),
       observation, delivery: observation ? completionDelivery(observation) : null,
       observedFailure: failure instanceof Error ? failure.message : null,
     }));
@@ -150,8 +150,8 @@ export async function runChatCompletionUpdate(context: {
     await pollUntil({ label: "delegated welcome note completed", deadlineAt: Date.now() + 180_000, intervalMs: 1000,
       load: () => api.get<Row>(`/api/issues/${task!.id}`), accept: t => t.status === "done" });
     const output = await readChatOutputDocument(api, task!.id, marker);
-    expect(output.body).toContain(reference);
     await input.evidence("completion-update-worker-output.json", { task: await api.get(`/api/issues/${task!.id}`), output });
+    expect(completionOutputUsesReleasedBrief(output.body), "worker output must use the start time supplied only in the released brief").toBe(true);
     await observeCompletionUpdate({ ...input, sourceId: context.issue().id, workerId: task!.id, marker, allRuns: context.allRuns });
     expect((await api.get<Row[]>(`${company}/issues`)).map(t => t.id)).toEqual([task!.id]);
     expect(await api.get(`/api/issues/${task!.id}/documents/${encodeURIComponent(output.key)}`)).toEqual(output);

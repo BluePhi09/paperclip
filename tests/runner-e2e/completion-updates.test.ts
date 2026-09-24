@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completionDelivery, type CompletionObservation } from "./completion-updates.js";
+import { completionDelivery, completionOutputUsesReleasedBrief, type CompletionObservation } from "./completion-updates.js";
 import { runnerMatrix } from "./catalog.js";
 
 const output = "Welcome to our free Friday garden meetup for beginners. Join us at 10:30; reference GARDEN123.";
@@ -12,6 +12,12 @@ const example: CompletionObservation = {
 };
 const failures = (e: CompletionObservation) => completionDelivery(e).checks.filter(c => !c.passed).map(c => c.id);
 describe("completion-update delivery oracle", () => {
+  it("requires a released brief fact rather than only the known request marker", () => {
+    for (const time of ["10:30", "10.30", "ten-thirty", "ten thirty"])
+      expect(completionOutputUsesReleasedBrief(`Meet at ${time}. GARDEN123`)).toBe(true);
+    for (const body of ["Welcome on Friday. GARDEN123", "Meet at 11:30. GARDEN123"])
+      expect(completionOutputUsesReleasedBrief(body)).toBe(false);
+  });
   it("accepts actual output and task links without requiring a canned response", () => {
     expect(failures(example)).toEqual([]);
     for (const body of ["Riley finished it. [Read the note](/FIR/issues/FIR-2)", "Here is [the result](/FIR/issues/worker?document=welcome-note)"])

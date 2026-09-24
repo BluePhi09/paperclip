@@ -18,6 +18,11 @@ export const completionReviewRubric = [
   "Does it avoid inventing verification, publication, or other work not in the evidence?",
 ] as const;
 
+/** The start time exists only in the brief released after the source is idle. */
+export function completionOutputUsesReleasedBrief(body: string): boolean {
+  return /\b(?:10[:.]30|ten[-\s]thirty)\b/i.test(body);
+}
+
 export function completionDelivery(observation: CompletionObservation) {
   const { worker, documents, comments, runs, sourceId, marker } = observation;
   const completedAt = Date.parse(worker.completedAt);
