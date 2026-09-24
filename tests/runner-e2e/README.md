@@ -38,7 +38,8 @@ The chat cell asks the agent to delegate one welcome note to a named worker and
 report its result without another user message. A bounded local file read in
 the worker's assignment delays completion until the source chat is positively
 observed idle. The brief is then released, the worker must save the output and
-reach Done, and the source thread gets up to 120 seconds to deliver a reply.
+reach Done, and the source thread is observed for 120 seconds. The probe retains a later
+correction even if an earlier reply already passes delivery and access.
 This proves the **after-idle** boundary, not completion during an active chat
 turn. The existing onboarding cell records its naturally occurring timing.
 

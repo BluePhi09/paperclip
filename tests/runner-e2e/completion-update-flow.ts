@@ -16,12 +16,14 @@ export async function observeCompletionUpdate(input: {
   capture(id: string, label: string, file: string): Promise<void>;
 }) {
   const startedAt = new Date().toISOString();
+  const observationWindowEndsAt = Date.now() + 120_000;
   let observation: CompletionObservation | undefined;
   let failure: unknown;
   try {
     await pollUntil({
       label: "unsolicited source-thread completion reply and result access",
-      deadlineAt: Date.now() + 120_000, intervalMs: 1000,
+      // Keep observing even after an early reply, so a later correction is retained.
+      deadlineAt: observationWindowEndsAt + 5_000, intervalMs: 1000,
       load: async () => {
         const worker = await input.api.get<Row>(`/api/issues/${input.workerId}`);
         const documents = await input.api.get<Row[]>(`/api/issues/${input.workerId}/documents`);
@@ -39,7 +41,7 @@ export async function observeCompletionUpdate(input: {
         }
         return completionDelivery(observation);
       },
-      accept: result => result.checks.every(c => c.passed),
+      accept: result => Date.now() >= observationWindowEndsAt && result.checks.every(c => c.passed),
       reject: () => observation!.runs.length > 12 ? "completion probe exceeded 12 runs" : undefined,
       timeoutDetail: result => result?.checks.filter(c => !c.passed).map(c => c.id).join(", "),
     });
