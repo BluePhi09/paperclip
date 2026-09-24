@@ -13,17 +13,23 @@ export async function connectKubernetesLoginPty(
   resolvePod?: (namespace: string, leaseId: string) => Promise<string>,
 ): Promise<LoginPtyConnection> {
   const kc = kubeConfig ?? createKubeConfig(scope.config);
-  let podName = scope.podName;
-  if (!podName) {
-    if (!scope.leaseId) throw new Error("Kubernetes login PTY requires a lease ID");
-    podName = await (resolvePod ?? (async (namespace, leaseId) => {
-      const clients = makeKubeClients(kc);
-      await sandboxCrOrchestrator.waitForCompletion(clients, namespace, leaseId, { timeoutMs: 30_000, pollMs: 1_000 });
-      const found = await sandboxCrOrchestrator.findPod(clients, namespace, leaseId);
-      if (!found) throw new Error("Kubernetes login PTY sandbox pod is unavailable");
-      return found;
-    }))(scope.namespace, scope.leaseId);
-  }
+  // BUGFIX: always wait for the Sandbox CR to reach Ready before execing, even
+  // when `scope.podName` is already known. `podName` is recorded right after
+  // Sandbox creation (see plugin.ts onEnvironmentAcquireLease), before the pod
+  // is necessarily Ready — a pod object can exist (and be resolvable by name)
+  // while still Pending/ContainerCreating. Execing against a not-yet-Ready pod
+  // fails near-instantly with a non-zero/null exit code, which is exactly the
+  // "Setup-token login command ended with a non-zero exit code" failure this
+  // fix addresses. Waiting here (not just resolving a name) is required for
+  // correctness regardless of whether a podName was already cached.
+  if (!scope.leaseId) throw new Error("Kubernetes login PTY requires a lease ID");
+  const podName = await (resolvePod ?? (async (namespace, leaseId) => {
+    const clients = makeKubeClients(kc);
+    await sandboxCrOrchestrator.waitForCompletion(clients, namespace, leaseId, { timeoutMs: 30_000, pollMs: 1_000 });
+    const found = await sandboxCrOrchestrator.findPod(clients, namespace, leaseId);
+    if (!found) throw new Error("Kubernetes login PTY sandbox pod is unavailable");
+    return found;
+  }))(scope.namespace, scope.leaseId);
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();

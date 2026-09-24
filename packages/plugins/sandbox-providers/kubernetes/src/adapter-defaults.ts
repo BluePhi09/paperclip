@@ -11,7 +11,7 @@ export interface AdapterDefaults {
 
 const REGISTRY: Record<string, AdapterDefaults> = {
   claude_local: {
-    runtimeImage: "ghcr.io/paperclipai/agent-runtime-claude:v1",
+    runtimeImage: "ghcr.io/paperclipai/agent-runtime-claude:git-38d8f371722b315d2fb3bbaa512518742e33ce2f",
     envKeys: ["ANTHROPIC_API_KEY"],
     // Claude Code 2.1.278 setup-token invokes ConsoleOAuthFlow(mode=setup-token);
     // its OAuth constants name claude.com/cai/oauth/authorize and platform.claude.com/v1/oauth/token.
