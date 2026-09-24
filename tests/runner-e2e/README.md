@@ -25,6 +25,14 @@ The launcher always sets `PAPERCLIP_ANNOUNCEMENTS_ENABLED=false` for its isolate
 instances so announcement panels do not obscure screenshot evidence. No shell
 or workflow configuration is needed, including for Daytona cells.
 
+## Provider-free browser bootstrap regression
+
+`pnpm test:e2e:runner:browser-support` includes a wide development-module graph
+loaded before and after the production service worker takes control. It keeps
+full traces and checks that Vite module loads do not create worker fetches or
+leave the page empty. This isolates browser loading; it does not create a
+Paperclip task, run an agent, or replace a Product E2E result.
+
 ## Credentials
 
 Copy `.env.runner-e2e.example` to `.env.runner-e2e.local` and fill only the
