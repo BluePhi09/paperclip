@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { IssueWorkMode } from "@paperclipai/shared";
 import { Check, ChevronDown, FolderKanban, Maximize2, Minimize2, Sparkles, Undo2, X } from "lucide-react";
 import { AgentAvatar } from "@/components/AgentAvatar";
@@ -77,6 +77,9 @@ const COMPACT_CONTROL =
   "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 py-0 text-xs transition-colors sm:h-auto sm:px-2 sm:py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 /** A changed value briefly takes the accent fill; timing comes from the motion tokens. */
 const CHANGE_TRANSITION = "duration-(--motion-duration-slow) ease-(--motion-ease-standard)";
+
+/** Radix `DialogTitle` only works inside a `Dialog`; the inline presentation renders a plain heading instead. */
+const InDialogContext = createContext(false);
 
 const percent = (value: number | undefined) => (value === undefined ? "" : `${Math.round(value * 100)}%`);
 const isAbort = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
@@ -363,7 +366,7 @@ export function JevTaskComposer({
   return (
     <Dialog open onOpenChange={(open) => { if (!open) startOver(); }}>
       <DialogContent showCloseButton={false} aria-describedby={undefined} className={surfaceClasses}>
-        {surface}
+        <InDialogContext.Provider value>{surface}</InDialogContext.Provider>
       </DialogContent>
     </Dialog>
   );
@@ -465,11 +468,10 @@ function ComposerHeader({
 
 /** Gives the dialog an accessible name that tracks the task title, without changing the breadcrumb's look. */
 function DialogTitleSlot({ children }: { children: ReactNode }) {
-  return (
-    <DialogTitle asChild>
-      <div className="flex min-w-0 items-center gap-1.5 text-sm font-normal leading-normal">{children}</div>
-    </DialogTitle>
-  );
+  const inDialog = useContext(InDialogContext);
+  const content = <div className="flex min-w-0 items-center gap-1.5 text-sm font-normal leading-normal">{children}</div>;
+  if (!inDialog) return <h2 className="contents">{content}</h2>;
+  return <DialogTitle asChild>{content}</DialogTitle>;
 }
 
 // ---------------------------------------------------------------------------
