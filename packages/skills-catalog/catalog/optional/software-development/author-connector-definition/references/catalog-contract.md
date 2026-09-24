@@ -160,9 +160,13 @@ as a disabled card with the reason in `ConnectionSetupFlow.tsx` and
 
 ### Executing the unlisted path
 
-The second state is the *default* outcome of offline authoring, not an
-exception, so here are its mechanics in full. Three edits, all required, and
-one thing not to do:
+The table says which state to want. Nothing said how to take the second one,
+and it is the state people reach for by habit — so here are its mechanics in
+full. Take it when a connector is deliberately connectable without being
+advertised. When the reason it should not be advertised is that nobody has
+proven it against the provider, you want the third state, not this one.
+
+Three edits, all required:
 
 1. **`packages/shared/src/app-definitions.ts`** — add the slug to
    `CONNECTABLE_APP_SLUGS` *and* to `APP_STORE_HIDDEN_SLUGS`. Missing the first
@@ -176,14 +180,16 @@ one thing not to do:
    `"catalogVisible": false`. The manifest-parity assertion compares the
    `catalogVisible` set against the *store-visible* set, so an unlisted slug
    left `catalogVisible: true` fails it.
-4. **Do not touch the store count.** `APP_STORE_DEFINITIONS` excludes hidden
-   slugs, so its length does not change. Bumping it — the instruction the
-   store-visible path gives — fails the test by one in the other direction.
+
+And one thing not to do: **do not touch the store count.**
+`APP_STORE_DEFINITIONS` excludes hidden slugs, so its length does not change.
+Bumping it — the instruction the store-visible path gives — fails the test by
+one in the other direction.
 
 Checked against `18dac1e1`: all 20 slugs in `APP_STORE_HIDDEN_SLUGS` have a
 manifest row, every one carries `catalogVisible: false`, and the 56 rows with
-`catalogVisible: true` are exactly `APP_STORE_DEFINITIONS`. The four steps above
-are what the existing unlisted providers already do.
+`catalogVisible: true` are exactly `APP_STORE_DEFINITIONS`. The three edits
+above are what the existing unlisted providers already did.
 
 ## Assertions with exact counts or sets
 
