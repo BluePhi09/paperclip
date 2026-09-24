@@ -48,7 +48,7 @@ describe("completion-update delivery oracle", () => {
     expect(delivery.semanticReview.rubric[0]).toContain("accurately");
   });
   it("retains earlier delivery when a later clarification omits its link", () => {
-    const earlier = { ...example.comments[0], body: "Finished in FIR-2." };
+    const earlier: CompletionObservation["comments"][number] = { ...example.comments[0], body: "Finished in FIR-2." };
     const later = { ...earlier, id: "correction", createdAt: "2026-09-24T10:03:00Z", body: "To clarify, it is a draft for you to use; it has not been published." };
     const result = completionDelivery({ ...example, comments: [earlier, later], renderedLinks: [{ commentId: earlier.id, href: "/FIR/issues/FIR-2" }] });
     expect(result.checks.every(c => c.passed)).toBe(true);
