@@ -183,9 +183,13 @@ it("ships no credential value for acme", () => {
 });
 ```
 
-Executed over the 72 checked-in definitions: the naive pattern fires on
-**72 of 72**, the value-shaped one on **0 of 72**, and it still matches
-`sk-…`, `ghp_…` and `xoxb-…` test strings.
+Executed at `d56a8a39d6` over the 79 checked-in definitions: the naive pattern
+fires on **79 of 79**, the value-shaped one on **0 of 79**, and it still
+matches `sk-…`, `ghp_…` and `xoxb-…` test strings.
+
+The total moves whenever a provider lands — it was 72 a few days before this
+line was written. Re-run both patterns instead of trusting the number. The
+ratio is the claim, not the total.
 
 Run the same value-shaped canary over every artifact you produce, not only the
 definition: your report, any fixture, and any captured output. A credential that

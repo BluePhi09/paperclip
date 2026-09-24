@@ -69,11 +69,16 @@ change the next run reverts.
   - **`--definitions-only` skips the corpus entirely, and it is enough to
     author a definition.** `node scripts/ingest-app-definitions.mjs
     --definitions-only`, with no corpus present and `PAPERCLIP_CONTENT_TEMPLATES`
-    unset, reproduced all 72 checked-in `app-definitions/<slug>.json` files and
+    unset, reproduced every checked-in `app-definitions/<slug>.json` file and
     `app-definitions.generated.ts` byte-for-byte — `git status` was clean
-    afterwards. Adding one throwaway provider tuple and re-running emitted 73
-    definitions and changed exactly the new `<slug>.json` plus the positional
-    registry.
+    afterwards. Adding one throwaway provider tuple and re-running emitted one
+    more definition and changed exactly the new `<slug>.json` plus the
+    positional registry.
+
+    Re-measured at `d56a8a39d6`, where the count had grown to 79:
+    `Parsed 0 captures and 0 states; emitted 79 Wave 1 definitions`, `git
+    status` clean. It was 72 when first executed at `066a4e8019`. The total is
+    not the claim — the byte-for-byte reproduction without the corpus is.
 
   What the flag costs you is `app-definitions.ingestion-report.json`, which it
   does not write. The report is built from corpus captures, so a provider with
