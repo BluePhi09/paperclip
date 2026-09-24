@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { definePlugin } from "@paperclipai/plugin-sdk";
+import { computeBoundedLeaseDeadline } from "./lease-expiry.js";
 import type {
   PluginEnvironmentAcquireLeaseParams,
   PluginEnvironmentDestroyLeaseParams,
@@ -37,6 +38,8 @@ import {
   SandboxCrTimeoutError,
 } from "./sandbox-cr-orchestrator.js";
 import { execInPod, execInPodStreaming, wrapCommandWithEnv } from "./pod-exec.js";
+import { createLoginPtyManager } from "./login-pty.js";
+import { connectKubernetesLoginPty } from "./login-pty-exec.js";
 import { performSyncIn, performSyncOut, type PodStreamExec } from "./file-sync.js";
 import { checkLeaseResumable, destroyLeaseResources } from "./lease-lifecycle.js";
 import {
@@ -201,10 +204,26 @@ async function resolveSyncPodExec(
   return { exec, timeoutMs };
 }
 
+let pluginContext: Parameters<NonNullable<Parameters<typeof definePlugin>[0]["setup"]>>[0] | undefined;
+const loginPty = createLoginPtyManager(connectKubernetesLoginPty, {
+  output: (route, session, data) => pluginContext?.loginPty.output(route, session, data),
+  exit: (route, session, code) => pluginContext?.loginPty.exit(route, session, code),
+});
+
 const plugin = definePlugin({
   async setup(ctx) {
+    pluginContext = ctx;
     ctx.logger.info("Kubernetes sandbox provider plugin ready");
   },
+
+  async onShutdown() {
+    loginPty.shutdown();
+    pluginContext = undefined;
+  },
+  onLoginPtyOpen: (params) => loginPty.open(params),
+  onLoginPtyInput: (params) => loginPty.input(params),
+  onLoginPtyStop: (params) => loginPty.stop(params),
+  onLoginPtyClose: (params) => loginPty.close(params),
 
   async onHealth() {
     return { status: "ok", message: "Kubernetes sandbox provider plugin healthy" };
@@ -222,6 +241,9 @@ const plugin = definePlugin({
     }
     const warnings: string[] = [];
     const cfg = parsed.data;
+    if (cfg.backend === "job") {
+      return { ok: false, errors: ["The job backend cannot support login PTY advertised by the Kubernetes driver; use sandbox-cr."] };
+    }
     const adapterDefaults = getAdapterDefaults(cfg.adapterType, cfg.adapters);
     const totalFqdns = [...adapterDefaults.allowFqdns, ...cfg.egressAllowFqdns];
     if (cfg.egressMode === "standard" && totalFqdns.length > 0) {
@@ -340,6 +362,7 @@ const plugin = definePlugin({
       namespace,
       companyId: params.companyId,
       paperclipServerNamespace: PAPERCLIP_SERVER_NAMESPACE,
+      paperclipServerPodSelector: config.paperclipServerPodSelector,
       serviceAccountAnnotations: config.serviceAccountAnnotations,
       egressMode: config.egressMode,
       egressAllowFqdns: [...adapterDefaults.allowFqdns, ...config.egressAllowFqdns],
@@ -349,6 +372,14 @@ const plugin = definePlugin({
 
     const jobName = `pc-${newRunUlidDns()}`;
     const secretName = `${jobName}-env`;
+
+    // Bound the pod's provider-side hard stop to the caller-requested deadline,
+    // so a crash or an outage on paperclip-server does not leave the pod
+    // running forever. See lease-expiry.ts for the bounding rules (fails
+    // closed instead of granting a near-expired lease, matching `daytona`'s
+    // `configureSandboxExpiry`).
+    const { activeDeadlineSec: boundedActiveDeadlineSec, expiresAt: attestedExpiresAt } =
+      computeBoundedLeaseDeadline(params.requestedExpiresAt, config.podActivityDeadlineSec);
 
     // TODO: use params.runId as stand-in for agentId in labels; future
     // versions will have a dedicated agentId on AcquireLeaseParams.
@@ -381,6 +412,7 @@ const plugin = definePlugin({
           resources: config.defaultResources ?? {},
           runtimeClassName: config.runtimeClassName,
           imagePullSecrets: config.imagePullSecrets,
+          activeDeadlineSeconds: boundedActiveDeadlineSec,
         })
       : buildJobManifest({
           namespace,
@@ -462,9 +494,19 @@ const plugin = definePlugin({
       nativeFileSyncUnsupported: config.backend !== "sandbox-cr",
     };
 
+    if (config.backend === "sandbox-cr") {
+      loginPty.remember(jobName, { companyId: params.companyId, environmentId: params.environmentId, namespace, podName, config });
+    }
     return {
       providerLeaseId: jobName,
       metadata: leaseMetadata as unknown as Record<string, unknown>,
+      // TEMPORARY FIX (see README.md "Known limitation: lease expiry"): the
+      // Job backend already bounds itself via activeDeadlineSeconds, but only
+      // the sandbox-cr backend's pod actually honors this attested expiry
+      // end-to-end today. Attesting it for both backends keeps the server's
+      // fail-closed lease-bounding check satisfied; a stale/incorrect config
+      // still self-heals via podActivityDeadlineSec's own bound.
+      expiresAt: attestedExpiresAt,
     };
   },
 
@@ -502,6 +544,7 @@ const plugin = definePlugin({
     });
 
     if (!check.resumable) {
+      loginPty.forget(params.providerLeaseId);
       // Kubernetes pods are NOT restartable the way Daytona sandboxes are: a
       // stopped Daytona sandbox can be started again by ID, but a k8s pod that
       // is gone or terminally failed can never be revived in place. Gone = not
@@ -541,6 +584,9 @@ const plugin = definePlugin({
       nativeFileSyncUnsupported: leaseBackend !== "sandbox-cr",
     };
 
+    if (leaseBackend === "sandbox-cr" && check.podName) {
+      loginPty.remember(params.providerLeaseId, { companyId: params.companyId, environmentId: params.environmentId, namespace, podName: check.podName, config });
+    }
     return {
       providerLeaseId: params.providerLeaseId,
       metadata: {
@@ -597,6 +643,7 @@ const plugin = definePlugin({
     // so unrelated concurrent leases keep their in-flight buffers intact.
     uploadInterceptorsByLease.delete(params.providerLeaseId);
     readySandboxesByLease.delete(params.providerLeaseId);
+    loginPty.forget(params.providerLeaseId);
 
     try {
       await releaseOrchestrator.release(clients, namespace, params.providerLeaseId);
@@ -635,6 +682,7 @@ const plugin = definePlugin({
     // cluster says — the lease is dead either way.
     uploadInterceptorsByLease.delete(params.providerLeaseId);
     readySandboxesByLease.delete(params.providerLeaseId);
+    loginPty.forget(params.providerLeaseId);
 
     const kc = createKubeConfig({
       inCluster: config.inCluster,
