@@ -36,10 +36,11 @@ existing pre-execution native runtime switch, retaining the production persona.
 
 The chat cell asks the agent to delegate one welcome note to a named worker and
 report its result without another user message. A bounded local file read in
-the worker's assignment delays completion until the source chat is positively
+the managed project workspace delays completion until the source chat is positively
 observed idle. The brief is then released, the worker must save the output and
 reach Done, and the source thread is observed for 120 seconds. The probe retains a later
-correction even if an earlier reply already passes delivery and access.
+correction even if an earlier reply already passes delivery and access. A later
+clarification does not erase an earlier accessible delivery.
 This proves the **after-idle** boundary, not completion during an active chat
 turn. The existing onboarding cell records its naturally occurring timing.
 
@@ -54,7 +55,7 @@ worker output are rejected by the chat story. Provider turns are bounded by
 the existing first-task limit (12) and chat limit (2–4).
 
 **Mechanical passage is not answer-quality qualification.** Inspect
-`completion-update.json` and its retained replies against the included semantic
+`completion-update.json`, its `latestResponse`, and all retained replies against the included semantic
 rubric: correct completion claim, useful result explanation, accessible output,
 and no invented verification or follow-up work. A stale promise with a valid
 link can pass delivery/access while failing this separate review. Do not

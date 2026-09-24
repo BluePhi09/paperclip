@@ -47,6 +47,15 @@ describe("completion-update delivery oracle", () => {
     expect(delivery.semanticReview.status).toBe("required");
     expect(delivery.semanticReview.rubric[0]).toContain("accurately");
   });
+  it("retains earlier delivery when a later clarification omits its link", () => {
+    const earlier = { ...example.comments[0], body: "Finished in FIR-2." };
+    const later = { ...earlier, id: "correction", createdAt: "2026-09-24T10:03:00Z", body: "To clarify, it is a draft for you to use; it has not been published." };
+    const result = completionDelivery({ ...example, comments: [earlier, later], renderedLinks: [{ commentId: earlier.id, href: "/FIR/issues/FIR-2" }] });
+    expect(result.checks.every(c => c.passed)).toBe(true);
+    expect(result.response).toEqual(earlier);
+    expect(result.latestResponse).toEqual(later);
+    expect(result.responses).toHaveLength(2);
+  });
   it("accepts auto-linked identifiers only with matching browser evidence", () => {
     const e = { ...example, comments: [{ ...example.comments[0], body: "Finished in FIR-2." }] };
     expect(failures(e)).toContain("completion-result-access");

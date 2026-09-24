@@ -1,8 +1,7 @@
 import { expect, type Page } from "@playwright/test";
-import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { resolveDefaultAgentWorkspaceDir } from "../../server/src/home-paths.js";
+import { resolveManagedProjectWorkspaceDir } from "../../server/src/home-paths.js";
 import { pollUntil, type RunnerApi } from "./api.js";
 import { sendChatMessage, readChatOutputDocument, collectChatRunEvidence, type ChatFlowInput, type ChatRun } from "./chat-flow.js";
 import { prepareChatBrief } from "./chat-stories.js";
@@ -33,11 +32,11 @@ export async function observeCompletionUpdate(input: {
           comments: await input.api.get<Row[]>(`/api/issues/${input.sourceId}/comments?order=asc`),
           runs: await input.allRuns(),
         };
-        const response = completionDelivery(observation).response;
-        if (response) {
+        observation.renderedLinks = [];
+        for (const response of completionDelivery(observation).responses) {
           const reply = input.page.locator(`[id=${JSON.stringify(`comment-${response.id}`)}]`);
-          observation.renderedLinks = (await reply.locator("a[href]").evaluateAll(elements =>
-            elements.map(element => element.getAttribute("href")!))).map(href => ({ commentId: response.id, href }));
+          observation.renderedLinks.push(...(await reply.locator("a[href]").evaluateAll(elements =>
+            elements.map(element => element.getAttribute("href")!))).map(href => ({ commentId: response.id, href })));
         }
         return completionDelivery(observation);
       },
@@ -83,7 +82,7 @@ export async function observeCompletionUpdate(input: {
       catch (error) { evidenceErrors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
     };
     await preserve("observation", () => input.evidence("completion-update.json", {
-      schema: "paperclip.completion-update-probe.v2", startedAt, finishedAt: new Date().toISOString(),
+      schema: "paperclip.completion-update-probe.v3", startedAt, finishedAt: new Date().toISOString(),
       observation, delivery: observation ? completionDelivery(observation) : null,
       observedFailure: failure instanceof Error ? failure.message : null,
     }));
@@ -113,16 +112,18 @@ export async function runChatCompletionUpdate(context: {
   const company = `/api/companies/${f.company.id}`;
   const config = execution.profile.buildAgent({ environmentId: f.environment.id, environmentFixtureId: "local", workspacePath: input.workspacePath, secretRefs: f.secretRefs, executionId: input.nonce });
   const worker = await api.post<Row>(`${company}/agents`, { ...config, name: "Riley Writer", role: "engineer", reportsTo: f.agent.id });
-  const workspace = resolveDefaultAgentWorkspaceDir(worker.id);
+  const project = await api.post<Row>(`${company}/projects`, { name: "Garden welcome", description: "A non-code neighborhood garden meetup. No repository needed." });
+  // A project task runs in its managed project workspace. The agent-home path
+  // used by projectless chats is outside the native Codex workspace projection.
+  const workspace = resolveManagedProjectWorkspaceDir({ companyId: f.company.id, projectId: project.id });
   const relative = path.relative(path.dirname(input.workspacePath), workspace);
   if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Completion fixture escaped isolated instance");
   const wait = await prepareChatBrief(workspace, input.nonce);
-  const reference = `MEETUP${randomUUID().replaceAll("-", "")}`;
+  const reference = marker;
   const instructions = `For the welcome-note assignment, run node ${wait.scriptPath} to read the organizer's brief before writing the final note. Save a two-sentence welcome note as a Paperclip document on your assigned task using the brief's details and reference. Then complete your task. Do not edit or comment on another task.`;
   const saved = await api.request.put(`/api/agents/${worker.id}/instructions-bundle/file`, { data: { path: "AGENTS.md", content: instructions } });
   expect(saved.ok()).toBe(true);
   expect(await api.get(`/api/agents/${worker.id}/instructions-bundle/file?path=AGENTS.md`)).toMatchObject({ content: instructions });
-  const project = await api.post<Row>(`${company}/projects`, { name: "Garden welcome", description: "A non-code neighborhood garden meetup. No repository needed." });
   const prompt = `Create one task in the Garden welcome project (${project.id}) assigned to Riley Writer to write a two-sentence welcome note for our free Friday garden meetup. Riley has the organizer's brief. Save the finished note on that task and include ${marker}. Please tell me here when the work is finished and give me access to the result. You may start the handoff now; no further approval is needed. Let Riley write the note.`;
   let task: Row | undefined;
   try {

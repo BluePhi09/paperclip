@@ -27,21 +27,29 @@ export function completionDelivery(observation: CompletionObservation) {
     Number.isFinite(completedAt) && Date.parse(c.createdAt) >= completedAt &&
     runs.some(r => r.id === c.createdByRunId && r.agentId === c.authorAgentId &&
       r.contextSnapshot?.issueId === sourceId && r.status === "succeeded"));
-  const final = responses.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).at(-1);
-  // Observe rendered links, including the UI's automatic issue-reference links.
-  // A raw identifier/Markdown string alone does not prove browser access.
-  const body = String(final?.body ?? "");
-  const links = (observation.renderedLinks ?? []).filter(link => link.commentId === final?.id).map(link => link.href);
-  const resultLinks = links.filter(link => {
-    try {
-      const url = new URL(link, "http://fixture.invalid");
-      const parts = url.pathname.split("/").map(decodeURIComponent);
-      const index = parts.indexOf("issues");
-      return index >= 0 && [worker.id, worker.identifier].filter(Boolean).includes(parts[index + 1]);
-    } catch { return false; }
-  });
+  responses.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  const latestResponse = responses.at(-1);
   const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
-  const quotedOutput = outputs.some(d => normalize(d.body).length >= 60 && normalize(body).includes(normalize(d.body)));
+  // Delivery remains valid if a subsequent clarification omits the same link.
+  // Keep the latest reply separately for semantic review of the whole exchange.
+  const deliveries = responses.map(response => {
+    const body = String(response.body ?? "");
+    const links = (observation.renderedLinks ?? []).filter(link => link.commentId === response.id).map(link => link.href);
+    const resultLinks = links.filter(link => {
+      try {
+        const url = new URL(link, "http://fixture.invalid");
+        const parts = url.pathname.split("/").map(decodeURIComponent);
+        const index = parts.indexOf("issues");
+        return index >= 0 && [worker.id, worker.identifier].filter(Boolean).includes(parts[index + 1]);
+      } catch { return false; }
+    });
+    const quotedOutput = outputs.some(d => normalize(d.body).length >= 60 && normalize(body).includes(normalize(d.body)));
+    return { response, resultLinks, quotedOutput };
+  });
+  const delivered = deliveries.filter(d => d.resultLinks.length > 0 || d.quotedOutput).at(-1);
+  const final = delivered?.response ?? latestResponse;
+  const resultLinks = delivered?.resultLinks ?? [];
+  const quotedOutput = delivered?.quotedOutput ?? false;
   return {
     checks: [
       { id: "completion-worker-done", passed: worker.status === "done" && Number.isFinite(completedAt), detail: "The delegated task is durably Done, not merely a successful run" },
@@ -50,6 +58,8 @@ export function completionDelivery(observation: CompletionObservation) {
       { id: "completion-result-access", passed: Boolean(final) && (resultLinks.length > 0 || quotedOutput), detail: "That reply links to the completed task/output or includes the actual saved output" },
     ],
     response: final ?? null,
+    latestResponse: latestResponse ?? null,
+    responses,
     resultLinks,
     quotedOutput,
     semanticReview: { status: "required", rubric: completionReviewRubric },
