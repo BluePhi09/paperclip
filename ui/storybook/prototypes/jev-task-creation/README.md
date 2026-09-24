@@ -102,7 +102,7 @@ Every task shows an **Estimated cost** table:
   is the real Messages API body for `claude-haiku-4-5`: a short system
   instruction, the prompt, and `max_tokens: 64`. $1 per million input tokens and
   $5 per million output tokens.
-- **Total**, with a per-1,000-tasks estimate.
+- **Total**, with an estimate for 1 million tasks like this one.
 
 Token counts are estimated at about four characters per token. In production,
 read `usage` from each response instead.

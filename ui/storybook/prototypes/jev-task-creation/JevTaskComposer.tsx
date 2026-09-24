@@ -918,6 +918,8 @@ function JevConfidence({
 
 const formatTokens = (value: number) => value.toLocaleString("en-US");
 const formatUsd = (value: number) => `$${value < 0.01 ? value.toFixed(5) : value.toFixed(4)}`;
+/** Whole dollars with separators, for the at-scale estimate (for example "$160"). */
+const formatScaledUsd = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
 
 function TaskCostSummary({ jev, title, titlePending }: { jev: LiveStats; title: ModelUsage | null; titlePending: boolean }) {
   const total = jev.cost + (title?.cost ?? 0);
@@ -946,7 +948,7 @@ function TaskCostSummary({ jev, title, titlePending }: { jev: LiveStats; title: 
       <div className="flex items-baseline gap-3 text-foreground">
         <span className="w-24 shrink-0 sm:w-32">Total</span>
         <span className="min-w-0 flex-1 break-words font-mono text-muted-foreground">
-          {title ? `≈ $${(total * 1000).toFixed(2)} per 1,000 tasks` : ""}
+          {title ? `≈ ${formatScaledUsd(total * 1_000_000)} per 1M tasks` : ""}
         </span>
         <span className="shrink-0 font-mono">{formatUsd(total)}</span>
       </div>
