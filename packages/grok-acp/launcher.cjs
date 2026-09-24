@@ -38,7 +38,12 @@ if (!environment.XAI_API_KEY && environment.GROK_HOME && isAbsolute(environment.
     if (error.code !== "ENOENT") throw new Error("Grok subscription credential is invalid");
   }
   const entries = auth && typeof auth === "object" && !Array.isArray(auth) ? Object.values(auth) : [];
-  const expiry = entries.length === 1 ? Date.parse(entries[0]?.expires_at) : NaN;
+  const rawExpiry = entries.length === 1 ? entries[0]?.expires_at : undefined;
+  // Match the managed Grok auth contract: ISO-8601, epoch seconds, or milliseconds.
+  const isoExpiry = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+  const expiry = typeof rawExpiry === "number" && Number.isFinite(rawExpiry)
+    ? rawExpiry < 1e12 ? rawExpiry * 1000 : rawExpiry
+    : typeof rawExpiry === "string" && isoExpiry.test(rawExpiry) ? Date.parse(rawExpiry) : NaN;
   if (Number.isFinite(expiry) && expiry <= Date.now() + 60_000) {
     // Descriptor-backed executables must retain their exact descriptor in the
     // child. Other descriptors, including ACP stdin/stdout, are not forwarded.

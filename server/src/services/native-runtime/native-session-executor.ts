@@ -9237,7 +9237,7 @@ const REMOTE_PROVIDER_PACK_PINS = {
   grok: "1.0.13",
 } as const;
 const REMOTE_PROVIDER_PACK_PROFILE_DIGESTS = {
-  grok: "sha256:42fe296ec6fc0715c3509cec9671451bcd5bfdc7f185041101c8aac1e9ac8718",
+  grok: "sha256:f0b698395a3704ed2ffaf84ea19bdb20c36c8a0a70b7c629c7b6ffe144e59e55",
   claude:
     "sha256:9d73d1f0f121fb96cc8badb28c22d5bff02d8582eb2e40360a81c189e1b9422a",
   codex:

@@ -2118,15 +2118,29 @@ async function installationFixture() {
 
 
 describe("Grok launcher subscription refresh", () => {
+  it("keeps the Grok launcher digest synchronized across TypeScript, Rust, server, and provider pack", async () => {
+    const launcher = await readFile(new URL("../../../../grok-acp/launcher.cjs", import.meta.url));
+    const digest = `sha256:${createHash("sha256").update(launcher).digest("hex")}`;
+    expect(resolveQualifiedAcpxProfile("grok", "grok-4.7").commandDigest).toBe(digest);
+    const [server, pack, rust] = await Promise.all([
+      readFile(new URL("../../../../../server/src/services/native-runtime/native-session-executor.ts", import.meta.url), "utf8"),
+      readFile(new URL("../../../scripts/build-provider-pack.mjs", import.meta.url), "utf8"),
+      readFile(new URL("../../../runner/crates/runner-core/src/acpx_provider_backend.rs", import.meta.url), "utf8"),
+    ]);
+    expect(server).toContain(`grok: "${digest}"`);
+    expect(pack).toContain(`grok: "${digest}"`);
+    expect(rust.split('"grok" =>')[1]?.slice(0, 600)).toContain(`"${digest}"`);
+  });
+
   async function fixture(input: {
-    expiry?: number; apiKey?: string; executable?: string;
+    expiry?: number; rawExpiry?: unknown; apiKey?: string; executable?: string;
     refresh?: { status: number | null; signal?: string | null; error?: Error };
     mode?: number; fileError?: string; growingFile?: boolean;
   } = {}) {
     const script = await readFile(new URL("../../../../grok-acp/launcher.cjs", import.meta.url), "utf8");
     const payload = Buffer.from(JSON.stringify({ account: {
       key: "PRIVATE-CREDENTIAL-SENTINEL", refresh_token: "PRIVATE-REFRESH-SENTINEL",
-      expires_at: new Date(input.expiry ?? Date.now() - 60_000).toISOString(),
+      expires_at: "rawExpiry" in input ? input.rawExpiry : new Date(input.expiry ?? Date.now() - 60_000).toISOString(),
     } }));
     const fs = {
       constants,
@@ -2165,6 +2179,20 @@ describe("Grok launcher subscription refresh", () => {
   it("does not refresh a fresh subscription", async () => {
     const test = await fixture({ expiry: Date.now() + 600_000 }); test.run();
     expect(test.spawnSync).not.toHaveBeenCalled(); expect(test.execve).toHaveBeenCalledOnce();
+  });
+  it.each(["seconds", "milliseconds"])("refreshes expired and near-expiry numeric %s but skips fresh credentials", async encoding => {
+    for (const [offset, expected] of [[-60_000, true], [30_000, true], [600_000, false]] as const) {
+      const ms = Date.now() + offset;
+      const test = await fixture({ rawExpiry: encoding === "seconds" ? ms / 1000 : ms });
+      test.run();
+      expect(test.spawnSync).toHaveBeenCalledTimes(expected ? 1 : 0);
+      expect(test.execve).toHaveBeenCalledOnce();
+    }
+  });
+  it.each([null, "1760000000", "2020-01-01", true, {}, []])("does not coerce unsupported expiry encodings: %j", async rawExpiry => {
+    const test = await fixture({ rawExpiry }); test.run();
+    expect(test.spawnSync).not.toHaveBeenCalled();
+    expect(test.execve).toHaveBeenCalledOnce();
   });
   it("never discovers subscription credentials for an explicit API key", async () => {
     const test = await fixture({ apiKey: "explicit-api-key" }); test.run();

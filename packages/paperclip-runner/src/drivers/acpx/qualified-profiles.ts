@@ -36,7 +36,7 @@ export const QUALIFIED_ACPX_PROFILES: Readonly<
     acpxVersion: QUALIFIED_ACPX_VERSION, agent: "grok", agentProfileVersion: 1,
     agentServerPackage: "@paperclipai/grok-acp", agentServerVersion: "1.0.13",
     agentRuntimePackage: "@paperclipai/grok-acp", agentRuntimeVersion: "1.0.13",
-    commandDigest: "sha256:387d6a186753307fdf6f6d8898fa543525239312e31e2c5d5c4baa6b6eec6671",
+    commandDigest: "sha256:f0b698395a3704ed2ffaf84ea19bdb20c36c8a0a70b7c629c7b6ffe144e59e55",
     qualificationModel: "grok-4.7", reportedModelId: "grok-4.7", permissionPolicy: "interactive",
   },
   pi: {
