@@ -310,7 +310,7 @@ export function JevTaskComposer({
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pt-4 pb-3">
         {created ? (
-          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{createdPrompt}</p>
+          <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{createdPrompt}</p>
         ) : (
           <PromptField value={prompt} expanded={expanded} onChange={setPrompt} onSubmit={create} />
         )}
@@ -512,7 +512,7 @@ function PromptField({
         }
       }}
       placeholder="What should get done?"
-      className="w-full resize-none overflow-hidden bg-transparent text-base leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/50"
+      className="w-full resize-none overflow-hidden break-words bg-transparent text-base leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/50"
     />
   );
 }

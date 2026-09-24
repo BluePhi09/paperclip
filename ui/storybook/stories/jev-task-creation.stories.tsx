@@ -10,6 +10,9 @@ const PROMPTS = {
   qa: "Before Friday's release, run the smoke tests and verify that invite links still work on authenticated private mode.",
   ambiguous: "The invite emails look wrong, can you sort it out",
   planning: "Plan the migration of agent runtime sessions to the new adapter, in phases, so nothing breaks mid-run.",
+  // A real, messy prompt: a pasted link first, reading steps before the deliverable, and two phases.
+  messy:
+    "https://example.slack.com/archives/C0000000000/p0000000000000000\nRead this Slack thread and review the Meta Muse AI URL. Review the page contents and create a plan to create a page like that, but catered towards the Paperclips connector audience. And then build a plan to use Dota's Paperclip instance to build the new skill based on the new runbook, connector runbook that Dota shared the link to the PR to. And then phase two is to build the website as well.",
 };
 
 const meta = {
@@ -67,7 +70,7 @@ export const Confidence: Story = {
   name: "11 · How sure Jev is",
   args: { initialPrompt: PROMPTS.research },
   play: async ({ canvasElement }) => {
-    const toggle = await within(canvasElement).findByRole("button", { name: /How sure Jev is/ }, { timeout: 4000 });
+    const toggle = await within(canvasElement.ownerDocument.body).findByRole("button", { name: /how sure Jev is/i }, { timeout: 4000 });
     await userEvent.click(toggle);
   },
 };
@@ -75,7 +78,7 @@ export const AssigneeProbabilities: Story = {
   name: "11b · Assignee menu shows Jev's probabilities",
   args: { initialPrompt: PROMPTS.ambiguous },
   play: async ({ canvasElement }) => {
-    const chip = await within(canvasElement).findByRole("button", { name: /^Assignee/ }, { timeout: 4000 });
+    const chip = await within(canvasElement.ownerDocument.body).findByRole("button", { name: /^Owner/ }, { timeout: 4000 });
     await userEvent.click(chip);
   },
 };
@@ -83,7 +86,7 @@ export const ModeProbabilities: Story = {
   name: "11c · Mode menu shows Jev's probabilities",
   args: { initialPrompt: PROMPTS.planning },
   play: async ({ canvasElement }) => {
-    const chip = await within(canvasElement).findByRole("button", { name: /^Mode/ }, { timeout: 4000 });
+    const chip = await within(canvasElement.ownerDocument.body).findByRole("button", { name: /^Mode/ }, { timeout: 4000 });
     await userEvent.click(chip);
   },
 };
@@ -95,7 +98,16 @@ export const InstantEnterToStart: Story = {
   name: "12b · Instant · Enter starts the task, then the title is written",
   args: { flow: "instant", initialPrompt: PROMPTS.feature, titleLatencyMs: 1600 },
   play: async ({ canvasElement }) => {
-    const box = await within(canvasElement).findByRole("textbox", { name: "Describe the task" });
+    const box = await within(canvasElement.ownerDocument.body).findByRole("textbox", { name: "Describe the task" });
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await userEvent.type(box, "{Enter}");
+  },
+};
+export const MessyRealPrompt: Story = {
+  name: "12c · Messy real prompt · Link first, reading steps, two phases",
+  args: { flow: "instant", initialPrompt: PROMPTS.messy },
+  play: async ({ canvasElement }) => {
+    const box = await within(canvasElement.ownerDocument.body).findByRole("textbox", { name: "Describe the task" });
     await new Promise((resolve) => setTimeout(resolve, 900));
     await userEvent.type(box, "{Enter}");
   },
@@ -108,7 +120,7 @@ export const InstantCreated: Story = {
   name: "13 · Instant · Title and owner arrive",
   args: { flow: "instant", initialPrompt: PROMPTS.feature, latencyMs: 700, titleLatencyMs: 2200 },
   play: async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByRole("button", { name: /Start task/ }));
+    await userEvent.click(await within(canvasElement.ownerDocument.body).findByRole("button", { name: /Start task/ }));
   },
 };
 export const JevUnavailable: Story = {

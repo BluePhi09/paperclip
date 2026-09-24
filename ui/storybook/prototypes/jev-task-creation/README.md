@@ -107,6 +107,28 @@ Every task shows an **Estimated cost** table:
 Token counts are estimated at about four characters per token. In production,
 read `usage` from each response instead.
 
+## Titles
+
+The title model gets a short system instruction: name the deliverable, not the
+material to read first; ignore links; name the overall goal when a request has
+phases. Every title, real or simulated, goes through `isUsableTitle` before it is
+shown. A title with a link, more than 10 words, or no text falls back to
+"Untitled task".
+
+The prototype's stand-in (`draftTitle`) approximates this without a model:
+
+- It strips links.
+- It splits the prompt into clauses.
+- It prefers the clause that names a deliverable (fix, build, plan) over reading
+  steps (read, review).
+- It turns questions into "Decide how…".
+- It replaces "it" with the subject named earlier.
+- It cuts at phrase boundaries within nine words.
+
+Story 12c is a real, messy prompt kept as a regression case: a pasted link first,
+reading steps before the deliverable, and two phases. It used to produce a title
+made of the URL.
+
 ## Two flows to compare
 
 - **Suggest-first** (stories 01–11c): review the live suggestions, then create.

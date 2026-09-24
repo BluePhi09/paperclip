@@ -428,29 +428,129 @@ const CURATED_TITLES: Record<string, string> = {
   "plan the migration": "Plan phased migration of runtime sessions to the new adapter",
 };
 
-const FILLER = /^(hey|hi|please|pls|so|ok|okay|can you|could you|would you|i need you to|i need to|i want to|we need to|we should|let's|lets|i think|it seems like|it looks like)\b[\s,]*/i;
+const FILLER = /^(hey|hi|please|pls|so|ok|okay|also|can you|could you|would you|i need you to|i need to|i want you to|i want to|we need to|we should|let's|lets|i think|it seems like|it looks like)\b[\s,]*/i;
+const URL_PATTERN = /<?\bhttps?:\/\/[^\s>]+>?|\bwww\.[^\s]+/gi;
+/** Verbs that name something to deliver, versus verbs that only name inputs to read first. */
+const DELIVERABLE_VERBS = /^(fix|add|build|create|plan|design|write|draft|ship|implement|migrate|remove|update|investigate|evaluate|research|decide|run|rotate|stop|set up|make|support|tighten|survey|prototype|figure out)\b/i;
+const INPUT_VERBS = /^(read|review|look at|look into|check out|see|open|go through|skim|watch)\b/i;
+const DROP_WORDS = /\b(a|an|the|this|that|these|those|like that|as well|also|just|really|new|some)\b/gi;
+const MAX_TITLE_WORDS = 9;
+/** Phrases that pad a title without adding meaning. */
+const PADDING = /\b(end to end|in general|out there|at once|right now|asap|for now)\b/gi;
+
+function stripFiller(text: string) {
+  let previous = "";
+  let current = text.trim();
+  while (previous !== current) {
+    previous = current;
+    current = current.replace(FILLER, "");
+  }
+  return current;
+}
+
+/** Split a prompt into instruction-sized clauses: sentences, lines, and "and then" / "then" joins. */
+function promptClauses(prompt: string): string[] {
+  return prompt
+    .replace(URL_PATTERN, " ")
+    .split(/(?<=[.!?])\s+|\n+|;\s*|,?\s+(?:and then|then|after that)\s+|\s+and\s+(?=(?:read|review|create|build|plan|fix|add|write|design|make)\b)/i)
+    .map((clause) => stripFiller(clause.replace(/\s+/g, " ").replace(/^(and|but|so)\s+/i, "").replace(/^phase \w+ is to\s+/i, "")))
+    .filter((clause) => clause.split(" ").length >= 2);
+}
+
+/** Pick the clause that says what to deliver; reading and reviewing are inputs, not the task. */
+function deliverableClause(clauses: string[]): string | null {
+  const ranked = clauses
+    .map((clause, index) => {
+      let rank = 0;
+      if (DELIVERABLE_VERBS.test(clause)) rank += 3;
+      // Investigating is real work, but a fix or build in the same prompt is the outcome.
+      if (/^(figure out|investigate|research|survey|explore)\b/i.test(clause)) rank -= 1;
+      if (/\bplan\b/i.test(clause)) rank += 1;
+      if (INPUT_VERBS.test(clause)) rank -= 3;
+      return { clause, rank, index };
+    })
+    .sort((a, b) => b.rank - a.rank || a.index - b.index);
+  return ranked[0] && ranked[0].rank > 0 ? ranked[0].clause : clauses[0] ?? null;
+}
+
+/** The thing a prompt is about, from its first clause ("The issue detail page is slow" -> "issue detail page"). */
+function leadingSubject(clauses: string[]): string | null {
+  const match = clauses[0]?.match(/^(?:the|our|a|an)?\s*([\w-]+(?:\s+[\w-]+){0,3}?)\s+(?:is|are|was|were|keeps?|got|feels?|has|have|looks?|seems?)\b/i);
+  return match ? match[1]!.trim() : null;
+}
+
+/** Turn a question into a decision task ("How should Paperclip support X?" -> "Decide how Paperclip should support X"). */
+function questionToTask(clause: string): string {
+  const how = clause.match(/^how (should|do|does|can|could|would) (?:we\s+)?(.+?)\??$/i);
+  if (how) {
+    const [subject, ...rest] = how[2]!.split(" ");
+    return `Decide how ${subject} ${how[1]!.toLowerCase() === "should" ? "should " : ""}${rest.join(" ")}`;
+  }
+  const should = clause.match(/^should (?:we|i|paperclip)\s+(.+?)\??$/i);
+  if (should) return `Decide whether to ${should[1]}`;
+  const what = clause.match(/^(?:what|which) (.+?)\??$/i);
+  if (what) return `Decide ${what[1]}`;
+  return clause;
+}
+
+/** Compress an instruction into a short imperative title. */
+function compressClause(clause: string, subject: string | null = null): string {
+  let text = questionToTask(clause)
+    // Cut at natural boundaries before any word cap, so titles never stop mid-phrase.
+    .split(/[:(]|,\s*not\b|\s+(?:when|while|if|until|unless|whenever)\s+|\s+-\s+/i)[0]!
+    .replace(/\bit\b/i, subject ?? "it")
+    // "create a plan to build X" -> "Plan X"; "build a plan to use X to build Y" -> "Plan Y".
+    .replace(/^(?:create|build|write|make|draft)\s+(?:a\s+)?plan\s+(?:to|for)\s+(?:use\s+.+?\s+to\s+)?(?:create|build|make|write|add)?\s*/i, "Plan ")
+    .replace(/,?\s*but\s+(?:catered|tailored|aimed|geared)\s+(?:towards|toward|to|for)\s+/i, " for ")
+    .replace(/\s+(?:catered|tailored|aimed|geared)\s+(?:towards|toward|to)\s+/i, " for ")
+    .replace(/\s+(?:so that|so|because|since|which|that will)\s+.*$/i, "")
+    .replace(PADDING, " ")
+    .replace(DROP_WORDS, " ")
+    .replace(/[.!?,:]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  let words = text.split(" ");
+  if (words.length > MAX_TITLE_WORDS) {
+    // Prefer ending before a trailing phrase ("... worktrees | for local coding agents") over a hard cut.
+    const head = words.slice(0, MAX_TITLE_WORDS);
+    const boundary = head.map((word) => /^(for|to|with|in|on|from|by|across|into)$/i.test(word)).lastIndexOf(true);
+    words = boundary >= 4 ? head.slice(0, boundary) : head;
+  }
+  words = words.map((word, index) => (index === words.length - 1 ? word.replace(/[,;:.]+$/, "") : word));
+  // Never end on a dangling connector.
+  while (words.length > 2 && /^(for|to|of|in|on|with|and|or|by|from|at|based)$/i.test(words[words.length - 1]!)) words.pop();
+  text = words.join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Checks a title before it is shown, for the stand-in and for the real model alike:
+ * no links, not too long, not cut off. A failing title falls back to a safe one.
+ */
+export function isUsableTitle(title: string): boolean {
+  const words = title.trim().split(/\s+/);
+  // A fresh, non-global copy: `test` on a global regex carries `lastIndex` between calls.
+  const hasUrl = new RegExp(URL_PATTERN.source, "i").test(title);
+  return title.trim().length > 0 && !hasUrl && !/[\/]{2}|\.\w{2,}\//.test(title) && words.length <= 10;
+}
 
 export function draftTitle(prompt: string): string {
   const normalized = prompt.trim().toLowerCase();
   for (const [prefix, title] of Object.entries(CURATED_TITLES)) {
     if (normalized.startsWith(prefix)) return title;
   }
-  let text = prompt.trim().split(/(?<=[.!?])\s|\n/)[0] ?? prompt.trim();
-  let previous = "";
-  while (previous !== text) {
-    previous = text;
-    text = text.replace(FILLER, "");
-  }
-  text = text.replace(/[.!?]+$/, "").replace(/\s+/g, " ");
-  if (text.length > 60) {
-    const cut = text.slice(0, 60);
-    text = cut.slice(0, cut.lastIndexOf(" ") > 30 ? cut.lastIndexOf(" ") : 60);
-  }
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const clauses = promptClauses(prompt);
+  const clause = deliverableClause(clauses);
+  const title = clause ? compressClause(clause, leadingSubject(clauses)) : "";
+  return isUsableTitle(title) ? title : "Untitled task";
 }
 
-const TITLE_SYSTEM =
-  "You name tasks for an operator dashboard. Reply with only the title: 3 to 8 words, imperative, sentence case, no quotes or trailing punctuation.";
+const TITLE_SYSTEM = [
+  "You name tasks for an operator dashboard.",
+  "Reply with only the title: 3 to 8 words, imperative, sentence case, no quotes or trailing punctuation.",
+  "Name what should be delivered, not the material to read first. Ignore links, URLs, and pasted references.",
+  "If the request has phases, name the overall goal.",
+].join(" ");
 
 /** The Messages API request a server would send to Claude Haiku 4.5 when the task is started. */
 export function buildTitleRequest(prompt: string) {
