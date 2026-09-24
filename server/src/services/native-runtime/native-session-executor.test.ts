@@ -9100,6 +9100,7 @@ describe("runnerd provider runtime wiring", () => {
 
   it.each([
     "quarantined",
+    "large control plane",
     "empty retry shell",
     "unsuspended current",
     "live runner",
@@ -9298,6 +9299,12 @@ describe("runnerd provider runtime wiring", () => {
                 },
               ],
               committedEvents: [
+                ...(scenario === "large control plane"
+                  ? Array.from({ length: 2048 }, () => ({
+                      eventType: "item.delta",
+                      envelope: { ...identity, payload: { delta: "x".repeat(8192) } },
+                    }))
+                  : []),
                 { eventType: "run.terminal", envelope: identity },
               ],
             }),
@@ -9337,6 +9344,7 @@ describe("runnerd provider runtime wiring", () => {
         state.createTransport.mockClear();
         const shouldRecover = [
           "quarantined",
+          "large control plane",
           "empty retry shell",
           "unsuspended current",
           "active goal",

@@ -1835,7 +1835,9 @@ function cleanupStateSnapshot(root: string, providerFile = "codex-provider-state
   const bytes = files.map((file) =>
     readBoundedNativeFile(
       resolve(root, file),
-      NATIVE_RUNNER_STATE_MAX_BYTES,
+      file === "control-plane/control-plane-state.json"
+        ? NATIVE_CONTROL_PLANE_STATE_MAX_BYTES
+        : NATIVE_RUNNER_STATE_MAX_BYTES,
       "native_cleanup_maintenance_unproven",
     ),
   );
@@ -4766,7 +4768,9 @@ async function recoverQuiescentRunnerdState(input: {
           throw new Error("unsafe_recovery_state");
         return readBoundedNativeFile(
           resolve(root, directory, name),
-          NATIVE_RUNNER_STATE_MAX_BYTES,
+          directory === "control-plane" && name === "control-plane-state.json"
+            ? NATIVE_CONTROL_PLANE_STATE_MAX_BYTES
+            : NATIVE_RUNNER_STATE_MAX_BYTES,
           "recovery_state_too_large",
         ).toString("utf8");
       };
@@ -4935,15 +4939,15 @@ async function recoverQuiescentRunnerdState(input: {
   const candidate = verified[0]!;
   // Candidate enumeration can await other database reads. Revalidate the
   // selected evidence and dead owner immediately before the atomic moves.
-  for (const [relativePath, expected] of [
-    ["runner/runner-state.json", candidate.runnerBytes],
-    ["runner/codex-provider-state.json", candidate.providerBytes],
-    ["control-plane/control-plane-state.json", candidate.controlBytes],
-  ]) {
+  for (const [relativePath, expected, maxBytes] of [
+    ["runner/runner-state.json", candidate.runnerBytes, NATIVE_RUNNER_STATE_MAX_BYTES],
+    ["runner/codex-provider-state.json", candidate.providerBytes, NATIVE_RUNNER_STATE_MAX_BYTES],
+    ["control-plane/control-plane-state.json", candidate.controlBytes, NATIVE_CONTROL_PLANE_STATE_MAX_BYTES],
+  ] as const) {
     if (
       readBoundedNativeFile(
-        resolve(candidate.root, relativePath!),
-        NATIVE_RUNNER_STATE_MAX_BYTES,
+        resolve(candidate.root, relativePath),
+        maxBytes,
         "recovery_state_too_large",
       ).toString("utf8") !== expected
     ) {
