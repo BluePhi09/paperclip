@@ -20,17 +20,19 @@ const meta = {
     docs: {
       description: {
         component:
-          "Prototype: prompt-first task creation. You write what you need; Jev suggests a title, task type, assignee, project, and work mode. " +
-          "Suggested values carry a sparkle. Anything you change is yours and Jev never overwrites it; the undo icon restores Jev's value. " +
-          "Low-confidence routing offers alternate owners. **Instant** stories mirror Claude Code sessions: create first, and the title and routing arrive a moment later. " +
-          "Jev is a local keyword heuristic with simulated latency (`prototypes/jev-task-creation/jev-classifier.ts`). No model or API is called and no task is persisted.",
+          "Prototype: prompt-first task creation. You write what you need. Jev (`typesafe/jev-1.13`, TypeSafe's decision model on OpenRouter) answers " +
+          "`choice` questions for task type, assignee, project, and work mode, with a confidence and per-option probabilities. Jev doesn't generate text, so a separate small text model drafts the title, like Claude Code naming a session. " +
+          "Suggested values carry a sparkle. Anything you change is yours and is never overwritten; the undo icon restores the suggestion. " +
+          "Below the confidence threshold, likely alternate owners appear as one-click buttons. **Instant** stories create first; the title and routing arrive a moment later. " +
+          "Jev's answers are simulated locally in the documented response shape (`prototypes/jev-task-creation/jev-classifier.ts`); **How sure Jev is → Request sent to Jev** shows the real request body. No API is called and no task is persisted.",
       },
     },
   },
-  args: { flow: "suggest-first", latencyMs: 900 },
+  args: { flow: "suggest-first", latencyMs: 350, titleLatencyMs: 1200 },
   argTypes: {
     flow: { control: "inline-radio", options: ["suggest-first", "instant"] },
-    latencyMs: { control: { type: "range", min: 100, max: 4000, step: 100 } },
+    latencyMs: { name: "Jev latency (ms)", control: { type: "range", min: 100, max: 4000, step: 50 } },
+    titleLatencyMs: { name: "Title model latency (ms)", control: { type: "range", min: 100, max: 6000, step: 100 } },
   },
   render: (args) => <JevTaskComposer key={JSON.stringify(args)} {...args} />,
 } satisfies Meta<typeof JevTaskComposer>;
@@ -56,32 +58,40 @@ export const UserOverride: Story = {
   name: "10 · You chose the assignee · Jev keeps it",
   args: { initialPrompt: PROMPTS.bug, presetAssigneeId: "agent-qa" },
 };
-export const WhyExpanded: Story = {
-  name: "11 · Why Jev chose these",
-  args: { initialPrompt: PROMPTS.feature, latencyMs: 200 },
+export const Confidence: Story = {
+  name: "11 · How sure Jev is",
+  args: { initialPrompt: PROMPTS.research },
   play: async ({ canvasElement }) => {
-    const toggle = await within(canvasElement).findByRole("button", { name: /Why Jev chose these/ }, { timeout: 3000 });
+    const toggle = await within(canvasElement).findByRole("button", { name: /How sure Jev is/ }, { timeout: 4000 });
     await userEvent.click(toggle);
   },
 };
+export const AssigneeProbabilities: Story = {
+  name: "11b · Assignee menu shows Jev's probabilities",
+  args: { initialPrompt: PROMPTS.ambiguous },
+  play: async ({ canvasElement }) => {
+    const chip = await within(canvasElement).findByRole("button", { name: /^Assignee/ }, { timeout: 4000 });
+    await userEvent.click(chip);
+  },
+};
 export const InstantEmpty: Story = {
-  name: "12 · Instant · Start first, Jev names it after",
+  name: "12 · Instant · Start first, name and route after",
   args: { flow: "instant" },
 };
 export const InstantCreated: Story = {
   name: "13 · Instant · Title and owner arrive",
-  args: { flow: "instant", initialPrompt: PROMPTS.feature, latencyMs: 1600 },
+  args: { flow: "instant", initialPrompt: PROMPTS.feature, latencyMs: 700, titleLatencyMs: 2200 },
   play: async ({ canvasElement }) => {
     await userEvent.click(await within(canvasElement).findByRole("button", { name: /Start task/ }));
   },
 };
 export const JevUnavailable: Story = {
-  name: "14 · Jev unavailable · Manual fallback",
+  name: "14 · Jev unavailable · Title still arrives, routing is manual",
   args: { initialPrompt: PROMPTS.bug, jevUnavailable: true },
 };
 export const SlowJev: Story = {
   name: "15 · Slow Jev · Loading state",
-  args: { initialPrompt: PROMPTS.design, latencyMs: 60000 },
+  args: { initialPrompt: PROMPTS.design, latencyMs: 60000, titleLatencyMs: 60000 },
 };
 export const Light: Story = { name: "16 · Light theme", args: { initialPrompt: PROMPTS.bug }, globals: { theme: "light" } };
 export const Mobile: Story = {

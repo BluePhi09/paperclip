@@ -1,14 +1,52 @@
 import type { IssueWorkMode } from "@paperclipai/shared";
 
 /**
- * Storybook-only stand-in for Jev, the assistant that reads a task prompt and
- * suggests a title, task type, owner, project, and work mode. It is a keyword
- * heuristic with simulated latency so the UX can be reviewed without a model.
- * A real implementation would replace `classifyTaskPrompt` with an API call
- * that returns the same `JevSuggestion` shape.
+ * Storybook-only model of task routing with Jev, TypeSafe's decision model on
+ * OpenRouter (https://openrouter.ai/docs/guides/community/jev).
+ *
+ * Jev answers typed questions about application state with probabilities; it
+ * does not generate text or explain itself. So routing is split in two:
+ *
+ * - Jev (`POST /api/alpha/decisions`, model `typesafe/jev-1.13`) answers `choice`
+ *   questions for task type, assignee, project, and work mode.
+ * - A small text model drafts the title, the way Claude Code names a session.
+ *
+ * `buildJevDecisionRequest` produces the real request body. The response is
+ * simulated locally from keyword signals, in the documented response shape, so
+ * the UX can be reviewed without an API key. Swap `simulateJevDecisions` for a
+ * server call to go live; never call OpenRouter from the browser with a key.
  */
 
 export const JEV_NAME = "Jev";
+export const JEV_MODEL = "typesafe/jev-1.13";
+/** Below this confidence, the UI asks the user to pick between likely owners. */
+export const JEV_CONFIDENCE_THRESHOLD = 0.6;
+/** Prompts need a little substance before routing starts. */
+export const JEV_MIN_PROMPT_LENGTH = 18;
+
+// ---------------------------------------------------------------------------
+// Decisions API shapes (from the OpenRouter Jev docs)
+
+export type JevChoiceQuestion = { type: "choice"; instructions: string; criteria: Record<string, string> };
+export type JevNoulQuestion = { type: "noul"; instructions: string; criteria?: { true: string; false: string } };
+export type JevScoreQuestion = { type: "score"; instructions: string; criteria: string[] };
+export type JevQuestion = JevChoiceQuestion | JevNoulQuestion | JevScoreQuestion;
+
+export type JevDecisionRequest = {
+  model: string;
+  state: Record<string, unknown>;
+  questions: Record<string, JevQuestion>;
+};
+
+export type JevChoiceAnswer = { type: "choice"; choice: string; confidence: number; probabilities: Record<string, number> };
+export type JevDecisionResponse = {
+  model: string;
+  answers: Record<string, JevChoiceAnswer>;
+  usage: { input_tokens: number; output_tokens: number; cost: number };
+};
+
+// ---------------------------------------------------------------------------
+// Company fixtures (match the Storybook company)
 
 export type JevTaskType = "bug" | "feature" | "research" | "design" | "qa" | "ops";
 
@@ -21,47 +59,71 @@ export const JEV_TASK_TYPES: { value: JevTaskType; label: string; hint: string }
   { value: "ops", label: "Ops", hint: "Admin, release, or coordination work" },
 ];
 
-export type JevAgent = {
-  id: string;
-  name: string;
-  role: string;
-  title: string;
-  paused?: boolean;
-};
+export type JevAgent = { id: string; name: string; role: string; title: string; owns: string };
 
 export const JEV_AGENTS: JevAgent[] = [
-  { id: "agent-codex", name: "CodexCoder", role: "engineer", title: "Senior Product Engineer" },
-  { id: "agent-design-system", name: "DesignSystemCoder", role: "designer", title: "Design System Engineer" },
-  { id: "agent-qa", name: "QAChecker", role: "qa", title: "QA Engineer" },
-  { id: "agent-cto", name: "CTO", role: "cto", title: "CTO" },
-  { id: "agent-darnold", name: "Darnold", role: "general", title: "Chief of Staff" },
+  { id: "agent-codex", name: "CodexCoder", role: "engineer", title: "Senior Product Engineer", owns: "Product engineering: bugs and features in the app and API." },
+  { id: "agent-design-system", name: "DesignSystemCoder", role: "designer", title: "Design System Engineer", owns: "UI, UX, visual polish, and the design system." },
+  { id: "agent-qa", name: "QAChecker", role: "qa", title: "QA Engineer", owns: "Verification, reproduction, and release testing." },
+  { id: "agent-cto", name: "CTO", role: "cto", title: "CTO", owns: "Architecture decisions and open-ended technical questions." },
+  { id: "agent-darnold", name: "Darnold", role: "general", title: "Chief of Staff", owns: "Coordination, admin, and operational follow-ups." },
 ];
 
-export type JevProject = { id: string; name: string };
+export type JevProject = { id: string; name: string; description: string };
 
 export const JEV_PROJECTS: JevProject[] = [
-  { id: "project-board-ui", name: "Board UI" },
-  { id: "project-agent-runtime", name: "Agent Runtime" },
-  { id: "project-budget-guardrails", name: "Budget Guardrails" },
+  { id: "project-board-ui", name: "Board UI", description: "The operator-facing web app: pages, dialogs, inbox, mobile." },
+  { id: "project-agent-runtime", name: "Agent Runtime", description: "Adapters, heartbeats, runners, and agent sessions." },
+  { id: "project-budget-guardrails", name: "Budget Guardrails", description: "Spend limits, cost tracking, and billing." },
 ];
 
-export type JevConfidence = "high" | "medium" | "low";
+export const JEV_NO_PROJECT = "none";
 
-export type JevSuggestion = {
-  title: string;
-  type: JevTaskType;
-  assigneeId: string;
-  /** Other plausible owners, shown when confidence is not high. */
-  alternateAssigneeIds: string[];
-  projectId: string | null;
-  workMode: IssueWorkMode;
-  confidence: JevConfidence;
-  /** One short sentence per decision, shown under "Why". */
-  reasons: { field: "type" | "assignee" | "project" | "mode"; text: string }[];
-};
+// ---------------------------------------------------------------------------
+// Request builder: this is what a server would send to OpenRouter.
 
-/** Prompts need a little substance before Jev starts guessing. */
-export const JEV_MIN_PROMPT_LENGTH = 18;
+export function buildJevDecisionRequest(prompt: string): JevDecisionRequest {
+  return {
+    model: JEV_MODEL,
+    state: {
+      task_prompt: prompt,
+      agents: JEV_AGENTS.map(({ id, name, title, owns }) => ({ id, name, title, owns })),
+      projects: JEV_PROJECTS.map(({ id, name, description }) => ({ id, name, description })),
+    },
+    questions: {
+      task_type: {
+        type: "choice",
+        instructions: "What kind of work does the task prompt describe?",
+        criteria: Object.fromEntries(JEV_TASK_TYPES.map((option) => [option.value, option.hint])),
+      },
+      assignee: {
+        type: "choice",
+        instructions: "Which agent should own this task?",
+        criteria: Object.fromEntries(JEV_AGENTS.map((agent) => [agent.id, `${agent.name}, ${agent.title}. ${agent.owns}`])),
+      },
+      project: {
+        type: "choice",
+        instructions: "Which project does this task belong to?",
+        criteria: {
+          ...Object.fromEntries(JEV_PROJECTS.map((project) => [project.id, project.description])),
+          [JEV_NO_PROJECT]: "None of the projects fit.",
+        },
+      },
+      work_mode: {
+        type: "choice",
+        instructions: "How should the assignee approach this task?",
+        criteria: {
+          standard: "Do the work directly.",
+          planning: "Large or risky scope: write a plan for review before doing the work.",
+          ask: "A question: answer it without changing anything.",
+        },
+      },
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Local simulation of Jev's answers
 
 const TYPE_KEYWORDS: Record<JevTaskType, string[]> = {
   bug: ["bug", "broken", "fix", "crash", "error", "regress", "fails", "failing", "500", "stuck", "doesn't", "does not", "not working", "wrong"],
@@ -72,6 +134,7 @@ const TYPE_KEYWORDS: Record<JevTaskType, string[]> = {
   ops: ["release", "deploy", "rotate", "invoice", "schedule", "onboard", "hire", "budget report", "coordinate", "follow up", "email"],
 };
 
+/** Which agent usually owns each type. Assignee probabilities follow type probabilities. */
 const TYPE_OWNER: Record<JevTaskType, string> = {
   bug: "agent-codex",
   feature: "agent-codex",
@@ -81,40 +144,144 @@ const TYPE_OWNER: Record<JevTaskType, string> = {
   ops: "agent-darnold",
 };
 
-const TYPE_OWNER_REASON: Record<JevTaskType, string> = {
-  bug: "CodexCoder owns product engineering and closed 3 similar bugs this week.",
-  feature: "CodexCoder owns product engineering and has capacity today.",
-  research: "The CTO handles open-ended technical questions.",
-  design: "DesignSystemCoder owns UI and design-system work.",
-  qa: "QAChecker runs verification and reproduction tasks.",
-  ops: "Darnold, the Chief of Staff, handles coordination and admin work.",
-};
-
 const PROJECT_KEYWORDS: Record<string, string[]> = {
   "project-board-ui": ["ui", "board", "dashboard", "page", "button", "dialog", "sidebar", "inbox", "screen", "mobile", "login", "storybook"],
   "project-agent-runtime": ["agent", "runtime", "heartbeat", "adapter", "wake", "codex", "claude", "runner", "session"],
   "project-budget-guardrails": ["budget", "spend", "cost", "billing", "limit", "invoice", "quota"],
 };
 
-/** Hand-written titles for the story scenarios, so reviews read realistically. */
+function score(text: string, keywords: string[]): number {
+  return keywords.reduce((total, keyword) => total + (text.includes(keyword) ? 1 : 0), 0);
+}
+
+function softmax(scores: Record<string, number>, sharpness = 2.2): Record<string, number> {
+  const entries = Object.entries(scores);
+  const weights = entries.map(([, value]) => Math.exp(value * sharpness));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  return Object.fromEntries(entries.map(([key], index) => [key, weights[index]! / total]));
+}
+
+function choiceAnswer(probabilities: Record<string, number>): JevChoiceAnswer {
+  const ranked = Object.entries(probabilities).sort((a, b) => b[1] - a[1]);
+  const top = ranked[0]!;
+  const second = ranked[1]?.[1] ?? 0;
+  // Jev reports confidence separately from the top probability; approximate it by the margin.
+  const confidence = Math.min(1, Math.max(0, (top[1] - second) * 1.6));
+  return {
+    type: "choice",
+    choice: top[0],
+    confidence: Math.round(confidence * 100) / 100,
+    probabilities: Object.fromEntries(ranked.map(([key, value]) => [key, Math.round(value * 100) / 100])),
+  };
+}
+
+export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionResponse {
+  const prompt = String(request.state.task_prompt ?? "");
+  const text = prompt.toLowerCase();
+
+  const typeScores = Object.fromEntries(
+    (Object.keys(TYPE_KEYWORDS) as JevTaskType[]).map((type) => [type, score(text, TYPE_KEYWORDS[type])]),
+  ) as Record<JevTaskType, number>;
+  // No signal at all reads as an open question.
+  if (Object.values(typeScores).every((value) => value === 0)) typeScores.research = 0.6;
+  const typeProbabilities = softmax(typeScores);
+
+  const assigneeProbabilities: Record<string, number> = Object.fromEntries(JEV_AGENTS.map((agent) => [agent.id, 0]));
+  for (const [type, probability] of Object.entries(typeProbabilities)) {
+    assigneeProbabilities[TYPE_OWNER[type as JevTaskType]]! += probability;
+  }
+
+  const projectScores: Record<string, number> = {
+    ...Object.fromEntries(Object.entries(PROJECT_KEYWORDS).map(([id, keywords]) => [id, score(text, keywords)])),
+    [JEV_NO_PROJECT]: 0.5,
+  };
+
+  const isQuestion = /\?\s*$/.test(prompt.trim()) || (/^(how|why|what|which|should|is|are|can|does)\b/.test(text) && !/^(can|could|would) you\b/.test(text));
+  const isLarge = /\b(plan|roadmap|migrate|migration|redesign|rewrite|overhaul|multi-step|phases?)\b/.test(text);
+  const modeScores = { standard: 1, planning: isLarge ? 3 : 0, ask: isQuestion ? 3 : 0 };
+
+  const inputTokens = 380 + Math.round(prompt.length / 4);
+  return {
+    model: request.model,
+    answers: {
+      task_type: choiceAnswer(typeProbabilities),
+      assignee: choiceAnswer(assigneeProbabilities),
+      project: choiceAnswer(softmax(projectScores, 2.4)),
+      work_mode: choiceAnswer(softmax(modeScores)),
+    },
+    // Output tokens are free on Jev; $0.042 per million input tokens.
+    usage: { input_tokens: inputTokens, output_tokens: 0, cost: (inputTokens * 0.042) / 1_000_000 },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// What the composer consumes
+
+export type JevField = "type" | "assignee" | "project" | "workMode";
+
+export type JevRouting = {
+  type: JevTaskType;
+  assigneeId: string;
+  projectId: string | null;
+  workMode: IssueWorkMode;
+  confidence: Record<JevField, number>;
+  probabilities: Record<JevField, Record<string, number>>;
+  /** Likely owners other than the top pick, shown when assignee confidence is low. */
+  alternateAssigneeIds: string[];
+  usage: JevDecisionResponse["usage"];
+};
+
+export function routingFromJev(response: JevDecisionResponse): JevRouting {
+  const { task_type: type, assignee, project, work_mode: mode } = response.answers as Record<string, JevChoiceAnswer>;
+  const alternateAssigneeIds = Object.entries(assignee!.probabilities)
+    .filter(([id, probability]) => id !== assignee!.choice && probability >= 0.1)
+    .slice(0, 2)
+    .map(([id]) => id);
+  return {
+    type: type!.choice as JevTaskType,
+    assigneeId: assignee!.choice,
+    projectId: project!.choice === JEV_NO_PROJECT ? null : project!.choice,
+    workMode: mode!.choice as IssueWorkMode,
+    confidence: { type: type!.confidence, assignee: assignee!.confidence, project: project!.confidence, workMode: mode!.confidence },
+    probabilities: { type: type!.probabilities, assignee: assignee!.probabilities, project: project!.probabilities, workMode: mode!.probabilities },
+    alternateAssigneeIds,
+    usage: response.usage,
+  };
+}
+
+export type LatencyOptions = { latencyMs?: number; fail?: boolean; signal?: AbortSignal };
+
+function delay<T>(produce: () => T, { latencyMs = 400, fail = false, signal }: LatencyOptions, failure: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => (fail ? reject(new Error(failure)) : resolve(produce())), latencyMs);
+    signal?.addEventListener("abort", () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    });
+  });
+}
+
+/** Jev is a fast decision model, so routing usually lands before the title. */
+export function routeTaskWithJev(prompt: string, options: LatencyOptions = {}): Promise<JevRouting> {
+  return delay(() => routingFromJev(simulateJevDecisions(buildJevDecisionRequest(prompt))), options, `${JEV_NAME} is unavailable right now.`);
+}
+
+// ---------------------------------------------------------------------------
+// Title: a small text model, not Jev. Simulated with curated titles and a trim.
+
 const CURATED_TITLES: Record<string, string> = {
   "the login page redirects": "Fix login redirect loop after session expiry",
   "add a csv export": "Add CSV export to the issues list",
   "should we move": "Evaluate moving heartbeats to a queue",
   "the new task dialog feels": "Tighten spacing in the new task dialog",
   "before friday's release": "Run release smoke tests before Friday",
-  "something is off": "Investigate agent budget discrepancy",
+  "something is off": "Investigate last month's numbers",
   "rotate the": "Rotate the GitHub App private key",
   "plan the migration": "Plan phased migration of runtime sessions to the new adapter",
 };
 
-function score(prompt: string, keywords: string[]): number {
-  return keywords.reduce((total, keyword) => total + (prompt.includes(keyword) ? 1 : 0), 0);
-}
-
 const FILLER = /^(hey|hi|please|pls|so|ok|okay|can you|could you|would you|i need you to|i need to|i want to|we need to|we should|let's|lets|i think|it seems like|it looks like)\b[\s,]*/i;
 
-/** Turn free-form text into a short, imperative-ish title. */
 export function draftTitle(prompt: string): string {
   const normalized = prompt.trim().toLowerCase();
   for (const [prefix, title] of Object.entries(CURATED_TITLES)) {
@@ -134,63 +301,6 @@ export function draftTitle(prompt: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export function classifyTaskPromptSync(prompt: string): JevSuggestion {
-  const text = prompt.toLowerCase();
-  const typeScores = (Object.keys(TYPE_KEYWORDS) as JevTaskType[])
-    .map((type) => ({ type, score: score(text, TYPE_KEYWORDS[type]) }))
-    .sort((a, b) => b.score - a.score);
-  const best = typeScores[0]!;
-  const runnerUp = typeScores[1]!;
-  const type: JevTaskType = best.score === 0 ? "research" : best.type;
-
-  const lead = best.score - runnerUp.score;
-  const confidence: JevConfidence =
-    best.score === 0 || lead === 0 ? "low" : lead >= 2 || runnerUp.score === 0 ? "high" : "medium";
-
-  const projectScores = Object.entries(PROJECT_KEYWORDS)
-    .map(([id, keywords]) => ({ id, score: score(text, keywords) }))
-    .sort((a, b) => b.score - a.score);
-  const projectId = projectScores[0]!.score > 0 ? projectScores[0]!.id : null;
-
-  const isQuestion = /\?\s*$/.test(prompt.trim()) || (/^(how|why|what|which|should|is|are|can|does)\b/.test(text) && !/^(can|could|would) you\b/.test(text));
-  const isLarge = /\b(plan|roadmap|migrate|migration|redesign|rewrite|overhaul|multi-step|phases?)\b/.test(text);
-  const workMode: IssueWorkMode = isQuestion && type === "research" ? "ask" : isLarge ? "planning" : "standard";
-
-  const assigneeId = TYPE_OWNER[type];
-  const alternateAssigneeIds = confidence === "high"
-    ? []
-    : [TYPE_OWNER[runnerUp.type], "agent-cto"].filter((id, index, ids) => id !== assigneeId && ids.indexOf(id) === index).slice(0, 2);
-
-  const typeLabel = JEV_TASK_TYPES.find((option) => option.value === type)!.label;
-  const typeNoun = type === "qa" ? "QA" : typeLabel.toLowerCase();
-  const projectName = JEV_PROJECTS.find((project) => project.id === projectId)?.name;
-  const reasons: JevSuggestion["reasons"] = [
-    {
-      field: "type",
-      text: best.score === 0
-        ? `No strong signal, so ${JEV_NAME} treated it as ${typeNoun} until you say otherwise.`
-        : `Reads as ${typeNoun} work${runnerUp.score > 0 && confidence !== "high" ? `, though it could be ${runnerUp.type}` : ""}.`,
-    },
-    { field: "assignee", text: TYPE_OWNER_REASON[type] },
-  ];
-  if (projectName) reasons.push({ field: "project", text: `Mentions areas covered by ${projectName}.` });
-  if (workMode === "planning") reasons.push({ field: "mode", text: "Large scope, so it starts in Plan mode for your review." });
-  if (workMode === "ask") reasons.push({ field: "mode", text: "It's a question, so Ask mode returns an answer without changing code." });
-
-  return { title: draftTitle(prompt), type, assigneeId, alternateAssigneeIds, projectId, workMode, confidence, reasons };
-}
-
-export type ClassifyOptions = { latencyMs?: number; fail?: boolean; signal?: AbortSignal };
-
-export function classifyTaskPrompt(prompt: string, { latencyMs = 900, fail = false, signal }: ClassifyOptions = {}): Promise<JevSuggestion> {
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      if (fail) reject(new Error(`${JEV_NAME} is unavailable right now.`));
-      else resolve(classifyTaskPromptSync(prompt));
-    }, latencyMs);
-    signal?.addEventListener("abort", () => {
-      window.clearTimeout(timer);
-      reject(new DOMException("Aborted", "AbortError"));
-    });
-  });
+export function draftTaskTitle(prompt: string, options: LatencyOptions = {}): Promise<string> {
+  return delay(() => draftTitle(prompt), options, "Couldn't draft a title.");
 }
