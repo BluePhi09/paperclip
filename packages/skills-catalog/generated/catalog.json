@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "packageName": "@paperclipai/skills-catalog",
   "packageVersion": "0.3.1",
-  "generatedAt": "2026-09-24T21:18:46.408Z",
+  "generatedAt": "2026-09-24T21:26:37.092Z",
   "skills": [
     {
       "id": "paperclipai:bundled:docs:doc-maintenance",
@@ -1171,11 +1171,11 @@
         {
           "path": "references/safe-discovery.md",
           "kind": "reference",
-          "sizeBytes": 19316,
-          "sha256": "1679b4cb69267c28d0d62debfd74a6d60e071f21a2a091ecd0d674de7e64d768"
+          "sizeBytes": 21230,
+          "sha256": "869e8d3f28feaf806439494031f5a9e8543a0141c12baad6ede0b840f21bf881"
         }
       ],
-      "contentHash": "sha256:ab3b48a79c69480660b333bb5cd2af75fc318242f966f47ebd23707cd0c6a4c2"
+      "contentHash": "sha256:87454c5aef46a8361b5fcf75a74b276fe7c043b2522a62d0293a9f2c48fcdc4c"
     },
     {
       "id": "paperclipai:optional:software-development:connect-agent-tools",

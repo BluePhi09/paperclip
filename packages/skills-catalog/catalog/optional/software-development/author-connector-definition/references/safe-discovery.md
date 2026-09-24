@@ -27,7 +27,7 @@ addresses it validated, and follows no redirect.
 | Any scheme other than `https:` | Refused. It is an allowlist, so `http:`, `file:`, `ftp:`, `gopher:` and `data:` all land here without being enumerated. |
 | A URL with userinfo (`https://a:b@host/`) | Refused. Credentials never belong on an unauthenticated discovery fetch, and userinfo is the classic way to make a host look like something it is not. |
 | Any port other than 443 | Refused. A provider that genuinely publishes discovery on another port is a gap to record and escalate, not a default to widen. |
-| A host that resolves to loopback, private, CGNAT, link-local, unique-local, multicast, benchmarking, documentation or reserved space | Refused, and the reason names the address. This is on resolved addresses, so a public DNS name with a `127.0.0.1` record is caught. |
+| A host that resolves to loopback, private, CGNAT, link-local, site-local, unique-local, multicast, benchmarking, documentation or reserved space | Refused, and the reason names the address. This is on resolved addresses, so a public DNS name with a `127.0.0.1` record is caught. |
 | An IPv4-mapped (`::ffff:a9fe:a9fe`), NAT64 (`64:ff9b::`) or 6to4 (`2002::`) address wrapping a blocked IPv4 address | Refused. The embedded address is extracted and run through the IPv4 rules. |
 | A host with several `A`/`AAAA` records where **one** is blocked | Refused. One bad answer in a round-robin set refuses the whole host. |
 | Anything resolvable and allowed | Fetched with `--resolve` pinned to exactly the addresses that were validated, so a second DNS answer cannot move the request after the check. |
@@ -196,11 +196,16 @@ const classifyV6 = (addr) => {
     return classifyV4(inner) ? `6to4 ${inner} (${classifyV4(inner)})` : null;
   }
   if (b[0] === 0x01 && b[1] === 0x00 && zero(2, 8)) return "discard-only";
-  if (b[0] === 0x20 && b[1] === 0x01 && (b[2] & 0xfe) === 0x0d && b[3] === 0xb8)
+  // 2001:db8::/32 — documentation. Match b[2] exactly: `b[2] & 0xfe` clears
+  // the low bit and so can never equal the odd 0x0d.
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8)
     return "documentation";
   if (b[0] === 0x20 && b[1] === 0x01 && b[2] < 0x02) return "IETF protocol assignments";
   if ((b[0] & 0xfe) === 0xfc) return "unique local";
   if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return "link-local";
+  // fec0::/10 — site-local. Deprecated by RFC 3879 but still carried on some
+  // internal networks, so it stays refused.
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0xc0) return "site-local";
   if (b[0] === 0xff) return "multicast";
   return null;
 };
@@ -369,8 +374,28 @@ https://[2002:7f00:1::]/x                                           REFUSE 2002:
 https://attacker:pw@wisdom-api.enterpret.com/x                      REFUSE URL carries userinfo
 https://wisdom-api.enterpret.com:8443/x                             REFUSE port is not 443: 8443
 https://localtest.me/x                                              REFUSE localtest.me resolves to ::1 (loopback)
+https://[fec0::1]/x                                                 REFUSE fec0::1 resolves to fec0::1 (site-local)
+https://[2001:db8::1]/x                                             REFUSE 2001:db8::1 resolves to 2001:db8::1 (documentation)
+https://[::]/x                                                      REFUSE :: resolves to :: (unspecified address)
+https://[ff02::1]/x                                                 REFUSE ff02::1 resolves to ff02::1 (multicast)
+https://198.18.0.1/x                                                REFUSE 198.18.0.1 resolves to 198.18.0.1 (benchmarking)
+https://255.255.255.255/x                                           REFUSE 255.255.255.255 resolves to 255.255.255.255 (reserved / broadcast)
+https://2130706433/x                                                REFUSE 127.0.0.1 resolves to 127.0.0.1 (loopback)
+https://0x7f.0.0.1/x                                                REFUSE 127.0.0.1 resolves to 127.0.0.1 (loopback)
 not-a-url                                                           REFUSE not a URL: not-a-url
 ```
+
+The last two are worth their own line: `2130706433` and `0x7f.0.0.1` are
+`127.0.0.1` written as a decimal integer and with a hex first octet. A string
+check for `127.` misses both. The guard never does string checks — it parses
+the URL with the WHATWG parser, which normalizes these to `127.0.0.1` before
+classification.
+
+The addresses that must **not** be refused, checked in the same pass so the
+list above is not just an over-blocking guard: `https://google.com/`,
+`https://wisdom-api.enterpret.com/`, `https://8.8.8.8/`,
+`https://[2607:f8b0:4009:812::200e]/` and `https://[2600::1]/` all print
+`ALLOW`.
 
 ### The proxy bypass is load-bearing, not decorative
 
