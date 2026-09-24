@@ -34,7 +34,11 @@ borrow the operator's home credentials. Local execution can use the operator's
 existing Grok login when no company login has been selected.
 
 Only the selected credential is staged in the private runtime home. An ownership
-lease fences concurrent processes. After the provider exits, refreshed credentials
+lease fences concurrent processes. Before ACP startup, an expiring subscription
+credential is refreshed through the verified Grok executable’s non-inference
+`models` command. This bounded step suppresses output and prevents Grok 1.0.13
+from caching a pre-refresh model list. Exact model verification still precedes
+any prompt; refresh failure requires reconnecting Grok Build. After the provider exits, refreshed credentials
 are copied back through Grok's existing identity and refresh checks. Runtime
 credentials, refresh handoffs, and diagnostic logs are excluded from workspace
 backups and removed on close. Session history remains available for resume. Host
