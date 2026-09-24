@@ -8538,7 +8538,7 @@ describe("runnerd provider runtime wiring", () => {
     }
   });
 
-  it("migrates a suspended prior-run authority only when its persisted execution has the same full session scope", async () => {
+  it.each([0, 2048])("migrates a suspended prior-run authority in the same full session scope with %i retained events", async (eventCount) => {
     const stateBase = await mkdtemp(
       join(tmpdir(), "paperclip-prior-run-session-state-"),
     );
@@ -8596,16 +8596,45 @@ describe("runnerd provider runtime wiring", () => {
     try {
       await mkdir(join(legacyRoot, "control-plane"), { recursive: true });
       await mkdir(join(legacyRoot, "runner"), { recursive: true });
+      const identity = {
+        runId: priorExecution.binding.runId,
+        normalizedSessionId: priorExecution.session.normalizedSessionId,
+        runnerInstanceId: "runner-prior-run-scope",
+        environmentLeaseId: "lease-prior-run-scope",
+      };
+      const controlPlaneBytes = JSON.stringify({
+        ...durableControlPlaneState(identity),
+        // The identity shares a file with the retained PRP event window. A
+        // verbose valid turn can exceed the old 2 MiB identity-read limit.
+        committedEvents: Array.from({ length: eventCount }, (_, index) => ({
+          sourceSeq: index + 1,
+          sourceEventId: `event-${index + 1}`,
+          eventType: "item.delta",
+          priority: 1,
+          envelope: {
+            schema: "paperclip.prp.event.v1",
+            schemaVersion: 1,
+            sourceKind: "runner",
+            sourceInstanceId: identity.runnerInstanceId,
+            sourceEventId: `event-${index + 1}`,
+            sourceSeq: index + 1,
+            normalizedSessionId: identity.normalizedSessionId,
+            runId: identity.runId,
+            turnId: "turn-prior-run-scope",
+            itemId: "item-prior-run-scope",
+            eventType: "item.delta",
+            priority: 1,
+            emittedAt: "2026-09-24T00:00:00.000Z",
+            payload: { delta: "x".repeat(1024) },
+          },
+          deliveryCount: 1,
+          logicalEffectCount: 1,
+        })),
+      });
+      if (eventCount > 0) expect(Buffer.byteLength(controlPlaneBytes)).toBeGreaterThan(2 * 1024 * 1024);
       await writeFile(
         join(legacyRoot, "control-plane", "control-plane-state.json"),
-        JSON.stringify(
-          durableControlPlaneState({
-            runId: priorExecution.binding.runId,
-            normalizedSessionId: priorExecution.session.normalizedSessionId,
-            runnerInstanceId: "runner-prior-run-scope",
-            environmentLeaseId: "lease-prior-run-scope",
-          }),
-        ),
+        controlPlaneBytes,
       );
       await writeFile(
         join(legacyRoot, "runner", "runner-state.json"),
@@ -8634,6 +8663,17 @@ describe("runnerd provider runtime wiring", () => {
         state.createTransport.mock.calls[0]![0].stateDirectory!;
       expect(migratedRoot).not.toBe(legacyRoot);
       await expect(access(legacyRoot)).rejects.toThrow();
+      // Re-enter through the canonical scoped root as ordinary continuation
+      // does, not only through the legacy migration path above.
+      state.createBackend.mockClear();
+      state.createTransport.mockClear();
+      await createRunnerdBackend({
+        db: priorRunDb,
+        execution: currentExecution,
+        runnerInstanceId: "runner-current-run-scope",
+      });
+      state.createBackend.mock.calls[0]![1].codexTransportFactory!();
+      expect(state.createTransport.mock.calls[0]![0].stateDirectory).toBe(migratedRoot);
       expect(state.createTransport.mock.calls[0]![0].prpIdentity).toEqual(
         expect.objectContaining({
           runId: currentExecution.binding.runId,
@@ -9804,7 +9844,7 @@ describe("runnerd provider runtime wiring", () => {
     },
   );
 
-  it.each(["missing", "malformed", "unknown_schema", "mismatched"] as const)(
+  it.each(["missing", "malformed", "unknown_schema", "mismatched", "oversized"] as const)(
     "fails closed on %s durable identity in an existing scoped root",
     async (caseName) => {
       const stateBase = await mkdtemp(
@@ -9863,6 +9903,25 @@ describe("runnerd provider runtime wiring", () => {
                       environmentLeaseId: "lease-owned-by-another-scope",
                     }),
                   ),
+          );
+        }
+        if (caseName === "oversized") {
+          const identity = {
+            runId: scopedExecution.binding.runId,
+            normalizedSessionId: scopedExecution.session.normalizedSessionId,
+            runnerInstanceId: `runner-${caseName}-scoped-state`,
+            environmentLeaseId: scopedExecution.binding.executionWorkspaceId,
+          };
+          // Valid JSON and valid ready authority: only the byte bound rejects
+          // this file. Malformed sparse padding would not test that boundary.
+          await writeFile(
+            join(scopedRoot, "control-plane", "control-plane-state.json"),
+            JSON.stringify(durableControlPlaneState(identity)).padEnd(64 * 1024 * 1024 + 1, " "),
+          );
+          await mkdir(join(scopedRoot, "runner"), { recursive: true });
+          await writeFile(
+            join(scopedRoot, "runner", "runner-state.json"),
+            JSON.stringify(durableRunnerState(identity, "ready")),
           );
         }
         state.createBackend.mockClear();

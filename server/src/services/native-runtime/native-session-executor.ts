@@ -280,7 +280,10 @@ export async function detachNativeSessionsForRestart(
 const MAX_REMOTE_CHECKPOINT_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const MAX_REMOTE_CHECKPOINT_EXPANDED_BYTES = 64 * 1024 * 1024;
 const MAX_REMOTE_CHECKPOINT_ENTRIES = 20_000;
-const NATIVE_DURABLE_IDENTITY_MAX_BYTES = 2 * 1024 * 1024;
+// Identity is read from the complete control-plane state, including its PRP
+// event window. Match the transport's bounded reader so verbose valid turns do
+// not lose continuation authority merely because their history exceeds 2 MiB.
+const NATIVE_CONTROL_PLANE_STATE_MAX_BYTES = 64 * 1024 * 1024;
 const NATIVE_RUNNER_STATE_MAX_BYTES = 16 * 1024 * 1024;
 const NATIVE_WARM_CHECKPOINT_MAX_BYTES = 8 * 1024 * 1024;
 const CODEX_HOME_NON_PERSISTENT_ENTRIES = [
@@ -4105,7 +4108,7 @@ function hasRetainedWarmTransitionEvidence(root: string): boolean {
     [
       "control-plane",
       "control-plane-state.json",
-      NATIVE_DURABLE_IDENTITY_MAX_BYTES,
+      NATIVE_CONTROL_PLANE_STATE_MAX_BYTES,
     ],
     ["runner", "runner-state.json", NATIVE_RUNNER_STATE_MAX_BYTES],
   ] as const) {
@@ -4162,7 +4165,7 @@ function readWarmTransitionSnapshot(root: string) {
   }
   const core = readBoundedNativeFile(
     resolve(root, "control-plane", "control-plane-state.json"),
-    NATIVE_DURABLE_IDENTITY_MAX_BYTES,
+    NATIVE_CONTROL_PLANE_STATE_MAX_BYTES,
     "native_runner_warm_transition_recovery_unproven",
   );
   const runner = readBoundedNativeFile(
@@ -5003,7 +5006,7 @@ export function runnerdStateProvesIncompleteBootstrap(root: string): boolean {
       JSON.parse(
         readBoundedNativeFile(
           statePath,
-          NATIVE_DURABLE_IDENTITY_MAX_BYTES,
+          NATIVE_CONTROL_PLANE_STATE_MAX_BYTES,
           "runner_durable_identity_too_large",
         ).toString("utf8"),
       ),
@@ -5056,7 +5059,7 @@ function readRunnerdDurableIdentity(
       JSON.parse(
         readBoundedNativeFile(
           statePath,
-          NATIVE_DURABLE_IDENTITY_MAX_BYTES,
+          NATIVE_CONTROL_PLANE_STATE_MAX_BYTES,
           "runner_durable_identity_too_large",
         ).toString("utf8"),
       ),
