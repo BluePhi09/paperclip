@@ -19,6 +19,11 @@ export const kubernetesProviderConfigSchema = z
     egressAllowFqdns: z.array(z.string()).default([]),
     egressAllowCidrs: z.array(z.string().regex(cidrRegex, "Invalid CIDR")).default([]),
     egressMode: z.enum(["cilium", "standard"]).default("standard"),
+    /** Labels on the Paperclip API pod accepting callbacks; defaults to the upstream app label. */
+    paperclipServerPodSelector: z.record(z.string(), z.string()).refine(
+      (labels) => Object.keys(labels).length > 0,
+      "paperclipServerPodSelector must not be empty",
+    ).default({ app: "paperclip-server" }),
 
     defaultResources: z
       .object({
