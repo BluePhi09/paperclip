@@ -1,0 +1,133 @@
+import { expect, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { resolveDefaultAgentWorkspaceDir } from "../../server/src/home-paths.js";
+import { pollUntil, type RunnerApi } from "./api.js";
+import { sendChatMessage, readChatOutputDocument, collectChatRunEvidence, type ChatFlowInput, type ChatRun } from "./chat-flow.js";
+import { prepareChatBrief } from "./chat-stories.js";
+import { completionDelivery, type CompletionObservation } from "./completion-updates.js";
+
+type Row = Record<string, any>;
+export async function observeCompletionUpdate(input: {
+  page: Page; api: RunnerApi; sourceId: string; workerId: string; marker: string;
+  allRuns(): Promise<Row[]>;
+  evidence(name: string, data: unknown): Promise<void>;
+  capture(id: string, label: string, file: string): Promise<void>;
+}) {
+  const startedAt = new Date().toISOString();
+  let observation: CompletionObservation | undefined;
+  let failure: unknown;
+  try {
+    await pollUntil({
+      label: "unsolicited source-thread completion reply and result access",
+      deadlineAt: Date.now() + 120_000, intervalMs: 1000,
+      load: async () => {
+        const worker = await input.api.get<Row>(`/api/issues/${input.workerId}`);
+        const documents = await input.api.get<Row[]>(`/api/issues/${input.workerId}/documents`);
+        observation = {
+          sourceId: input.sourceId, worker, marker: input.marker,
+          documents: await Promise.all(documents.map(d => input.api.get<Row>(`/api/issues/${worker.id}/documents/${encodeURIComponent(d.key)}`))),
+          comments: await input.api.get<Row[]>(`/api/issues/${input.sourceId}/comments?order=asc`),
+          runs: await input.allRuns(),
+        };
+        const response = completionDelivery(observation).response;
+        if (response) {
+          const reply = input.page.locator(`[id=${JSON.stringify(`comment-${response.id}`)}]`);
+          observation.renderedLinks = (await reply.locator("a[href]").evaluateAll(elements =>
+            elements.map(element => element.getAttribute("href")!))).map(href => ({ commentId: response.id, href }));
+        }
+        return completionDelivery(observation);
+      },
+      accept: result => result.checks.every(c => c.passed),
+      reject: () => observation!.runs.length > 12 ? "completion probe exceeded 12 runs" : undefined,
+      timeoutDetail: result => result?.checks.filter(c => !c.passed).map(c => c.id).join(", "),
+    });
+    const delivery = completionDelivery(observation!);
+    if (!delivery.response) throw new Error("Completion observation lost its source reply");
+    // Verify browser persistence, not just an API comment. No new user input.
+    await input.page.reload({ waitUntil: "domcontentloaded" });
+    const reply = input.page.locator(`[id=${JSON.stringify(`comment-${delivery.response.id}`)}]`);
+    await expect(reply).toBeVisible();
+    if (delivery.resultLinks.length) {
+      const link = delivery.resultLinks[0]!;
+      const url = new URL(link, input.api.baseURL);
+      expect(url.origin).toBe(new URL(input.api.baseURL).origin);
+      await expect(reply.locator(`a[href=${JSON.stringify(link)}]`).first()).toBeVisible();
+      const response = await input.api.request.get(`${url.pathname}${url.search}`);
+      expect(response.ok()).toBe(true);
+    } else {
+      await expect(reply).toContainText(input.marker);
+    }
+    return observation!;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await input.evidence("completion-update.json", {
+      schema: "paperclip.completion-update-probe.v1", startedAt, finishedAt: new Date().toISOString(),
+      observation, delivery: observation ? completionDelivery(observation) : null,
+      observedFailure: failure instanceof Error ? failure.message : null,
+    });
+    await input.capture("completion-update", "Originating thread after delegated completion", "completion-update.png");
+    if (observation) await input.evidence("completion-update-run-evidence.json", await Promise.all(
+      observation.runs.map(run => collectChatRunEvidence(input.api, run as ChatRun))));
+  }
+}
+
+export async function runChatCompletionUpdate(context: {
+  input: ChatFlowInput; marker: string; allRuns(): Promise<ChatRun[]>; refreshIssue(): Promise<void>; issue(): { id: string };
+}) {
+  const { input, marker } = context;
+  const { api, fixtures: f, execution, page } = input;
+  const company = `/api/companies/${f.company.id}`;
+  const config = execution.profile.buildAgent({ environmentId: f.environment.id, environmentFixtureId: "local", workspacePath: input.workspacePath, secretRefs: f.secretRefs, executionId: input.nonce });
+  const worker = await api.post<Row>(`${company}/agents`, { ...config, name: "Riley Writer", role: "engineer", reportsTo: f.agent.id });
+  const workspace = resolveDefaultAgentWorkspaceDir(worker.id);
+  const relative = path.relative(path.dirname(input.workspacePath), workspace);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Completion fixture escaped isolated instance");
+  const wait = await prepareChatBrief(workspace, input.nonce);
+  const reference = `MEETUP${randomUUID().replaceAll("-", "")}`;
+  const instructions = `For the welcome-note assignment, run node ${wait.scriptPath} to read the organizer's brief before writing the final note. Save a two-sentence welcome note as a Paperclip document on your assigned task using the brief's details and reference. Then complete your task. Do not edit or comment on another task.`;
+  const saved = await api.request.put(`/api/agents/${worker.id}/instructions-bundle/file`, { data: { path: "AGENTS.md", content: instructions } });
+  expect(saved.ok()).toBe(true);
+  expect(await api.get(`/api/agents/${worker.id}/instructions-bundle/file?path=AGENTS.md`)).toMatchObject({ content: instructions });
+  const project = await api.post<Row>(`${company}/projects`, { name: "Garden welcome", description: "A non-code neighborhood garden meetup. No repository needed." });
+  const prompt = `Create one task in the Garden welcome project (${project.id}) assigned to Riley Writer to write a two-sentence welcome note for our free Friday garden meetup. Riley has the organizer's brief. Save the finished note on that task and include ${marker}. Please tell me here when the work is finished and give me access to the result. You may start the handoff now; no further approval is needed. Let Riley write the note.`;
+  let task: Row | undefined;
+  try {
+    await sendChatMessage(page, prompt);
+    await pollUntil({ label: "worker waiting while originating chat is idle", deadlineAt: Date.now() + 110_000, intervalMs: 1000,
+      load: async () => {
+        await context.refreshIssue();
+        const source = await api.get<Row>(`/api/issues/${context.issue().id}`);
+        const tasks = await api.get<Row[]>(`${company}/issues`);
+        task = tasks.find(t => t.assigneeAgentId === worker.id);
+        const runs = await context.allRuns();
+        return { source, tasks, runs, ready: await readFile(wait.ready, "utf8").catch(() => "") };
+      },
+      accept: state => Boolean(task) && state.ready === "waiting" && state.source.conversationState === "waiting" &&
+        state.runs.some(r => r.contextSnapshot?.issueId === task!.id && r.status === "running") &&
+        state.runs.some(r => r.contextSnapshot?.issueId === state.source.id && r.status === "succeeded") &&
+        !state.runs.some(r => r.contextSnapshot?.issueId === state.source.id && ["queued", "running"].includes(r.status)),
+    });
+    expect(task!.parentId).toBeNull();
+    expect(task!.projectId).toBe(project.id);
+    await input.evidence("completion-update-boundary.json", { task, source: await api.get(`/api/issues/${context.issue().id}`), runs: await context.allRuns(), gateReady: true, prompt, reference });
+    await input.capture("completion-idle", "Chat is idle while Riley waits for the brief", "completion-idle.png");
+    await writeFile(wait.gate, `The free Friday meetup starts at 10:30 in the community garden. Reference: ${reference}.`);
+    await pollUntil({ label: "delegated welcome note completed", deadlineAt: Date.now() + 180_000, intervalMs: 1000,
+      load: () => api.get<Row>(`/api/issues/${task!.id}`), accept: t => t.status === "done" });
+    const output = await readChatOutputDocument(api, task!.id, marker);
+    expect(output.body).toContain(reference);
+    await input.evidence("completion-update-worker-output.json", { task: await api.get(`/api/issues/${task!.id}`), output });
+    await observeCompletionUpdate({ ...input, sourceId: context.issue().id, workerId: task!.id, marker, allRuns: context.allRuns });
+    expect((await api.get<Row[]>(`${company}/issues`)).map(t => t.id)).toEqual([task!.id]);
+    expect(await api.get(`/api/issues/${task!.id}/documents/${encodeURIComponent(output.key)}`)).toEqual(output);
+    const comments = await api.get<Row[]>(`/api/issues/${context.issue().id}/comments?order=asc`);
+    expect(comments.filter(c => c.authorUserId).map(c => c.body)).toEqual([prompt]);
+  } finally {
+    await writeFile(wait.gate, `Reference: ${reference}`);
+    await context.refreshIssue();
+  }
+}
