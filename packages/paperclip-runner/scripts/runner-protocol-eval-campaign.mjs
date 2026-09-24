@@ -69,7 +69,6 @@ export function credentialForConfig(config, grokAuthenticationMode = "api_key") 
     return "OPENAI_API_KEY";
   }
   if (config.provider === "acpx") {
-    if (config.acpxAgent === "grok") return "XAI_API_KEY";
     if (config.acpxAgent === "pi") return "OPENROUTER_API_KEY";
     if (config.acpxAgent === "claude") return "ANTHROPIC_API_KEY";
     if (config.acpxAgent === "grok") {
