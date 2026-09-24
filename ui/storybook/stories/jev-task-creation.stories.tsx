@@ -122,6 +122,6 @@ export const SlowJev: Story = {
 export const Light: Story = { name: "16 · Light theme", args: { initialPrompt: PROMPTS.bug }, globals: { theme: "light" } };
 export const Mobile: Story = {
   name: "17 · Mobile",
-  args: { initialPrompt: PROMPTS.design, mobile: true },
+  args: { initialPrompt: PROMPTS.design },
   globals: { viewport: { value: "mobile1", isRotated: false } },
 };

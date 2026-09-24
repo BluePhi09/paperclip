@@ -19,6 +19,19 @@ import type { IssueWorkMode } from "@paperclipai/shared";
 
 export const JEV_NAME = "Jev";
 export const JEV_MODEL = "typesafe/jev-1.13";
+/** Jev bills input tokens only; output tokens are free (OpenRouter Jev classification cookbook). */
+export const JEV_INPUT_USD_PER_MTOK = 0.042;
+/** Title model: Claude Haiku 4.5, Anthropic first-party API pricing. */
+export const TITLE_MODEL = "claude-haiku-4-5";
+export const TITLE_INPUT_USD_PER_MTOK = 1;
+export const TITLE_OUTPUT_USD_PER_MTOK = 5;
+
+export type ModelUsage = { input_tokens: number; output_tokens: number; cost: number };
+
+/** Rough token estimate for the prototype: about four characters per token. Production reads `usage` from each response. */
+export function estimateTokens(text: string): number {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
 /** Below this assignee confidence, the task goes to the fallback owner (see `fallbackAssigneeId`). */
 export const JEV_CONFIDENCE_THRESHOLD = 0.6;
 /** Prompts need a little substance before routing starts. */
@@ -44,7 +57,7 @@ export type JevChoiceAnswer = { type: "choice"; choice: string; confidence: numb
 export type JevDecisionResponse = {
   model: string;
   answers: Record<string, JevChoiceAnswer>;
-  usage: { input_tokens: number; output_tokens: number; cost: number };
+  usage: ModelUsage;
 };
 
 // ---------------------------------------------------------------------------
@@ -298,8 +311,7 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
   const isInvestigation = /^(investigate|research|find out|figure out|look into|compare|evaluate)\b/.test(text);
   const modeScores = { standard: 1, planning: isLarge ? 3 : 0, ask: isQuestion ? 3 : isInvestigation ? 1.6 : 0 };
 
-  // Rough estimate: about four characters per token.
-  const inputTokens = Math.round(JSON.stringify(request).length / 4);
+  const inputTokens = estimateTokens(JSON.stringify(request));
   return {
     model: request.model,
     answers: {
@@ -307,7 +319,7 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
       assignee: choiceAnswer(assigneeProbabilities),
     },
     // Output tokens are free on Jev; $0.042 per million input tokens.
-    usage: { input_tokens: inputTokens, output_tokens: 0, cost: (inputTokens * 0.042) / 1_000_000 },
+    usage: { input_tokens: inputTokens, output_tokens: 0, cost: (inputTokens * JEV_INPUT_USD_PER_MTOK) / 1_000_000 },
   };
 }
 
@@ -437,6 +449,29 @@ export function draftTitle(prompt: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export function draftTaskTitle(prompt: string, options: LatencyOptions = {}): Promise<string> {
-  return delay(() => draftTitle(prompt), options, "Couldn't draft a title.");
+const TITLE_SYSTEM =
+  "You name tasks for an operator dashboard. Reply with only the title: 3 to 8 words, imperative, sentence case, no quotes or trailing punctuation.";
+
+/** The Messages API request a server would send to Claude Haiku 4.5 when the task is started. */
+export function buildTitleRequest(prompt: string) {
+  return {
+    model: TITLE_MODEL,
+    max_tokens: 64,
+    system: TITLE_SYSTEM,
+    messages: [{ role: "user" as const, content: prompt }],
+  };
+}
+
+export type TitleDraft = { title: string; usage: ModelUsage };
+
+export function draftTaskTitle(prompt: string, options: LatencyOptions = {}): Promise<TitleDraft> {
+  return delay(() => {
+    const title = draftTitle(prompt);
+    const request = buildTitleRequest(prompt);
+    // System + user text plus a small allowance for message framing.
+    const inputTokens = estimateTokens(request.system) + estimateTokens(prompt) + 8;
+    const outputTokens = estimateTokens(title) + 1;
+    const cost = (inputTokens * TITLE_INPUT_USD_PER_MTOK + outputTokens * TITLE_OUTPUT_USD_PER_MTOK) / 1_000_000;
+    return { title, usage: { input_tokens: inputTokens, output_tokens: outputTokens, cost } };
+  }, options, "Couldn't draft a title.");
 }

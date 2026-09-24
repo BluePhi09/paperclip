@@ -67,6 +67,46 @@ Two models do the work, because they are good at different things:
 - Starting never waits. Whatever Jev has suggested is used, and anything still
   pending finishes after.
 
+## Modal design
+
+The composer is the shipped `NewIssueDialog` chrome, rebuilt for prompt-first
+creation with product tokens only (no bracket values, hex, or raw durations):
+
+- **Header:** the `PAP ›` breadcrumb. After starting, it becomes `PAP-412 ›` and
+  the title types in; click it to rename.
+- **Body:** the prompt is the hero: borderless, auto-growing, with Enter to start
+  and Shift+Enter for a new line. Under it, one routing sentence in the shipped
+  dialog's shape: `[Mode] For [Owner] in [Project]`, using the shipped compact
+  control style and work-mode chip colors.
+- **Jev's presence:** a quiet sparkle and confidence number at the end of the
+  routing row. It pulses while Jev re-reads and opens the confidence details on
+  click, instead of an always-visible disclosure.
+- **Motion:** changed values fade in with the app's `tc-enter-marker` class and
+  take a brief accent fill timed by `--motion-duration-slow` and
+  `--motion-ease-standard`. Both collapse under reduced motion.
+- **Footer:** Cancel left, the ↵ / ⇧↵ hint, and Start task right. After starting:
+  Create another left and Open task right, with the result shown in place rather
+  than as a toast (DESIGN.md contextual feedback).
+- **Errors:** the shipped `InlineBanner` with a Try again action.
+- `presentation="inline"` renders the same surface in the page flow for review
+  pages; the default is the real `Dialog`.
+
+## Estimated cost per task
+
+Every task shows an **Estimated cost** table:
+
+- **Jev · live routing:** every call made while typing, plus a final call if
+  typing got ahead of routing. Input tokens only, at $0.042 per million; output
+  tokens are free.
+- **Haiku 4.5 · title:** the single title call made on start. `buildTitleRequest`
+  is the real Messages API body for `claude-haiku-4-5`: a short system
+  instruction, the prompt, and `max_tokens: 64`. $1 per million input tokens and
+  $5 per million output tokens.
+- **Total**, with a per-1,000-tasks estimate.
+
+Token counts are estimated at about four characters per token. In production,
+read `usage` from each response instead.
+
 ## Two flows to compare
 
 - **Suggest-first** (stories 01–11c): review the live suggestions, then create.
