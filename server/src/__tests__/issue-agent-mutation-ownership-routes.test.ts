@@ -375,8 +375,12 @@ function createRunContextDb(
     chatBindingQueries,
     transaction: async (callback: (tx: typeof dbStub) => Promise<unknown>) => callback(dbStub),
     select: vi.fn((selection: Record<string, unknown> = {}) => ({
-      from: vi.fn((table: Parameters<typeof getTableName>[0]) =>
-        buildQuery(selection, getTableName(table) === "chat_conversations", getTableName(table) === "issue_recovery_actions")),
+      from: vi.fn((table: Parameters<typeof getTableName>[0]) => {
+        if (getTableName(table) === "issue_thread_interactions") {
+          return { where: vi.fn(() => ({ limit: vi.fn(async () => []) })) };
+        }
+        return buildQuery(selection, getTableName(table) === "chat_conversations", getTableName(table) === "issue_recovery_actions");
+      }),
     })),
     insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
   };

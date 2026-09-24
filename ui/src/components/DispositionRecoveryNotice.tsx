@@ -11,6 +11,7 @@ export type DispositionRecoveryContextValue = {
     activeRecoveryAction?: Pick<IssueRecoveryAction, "id" | "status" | "kind" | "ownerType" | "returnOwnerAgentId" | "wakePolicy"> & { evidence?: IssueRecoveryAction["evidence"] } | null;
   };
   agentMap?: ReadonlyMap<string, Pick<Agent, "name" | "status">>;
+  hasPendingInteraction?: boolean;
   unavailableReason?: string | null;
   onRetry: (actionId: string) => Promise<void>;
 };
@@ -45,6 +46,7 @@ export function dispositionRetryUnavailableReason(snapshot: DispositionRecoveryS
   if (action.kind !== "deliberate_wait_without_target" || action.ownerType !== "board" || action.wakePolicy?.type !== "board_escalation") return "The task’s recovery state has changed. Refresh to see the current action.";
   if (!snapshot.assigneeAgentId || issue.assigneeAgentId !== snapshot.assigneeAgentId || action.returnOwnerAgentId !== snapshot.assigneeAgentId) return "The assigned agent has changed. Review the task before retrying.";
   if (context.unavailableReason) return context.unavailableReason;
+  if (context.hasPendingInteraction) return "Respond to the pending question or confirmation before retrying.";
   if (issue.executionRunId || issue.checkoutRunId) return "The task already has an active run. Wait for it to finish.";
   if (issue.executionState?.status === "pending") return "The task is waiting for a review or approval.";
   if (issue.blockedBy?.some(blocker => blocker.status !== "done" && blocker.status !== "cancelled")) return "Resolve the task’s blockers before retrying.";

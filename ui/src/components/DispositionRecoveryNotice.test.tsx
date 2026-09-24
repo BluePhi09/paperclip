@@ -98,7 +98,7 @@ describe("disposition retry affordance gates", () => {
     const value = context(); value.issue.status = status;
     expect(dispositionRetryUnavailableReason(snapshot, value)).not.toBeNull();
   });
-  it.each(["assignee", "returnOwner", "action", "run", "checkout", "pausedAgent", "terminatedAgent", "approval", "blocker", "pause", "automaticRepair"])("blocks %s", gate => {
+  it.each(["assignee", "returnOwner", "action", "run", "checkout", "pausedAgent", "terminatedAgent", "approval", "blocker", "pause", "automaticRepair", "interaction"])("blocks %s", gate => {
     const value = context();
     if (gate === "assignee") value.issue.assigneeAgentId = "someone-else";
     if (gate === "returnOwner") value.issue.activeRecoveryAction!.returnOwnerAgentId = "someone-else";
@@ -109,6 +109,7 @@ describe("disposition retry affordance gates", () => {
     if (gate === "approval") value.issue.executionState = { status: "pending" } as NonNullable<DispositionRecoveryContextValue["issue"]["executionState"]>;
     if (gate === "blocker") value.issue.blockedBy = [{ status: "in_progress" }] as DispositionRecoveryContextValue["issue"]["blockedBy"];
     if (gate === "pause") value.unavailableReason = "Paused";
+    if (gate === "interaction") value.hasPendingInteraction = true;
     if (gate === "automaticRepair") value.issue.activeRecoveryAction!.ownerType = "agent";
     expect(dispositionRetryUnavailableReason(snapshot, value)).not.toBeNull();
   });

@@ -7731,6 +7731,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                 <DispositionRecoveryProvider value={{
                   issue,
                   agentMap,
+                  hasPendingInteraction: interactions.some((interaction) => interaction.status === "pending"),
                   unavailableReason: boardAccess && !canResolveBoardRecoveryAction
                     ? "You don’t have permission to retry this recovery action."
                     : treeControlStateError

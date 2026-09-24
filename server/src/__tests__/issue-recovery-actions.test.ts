@@ -18,6 +18,7 @@ import {
   issueInboxArchives,
   issueRecoveryActions,
   issueRelations,
+  issueThreadInteractions,
   issues,
 } from "@paperclipai/db";
 import {
@@ -138,6 +139,7 @@ describeEmbeddedPostgres("issue recovery actions", () => {
   }, 30_000);
 
   afterEach(async () => {
+    await db.delete(issueThreadInteractions);
     await db.delete(issueRecoveryActions);
     await db.delete(issueComments);
     await db.delete(environmentLeases);
@@ -1994,6 +1996,40 @@ describeEmbeddedPostgres("issue recovery actions", () => {
     expect(activityRows.map((row) => row.action)).toEqual(
       expect.arrayContaining(["issue.updated", "issue.recovery_action_resolved"]),
     );
+  });
+
+  it.each(["ask_user_questions", "request_confirmation"] as const)("does not retry past a new pending %s", async (kind) => {
+    const { companyId, coderId, sourceIssueId } = await seedCompany();
+    await db.update(issues).set({ status: "blocked", assigneeAgentId: coderId }).where(eq(issues.id, sourceIssueId));
+    const action = await issueRecoveryActionService(db).upsertSourceScoped({
+      companyId, sourceIssueId, kind: "deliberate_wait_without_target", ownerType: "board",
+      returnOwnerAgentId: coderId, cause: "deliberate_wait_without_target", fingerprint: "disposition:pending-interaction",
+      nextAction: "Review the outcome.", wakePolicy: { type: "board_escalation" },
+    });
+    const [interaction] = await db.insert(issueThreadInteractions).values({
+      companyId, issueId: sourceIssueId, kind, status: "pending", createdByAgentId: coderId,
+      payload: kind === "request_confirmation"
+        ? { version: 1, prompt: "Confirm the next step." }
+        : { version: 1, questions: [{ id: "next", prompt: "Which step?", selectionMode: "single", options: [{ id: "a", label: "A" }] }] },
+    }).returning();
+    const wake = vi.fn(async () => null);
+    const app = createApp(undefined, { recoveryActionEnqueueWakeup: wake });
+    const body = { actionId: action.id, outcome: "restored", sourceIssueStatus: "todo" };
+    const denied = await request(app).post(`/api/issues/${sourceIssueId}/recovery-actions/resolve`).send(body).expect(409);
+    expect(denied.body.details?.code).toBe("disposition_recovery_interaction_pending");
+    expect(wake).not.toHaveBeenCalled();
+    expect(await db.select().from(issues).where(eq(issues.id, sourceIssueId))).toEqual([
+      expect.objectContaining({ status: "blocked", assigneeAgentId: coderId }),
+    ]);
+    expect(await issueRecoveryActionService(db).getActiveForIssue(companyId, sourceIssueId)).toMatchObject({ id: action.id });
+    expect(await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, interaction!.id))).toEqual([
+      expect.objectContaining({ status: "pending" }),
+    ]);
+    expect(await db.select().from(activityLog).where(eq(activityLog.entityId, sourceIssueId))).toHaveLength(0);
+    // A settled interaction must not leave a permanent retry veto.
+    await db.update(issueThreadInteractions).set({ status: "resolved", resolvedAt: new Date() }).where(eq(issueThreadInteractions.id, interaction!.id));
+    await request(app).post(`/api/issues/${sourceIssueId}/recovery-actions/resolve`).send(body).expect(200);
+    expect(wake).toHaveBeenCalledTimes(1);
   });
 
   it("retries an exhausted disposition action once, preserving the owner and audit trail", async () => {
