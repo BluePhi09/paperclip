@@ -31,6 +31,8 @@ addresses it validated, and follows no redirect.
 | An IPv4-mapped (`::ffff:a9fe:a9fe`), NAT64 (`64:ff9b::`) or 6to4 (`2002::`) address wrapping a blocked IPv4 address | Refused. The embedded address is extracted and run through the IPv4 rules. |
 | A host with several `A`/`AAAA` records where **one** is blocked | Refused. One bad answer in a round-robin set refuses the whole host. |
 | Anything resolvable and allowed | Fetched with `--resolve` pinned to exactly the addresses that were validated, so a second DNS answer cannot move the request after the check. |
+| A proxy in the environment (`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, …) | Bypassed with `--noproxy '*'`, and a note is printed. A proxy receives the hostname and resolves it itself, so `--resolve` would be ignored and the validated addresses would not be the ones connected to. |
+| A proxy in `~/.curlrc` | Ignored: `-q` is the first option, so curl reads no config file. |
 | Any `3xx` response | Refused. The redirect is reported and not followed. To go there you re-run `safe_curl` on the `Location`, which validates it on its own merits. |
 | A response over 1 MiB, or 15 seconds | Refused by `--max-filesize` / `--max-time`. |
 
@@ -41,10 +43,16 @@ but never opens a connection to the target.
 
 Say these out loud rather than letting the guard imply more than it does.
 
-- **A publicly routable host that is still internal to you.** Split-horizon DNS,
-  a corporate proxy, or a VPN can make a globally-addressable answer reach
-  something private. Run discovery from a network position with no privileged
-  internal access; the guard cannot see your routing table.
+- **A publicly routable host that is still internal to you.** Split-horizon DNS
+  or a VPN can make a globally-addressable answer reach something private. Run
+  discovery from a network position with no privileged internal access; the
+  guard cannot see your routing table.
+- **An egress path that requires a proxy.** The wrapper refuses to use one, so
+  in that environment it fails closed and discovery through this recipe is not
+  available. That is the intended outcome: record it as a gap and run discovery
+  from somewhere with direct egress. Do not remove `--noproxy` to make it work
+  — a proxy resolves the attacker-chosen hostname on its own, which is exactly
+  the check being defeated.
 - **A lying resolver.** The guard checks what `getaddrinfo` returns. If the
   resolver itself is hostile, it can return an allowed address that fronts an
   internal service.
@@ -244,6 +252,9 @@ or newer for the comma-separated `--resolve` form.
 #   * validates the destination before anything is sent,
 #   * pins the connection to the addresses it validated, so a second DNS
 #     answer cannot move the request after the check,
+#   * refuses to go through a proxy, which would resolve the hostname itself
+#     and make the pinning meaningless,
+#   * ignores curl's config files, which can set a proxy behind your back,
 #   * follows no redirect, ever.
 #
 # The body goes to stdout. The status line and response headers go to stderr,
@@ -267,9 +278,22 @@ safe_curl() {
   fi
   read -r _ host port addrs <<<"$verdict"
 
+  # A proxy would receive the hostname and resolve it on its own, so the
+  # addresses this wrapper validated would not be the ones connected to. The
+  # proxy is bypassed rather than trusted. If your egress *requires* one, this
+  # recipe fails closed and that is the correct outcome -- record it as a gap.
+  for v in HTTPS_PROXY https_proxy ALL_PROXY all_proxy HTTP_PROXY http_proxy; do
+    if [ -n "${!v:-}" ]; then
+      printf 'safe_curl: %s is set and is being bypassed (--noproxy). A proxy resolves the hostname itself, which would defeat address pinning. If egress requires the proxy this fetch will fail; report that rather than removing the flag.\n' "$v" >&2
+      break
+    fi
+  done
+
   body=$(mktemp); headers=$(mktemp)
-  status=$(curl -sS \
+  # -q first: curl reads ~/.curlrc otherwise, and that file can set a proxy.
+  status=$(curl -q -sS \
     --proto '=https' --tlsv1.2 \
+    --noproxy '*' \
     --resolve "$host:$port:$addrs" \
     --max-redirs 0 --max-time 15 --max-filesize 1048576 \
     -D "$headers" -o "$body" -w '%{http_code}' \
@@ -347,6 +371,31 @@ https://wisdom-api.enterpret.com:8443/x                             REFUSE port 
 https://localtest.me/x                                              REFUSE localtest.me resolves to ::1 (loopback)
 not-a-url                                                           REFUSE not a URL: not-a-url
 ```
+
+### The proxy bypass is load-bearing, not decorative
+
+`--resolve` is ignored the moment curl uses a proxy: the hostname goes to the
+proxy in the `CONNECT`, and the proxy resolves it. Same request, same pinned
+address, with a dead proxy configured:
+
+```
+$ HTTPS_PROXY=http://127.0.0.1:9 curl --resolve "$h:443:$a" ...
+curl: (7) Failed to connect to 127.0.0.1 port 9
+http=000
+$ HTTPS_PROXY=http://127.0.0.1:9 curl --noproxy '*' --resolve "$h:443:$a" ...
+http=200
+```
+
+`~/.curlrc` is the same hole with no environment variable to notice:
+
+```
+$ printf 'proxy = http://127.0.0.1:9\n' > "$CURL_HOME/.curlrc"
+$ curl      --resolve "$h:443:$a" ...   curl: (7) Failed to connect to 127.0.0.1 port 9
+$ curl -q --noproxy '*' --resolve ...   http=200
+```
+
+Through `safe_curl`, with both proxy variables set, the note prints and the
+fetch still goes direct and returns `200`.
 
 ### Redirects are refused, not followed
 

@@ -261,8 +261,9 @@ go there with your network position. Set up `safe_curl` from
 [references/safe-discovery.md](references/safe-discovery.md) first. It
 validates scheme, port, userinfo and every resolved address before anything is
 sent, pins the connection to the addresses it validated so DNS cannot move the
-request afterwards, and refuses redirects. Refusal is exit 2 and means nothing
-left the machine.
+request afterwards, refuses to go through a proxy — which would resolve the
+hostname itself and make the pinning meaningless — and follows no redirect.
+Refusal is exit 2 and means nothing left the machine.
 
 ```sh
 source ./safe-fetch.sh   # see references/safe-discovery.md
