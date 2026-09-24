@@ -23,7 +23,9 @@ export const JEV_MODEL = "typesafe/jev-1.13";
 /** Below this assignee confidence, the task goes to the fallback owner (see `fallbackAssigneeId`). */
 export const JEV_CONFIDENCE_THRESHOLD = 0.6;
 /** Prompts need a little substance before routing starts. */
-export const JEV_MIN_PROMPT_LENGTH = 18;
+export const JEV_MIN_PROMPT_LENGTH = 12;
+/** While typing, a suggestion only switches when the new pick leads the current one by this much probability. */
+export const JEV_SWITCH_MARGIN = 0.15;
 
 // ---------------------------------------------------------------------------
 // Decisions API shapes (from the OpenRouter Jev docs)
@@ -381,6 +383,32 @@ export function routingFromJev(response: JevDecisionResponse, agents: JevAgent[]
     alternateAssigneeIds,
     usage: response.usage,
   };
+}
+
+/**
+ * Keeps live suggestions steady while the prompt changes. Each field keeps its
+ * current value unless Jev's new top pick beats it by `JEV_SWITCH_MARGIN`, so a
+ * word or two of typing doesn't make the owner flicker between two agents.
+ * Moving in or out of the low-confidence fallback always applies.
+ */
+export function stabilizeRouting(previous: JevRouting | null, next: JevRouting): JevRouting {
+  if (!previous) return next;
+  const keepPrevious = (field: JevField, previousChoice: string, nextChoice: string) =>
+    previousChoice !== nextChoice &&
+    (next.probabilities[field][nextChoice] ?? 0) - (next.probabilities[field][previousChoice] ?? 0) < JEV_SWITCH_MARGIN;
+  const result: JevRouting = { ...next };
+  if (keepPrevious("workMode", previous.workMode, next.workMode)) result.workMode = previous.workMode;
+  const projectKey = (id: string | null) => id ?? JEV_NO_PROJECT;
+  if (keepPrevious("project", projectKey(previous.projectId), projectKey(next.projectId))) result.projectId = previous.projectId;
+  if (previous.assigneeSource === "jev" && next.assigneeSource === "jev" && keepPrevious("assignee", previous.assigneeId, next.assigneeId)) {
+    result.assigneeId = previous.assigneeId;
+    result.jevAssigneeId = previous.assigneeId;
+  }
+  result.alternateAssigneeIds = Object.entries(next.probabilities.assignee)
+    .filter(([id, probability]) => id !== result.assigneeId && probability >= 0.1)
+    .slice(0, 2)
+    .map(([id]) => id);
+  return result;
 }
 
 export type LatencyOptions = { latencyMs?: number; fail?: boolean; signal?: AbortSignal };

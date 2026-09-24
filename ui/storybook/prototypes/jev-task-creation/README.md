@@ -27,11 +27,22 @@ Two models do the work, because they are good at different things:
 
 ## What the prototype shows
 
-- The **title** types into the header breadcrumb (`PAP › Fix login redirect
-  loop…`) when it arrives. Click it to edit.
-- **Mode**, **assignee**, and **project** appear as chips under the prompt,
-  usually before the title, because Jev answers faster. Mode is the task's type
-  and uses the shipped `IssueWorkMode` values and labels:
+- **Live routing while you type.** Mode, assignee, and project re-route about
+  250 ms after each pause in typing, and at least every 800 ms during continuous
+  typing. Jev is fast and cheap enough for this: a call costs about $0.00004.
+- **Steady suggestions.** A chip only switches when Jev's new pick leads the
+  current one by 15 points of probability (`JEV_SWITCH_MARGIN`,
+  `stabilizeRouting`), so a word or two doesn't make the owner flicker.
+- **Calm change cues.** Chips stay on screen from the first keystroke. A changed
+  value fades in and its chip highlights briefly. A small pulsing mark shows Jev
+  re-reading. Explanatory notes, like the fallback owner, wait for a one-second
+  pause in typing.
+- **Title on start.** The title is drafted once, when you press **Start task** or
+  **Enter**, like Claude Code naming a session after the first message. It types
+  into the header breadcrumb and you can click it to edit. Shift+Enter adds a new
+  line.
+- **Mode is the task's type** and uses the shipped `IssueWorkMode` values and
+  labels:
   - **Auto** (`standard`): the agent does the work.
   - **Plan** (`planning`): the agent writes a plan for review first.
   - **Ask** (`ask`): the agent answers without changing anything.
@@ -45,20 +56,20 @@ Two models do the work, because they are good at different things:
   Paused agents are skipped, and Jev never sees them as options. The composer says
   so in one line and offers Jev's best guesses as one-click buttons
   (`fallbackAssigneeId` in `jev-classifier.ts`; stories 09 and 09b).
-- **How sure Jev is** lists the confidence for each decision, the token cost, and
-  the exact request body sent to Jev.
+- **How sure Jev is** lists the confidence for each decision, the agent context
+  sent, the token cost, how many times routing ran while typing, and the exact
+  request body sent to Jev.
 - If Jev fails, the title still arrives, the chips work as manual pickers, and
   **Try again** retries.
-- Creating never waits. If you create while suggestions are pending, the task is
-  created and they finish after.
+- Starting never waits. Whatever Jev has suggested is used, and anything still
+  pending finishes after.
 
 ## Two flows to compare
 
-- **Suggest-first** (stories 01–11b): suggestions update after each typing pause,
-  before you create the task.
-- **Instant** (stories 12–13): closest to Claude Code. **Start task** creates
-  `PAP-412` as "Untitled task" right away. Routing and then the title arrive a
-  moment later.
+- **Suggest-first** (stories 01–11c): review the live suggestions, then create.
+- **Instant** (stories 12–13): closest to Claude Code. **Start task** or **Enter**
+  creates `PAP-412` right away. Routing is usually already there; the title
+  arrives a moment later.
 
 ## What's real and what's simulated
 

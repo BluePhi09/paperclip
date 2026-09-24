@@ -16,6 +16,7 @@ import {
   JEV_NO_PROJECT,
   JEV_PROJECTS,
   agentContextCoverage,
+  stabilizeRouting,
   buildJevDecisionRequest,
   draftTaskTitle,
   routeTaskWithJev,
@@ -25,9 +26,12 @@ import {
 
 export type JevTaskComposerProps = {
   /**
-   * `suggest-first`: Jev routes and a title is drafted while you type; you review and create.
-   * `instant`: like starting a Claude Code session. Create right away; the task opens as
-   * "Untitled" and is named and routed a moment later.
+   * Both flows update mode, owner, and project live while you type. The title is
+   * drafted once, when the task is started (Start task or Enter), like Claude
+   * Code naming a session after the first message.
+   * `suggest-first`: review the live suggestions, then create.
+   * `instant`: start any time; whatever Jev has suggested so far is used, and
+   * anything still pending finishes after.
    */
   flow?: "suggest-first" | "instant";
   initialPrompt?: string;
@@ -35,6 +39,10 @@ export type JevTaskComposerProps = {
   latencyMs?: number;
   /** Simulated latency of the separate text model that drafts the title. */
   titleLatencyMs?: number;
+  /** Pause after a keystroke before Jev re-routes. Jev is cheap, so this can be short. */
+  liveDebounceMs?: number;
+  /** During continuous typing, re-route at least this often. */
+  liveMaxWaitMs?: number;
   /** Simulate Jev being unavailable; routing falls back to manual fields. */
   jevUnavailable?: boolean;
   /** Pre-set the assignee as if the user already chose it. Jev never overwrites it. */
@@ -49,25 +57,49 @@ export type JevTaskComposerProps = {
 type Overrides = Partial<{ title: string; workMode: IssueWorkMode; assignee: string; project: string | null }>;
 type OverrideField = keyof Overrides;
 type Status = "idle" | "thinking" | "ready" | "error";
+type LiveStats = { calls: number; cost: number };
 
-const TYPING_DEBOUNCE_MS = 650;
+const FLASH_MS = 900;
+/** Explanatory notes (like the fallback owner) wait for a pause in typing, so they don't flicker mid-sentence. */
+const SETTLE_MS = 1000;
+
+/** Debounce with a ceiling: wait for a pause, but never longer than `maxWaitMs` since the first pending change. */
+function throttledDelay(pendingSince: { current: number | null }, debounceMs: number, maxWaitMs: number) {
+  if (pendingSince.current === null) pendingSince.current = Date.now();
+  return Math.max(0, Math.min(debounceMs, maxWaitMs - (Date.now() - pendingSince.current)));
+}
 
 const percent = (value: number | undefined) => (value === undefined ? "" : `${Math.round(value * 100)}%`);
+const isAbort = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
 
-/** Types a newly suggested title in, like a session title arriving. Unchanged titles don't retype. */
+function commonPrefixLength(a: string, b: string) {
+  let index = 0;
+  while (index < a.length && index < b.length && a[index] === b[index]) index += 1;
+  return index;
+}
+
+/**
+ * Types a suggested title in, like a session title arriving. When the title is
+ * redrafted mid-typing, only the part that changed is retyped.
+ */
 function useTypewriter(target: string | null) {
   const [shown, setShown] = useState("");
-  const previousRef = useRef<string | null>(null);
+  const shownRef = useRef("");
   useEffect(() => {
-    const previous = previousRef.current;
-    previousRef.current = target;
-    if (!target) return setShown("");
-    if (target === previous) return setShown(target);
-    setShown("");
-    let index = 0;
+    if (!target) {
+      shownRef.current = "";
+      return setShown("");
+    }
+    let index = commonPrefixLength(shownRef.current, target);
+    const step = () => {
+      shownRef.current = target.slice(0, index);
+      setShown(shownRef.current);
+    };
+    step();
+    if (index >= target.length) return;
     const timer = window.setInterval(() => {
       index += 1;
-      setShown(target.slice(0, index));
+      step();
       if (index >= target.length) window.clearInterval(timer);
     }, 22);
     return () => window.clearInterval(timer);
@@ -80,6 +112,8 @@ export function JevTaskComposer({
   initialPrompt = "",
   latencyMs = 350,
   titleLatencyMs = 1200,
+  liveDebounceMs = 250,
+  liveMaxWaitMs = 800,
   jevUnavailable = false,
   presetAssigneeId,
   pausedAgentIds,
@@ -101,8 +135,16 @@ export function JevTaskComposer({
   const [createdIdentifier, setCreatedIdentifier] = useState<string | null>(null);
   const [createdPrompt, setCreatedPrompt] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const lastRequestedRef = useRef("");
+  const [flash, setFlash] = useState<Partial<Record<JevField, boolean>>>({});
+  const [liveStats, setLiveStats] = useState<LiveStats>({ calls: 0, cost: 0 });
+  const routingRef = useRef<JevRouting | null>(null);
+  const routingAbortRef = useRef<AbortController | null>(null);
+  const titleAbortRef = useRef<AbortController | null>(null);
+  const lastRoutedRef = useRef("");
+  const lastTitledRef = useRef("");
+  const flashTimerRef = useRef<number | undefined>(undefined);
+  const [settled, setSettled] = useState(true);
+  const routingPendingSinceRef = useRef<number | null>(null);
 
   // Autoplay: type the scenario prompt so reviewers see suggestions react mid-sentence.
   useEffect(() => {
@@ -116,43 +158,85 @@ export function JevTaskComposer({
     return () => window.clearInterval(timer);
   }, [typeOnMount, initialPrompt]);
 
-  const suggest = useCallback((text: string) => {
-    abortRef.current?.abort();
+  const runRouting = useCallback((text: string) => {
+    routingAbortRef.current?.abort();
     const controller = new AbortController();
-    abortRef.current = controller;
-    lastRequestedRef.current = text;
-    const ignoreAbort = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
-
+    routingAbortRef.current = controller;
+    routingPendingSinceRef.current = null;
+    lastRoutedRef.current = text;
     setRoutingStatus("thinking");
     routeTaskWithJev(text, { latencyMs, fail: jevUnavailable, signal: controller.signal, agents })
-      .then((result) => { setRouting(result); setRoutingStatus("ready"); })
-      .catch((error: unknown) => { if (!ignoreAbort(error)) setRoutingStatus("error"); });
+      .then((result) => {
+        const previous = routingRef.current;
+        const next = stabilizeRouting(previous, result);
+        // Highlight only fields whose value actually changed, so the eye goes to what moved.
+        const changed: Partial<Record<JevField, boolean>> = previous ? {
+          workMode: previous.workMode !== next.workMode,
+          assignee: previous.assigneeId !== next.assigneeId,
+          project: previous.projectId !== next.projectId,
+        } : {};
+        routingRef.current = next;
+        setRouting(next);
+        setRoutingStatus("ready");
+        setLiveStats((stats) => ({ calls: stats.calls + 1, cost: stats.cost + result.usage.cost }));
+        if (Object.values(changed).some(Boolean)) {
+          setFlash(changed);
+          window.clearTimeout(flashTimerRef.current);
+          flashTimerRef.current = window.setTimeout(() => setFlash({}), FLASH_MS);
+        }
+      })
+      .catch((error: unknown) => { if (!isAbort(error)) setRoutingStatus("error"); });
+  }, [latencyMs, jevUnavailable, agents]);
 
+  const runTitle = useCallback((text: string) => {
+    titleAbortRef.current?.abort();
+    const controller = new AbortController();
+    titleAbortRef.current = controller;
+    lastTitledRef.current = text;
     setTitleStatus("thinking");
     draftTaskTitle(text, { latencyMs: titleLatencyMs, signal: controller.signal })
       .then((title) => { setSuggestedTitle(title); setTitleStatus("ready"); })
-      .catch((error: unknown) => { if (!ignoreAbort(error)) setTitleStatus("error"); });
-  }, [latencyMs, titleLatencyMs, jevUnavailable, agents]);
+      .catch((error: unknown) => { if (!isAbort(error)) setTitleStatus("error"); });
+  }, [titleLatencyMs]);
 
-  // Suggest-first: re-run after the user pauses typing.
+  const resetSuggestions = useCallback(() => {
+    routingAbortRef.current?.abort();
+    titleAbortRef.current?.abort();
+    lastRoutedRef.current = "";
+    lastTitledRef.current = "";
+    routingPendingSinceRef.current = null;
+    routingRef.current = null;
+    setRouting(null);
+    setSuggestedTitle(null);
+    setRoutingStatus("idle");
+    setTitleStatus("idle");
+    setFlash({});
+  }, []);
+
+  // Live routing: re-run shortly after each pause in typing, until the task is created.
   useEffect(() => {
-    if (flow !== "suggest-first" || createdIdentifier) return;
+    if (createdIdentifier) return;
     const text = prompt.trim();
     if (text.length < JEV_MIN_PROMPT_LENGTH) {
-      abortRef.current?.abort();
-      lastRequestedRef.current = "";
-      setRoutingStatus("idle");
-      setTitleStatus("idle");
-      setRouting(null);
-      setSuggestedTitle(null);
+      if (lastRoutedRef.current || lastTitledRef.current) resetSuggestions();
       return;
     }
-    if (text === lastRequestedRef.current) return;
-    const timer = window.setTimeout(() => suggest(text), TYPING_DEBOUNCE_MS);
+    if (text === lastRoutedRef.current) return;
+    const timer = window.setTimeout(() => runRouting(text), throttledDelay(routingPendingSinceRef, liveDebounceMs, liveMaxWaitMs));
     return () => window.clearTimeout(timer);
-  }, [prompt, flow, createdIdentifier, suggest]);
+  }, [prompt, createdIdentifier, runRouting, resetSuggestions, liveDebounceMs, liveMaxWaitMs]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => {
+    setSettled(false);
+    const timer = window.setTimeout(() => setSettled(true), SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [prompt]);
+
+  useEffect(() => () => {
+    routingAbortRef.current?.abort();
+    titleAbortRef.current?.abort();
+    window.clearTimeout(flashTimerRef.current);
+  }, []);
 
   const effective = useMemo(() => ({
     title: overrides.title ?? suggestedTitle ?? "",
@@ -177,20 +261,18 @@ export function JevTaskComposer({
     const text = prompt.trim();
     setCreatedIdentifier("PAP-412");
     setCreatedPrompt(text);
-    // Creating never waits. Anything not yet suggested for this exact prompt runs now.
-    if (lastRequestedRef.current !== text || routingStatus === "idle") suggest(text);
+    // Creating never waits: keep the routing that's shown, bring it up to date if
+    // typing got ahead of it, and draft the title now that the prompt is final.
+    if (lastRoutedRef.current !== text) runRouting(text);
+    runTitle(text);
   };
   const startOver = () => {
-    abortRef.current?.abort();
-    lastRequestedRef.current = "";
+    resetSuggestions();
     setPrompt("");
-    setRouting(null);
-    setSuggestedTitle(null);
     setOverrides({});
-    setRoutingStatus("idle");
-    setTitleStatus("idle");
     setCreatedIdentifier(null);
     setDetailsOpen(false);
+    setLiveStats({ calls: 0, cost: 0 });
   };
 
   const titleSuggested = suggestedTitle !== null && overrides.title === undefined;
@@ -232,14 +314,13 @@ export function JevTaskComposer({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                // Enter starts the task, like sending a first message. Shift+Enter adds a line.
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   create();
                 }
               }}
-              placeholder={flow === "instant"
-                ? "What should get done? It gets a title and an owner once you start."
-                : "What should get done? A title, mode, and owner are suggested as you write."}
+              placeholder="What should get done? Mode and owner update as you write. Enter to start, Shift+Enter for a new line."
               className="min-h-36 resize-none border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
           </div>
@@ -257,9 +338,12 @@ export function JevTaskComposer({
           fromJev={fromJev}
           setField={setField}
           resetField={resetField}
+          flash={flash}
+          liveStats={liveStats}
+          settled={settled || created}
           detailsOpen={detailsOpen}
           onToggleDetails={() => setDetailsOpen((open) => !open)}
-          onRetry={() => suggest(prompt.trim() || createdPrompt)}
+          onRetry={() => runRouting(prompt.trim() || createdPrompt)}
         />
 
         <div className="mt-auto flex items-center justify-between gap-3 border-t border-border px-4 py-3">
@@ -278,12 +362,14 @@ export function JevTaskComposer({
                 Cancel
               </Button>
               <div className="flex items-center gap-3">
-                {flow === "suggest-first" && busy ? (
-                  <span className="hidden text-xs text-muted-foreground sm:inline">You can create now; suggestions finish after.</span>
+                {busy ? (
+                  <span className="hidden text-xs text-muted-foreground sm:inline">
+                    You can {flow === "instant" ? "start" : "create"} now; routing finishes after.
+                  </span>
                 ) : null}
                 <Button size="sm" onClick={create} disabled={!canCreate}>
                   {flow === "instant" ? "Start task" : "Create task"}
-                  <kbd className="ml-1 hidden text-xs opacity-60 sm:inline">⌘↵</kbd>
+                  <kbd className="ml-1 hidden text-xs opacity-60 sm:inline">↵</kbd>
                 </Button>
               </div>
             </>
@@ -394,6 +480,9 @@ function RoutingPanel({
   fromJev,
   setField,
   resetField,
+  flash,
+  liveStats,
+  settled,
   detailsOpen,
   onToggleDetails,
   onRetry,
@@ -409,6 +498,9 @@ function RoutingPanel({
   fromJev: (field: Exclude<OverrideField, "title">) => boolean;
   setField: <K extends OverrideField>(field: K, value: Overrides[K]) => void;
   resetField: (field: OverrideField) => void;
+  flash: Partial<Record<JevField, boolean>>;
+  liveStats: LiveStats;
+  settled: boolean;
   detailsOpen: boolean;
   onToggleDetails: () => void;
   onRetry: () => void;
@@ -419,17 +511,21 @@ function RoutingPanel({
     : null;
 
   const statusLine = (() => {
-    if (status === "thinking" && !routing) return created ? `${JEV_NAME} is routing this task…` : `${JEV_NAME} is reading your request…`;
-    if (fallbackOwner) {
+    if (status === "thinking" && !routing) return created ? `${JEV_NAME} is routing this task…` : `${JEV_NAME} is reading as you type…`;
+    if (fallbackOwner && settled) {
       const why = fallbackOwner.reportsTo === null ? "who reports to the board" : "the first agent in your org";
       return `${JEV_NAME} wasn't sure who should own this (${percent(routing!.confidence.assignee)}), so it goes to ${fallbackOwner.name}, ${why}.`;
     }
-    if (status === "idle" && flow === "instant" && !created) return `${JEV_NAME} picks the mode and owner after you start. You can change anything later.`;
+    if (status === "idle" && promptLength === 0 && !created) {
+      return `As you type, ${JEV_NAME} picks the mode, owner, and project. The title is written when you ${flow === "instant" ? "start" : "create"} the task.`;
+    }
     if (status === "idle" && promptLength > 0 && promptLength < JEV_MIN_PROMPT_LENGTH) return "Keep going. Suggestions start once there's a bit more to go on.";
     return null;
   })();
 
-  const showChips = status !== "idle" || flow === "suggest-first";
+  // Chips stay on screen from the first keystroke, so suggestions fill in place instead of popping in.
+  const showChips = true;
+  const updating = routing !== null && status === "thinking";
   const loading = status === "thinking" && !routing;
   const probabilities = routing?.probabilities;
   const assignee = JEV_AGENTS.find((agent) => agent.id === effective.assignee) ?? null;
@@ -455,7 +551,14 @@ function RoutingPanel({
 
       {showChips ? (
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          {routing && !statusLine ? (
+            <span title={updating ? `${JEV_NAME} is updating` : `Suggested by ${JEV_NAME}`}>
+              <JevMark thinking={updating} />
+            </span>
+          ) : null}
+          <span role="status" className="sr-only">{updating ? "Updating suggestions" : ""}</span>
           <WorkModeChip
+            flash={flash.workMode}
             loading={loading}
             mode={effective.workMode}
             suggested={fromJev("workMode")}
@@ -465,6 +568,8 @@ function RoutingPanel({
           />
           <PropertyChip
             label="Assignee"
+            valueKey={effective.assignee ?? "none"}
+            flash={flash.assignee}
             loading={loading}
             suggested={fromJev("assignee") && !fallbackOwner}
             onReset={resetFor("assignee")}
@@ -490,6 +595,8 @@ function RoutingPanel({
 
           <PropertyChip
             label="Project"
+            valueKey={effective.project ?? "none"}
+            flash={flash.project}
             loading={loading}
             suggested={fromJev("project") && effective.project !== null}
             onReset={resetFor("project")}
@@ -520,7 +627,7 @@ function RoutingPanel({
         </div>
       ) : null}
 
-      {fallbackOwner && alternates.length > 0 ? (
+      {fallbackOwner && settled && alternates.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted-foreground">{JEV_NAME}'s best guesses:</span>
           {alternates.map((agent) => (
@@ -538,7 +645,7 @@ function RoutingPanel({
             <ChevronDown aria-hidden className={cn("size-3 transition-transform", !detailsOpen && "-rotate-90")} />
             How sure {JEV_NAME} is
           </button>
-          {detailsOpen ? <ConfidenceDetails routing={routing} prompt={prompt} agents={agents} /> : null}
+          {detailsOpen ? <ConfidenceDetails routing={routing} prompt={prompt} agents={agents} liveStats={liveStats} /> : null}
         </div>
       ) : null}
     </div>
@@ -558,7 +665,7 @@ function choiceLabel(field: JevField, routing: JevRouting): string {
   return workModeMetaFor(routing.workMode).label;
 }
 
-function ConfidenceDetails({ routing, prompt, agents }: { routing: JevRouting; prompt: string; agents: typeof JEV_AGENTS }) {
+function ConfidenceDetails({ routing, prompt, agents, liveStats }: { routing: JevRouting; prompt: string; agents: typeof JEV_AGENTS; liveStats: LiveStats }) {
   const fields: JevField[] = ["workMode", "assignee", "project"];
   return (
     <div className="mt-2 flex flex-col gap-2 pl-4">
@@ -590,6 +697,9 @@ function ConfidenceDetails({ routing, prompt, agents }: { routing: JevRouting; p
       <p className="tabular-nums">
         {routing.usage.input_tokens} input tokens · ${routing.usage.cost.toFixed(6)} · output tokens are free
       </p>
+      <p className="tabular-nums">
+        Routed live {liveStats.calls} {liveStats.calls === 1 ? "time" : "times"} while typing · ${liveStats.cost.toFixed(6)} total
+      </p>
       <details>
         <summary className="cursor-pointer hover:text-foreground">Request sent to {JEV_NAME}</summary>
         <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs text-foreground">
@@ -618,16 +728,25 @@ function AgentContextLine({ agents }: { agents: typeof JEV_AGENTS }) {
   );
 }
 
+/** A changed value flashes briefly and fades in, so live updates are noticeable but calm. */
+const FLASH_CLASSES = "ring-2 ring-primary/50 bg-primary/10";
+const CHANGE_TRANSITION = "transition-[background-color,box-shadow,border-color] duration-700 motion-reduce:transition-none";
+const FADE_IN = "animate-[tc-fade-in_240ms_ease-out] motion-reduce:animate-none";
+
 function PropertyChip({
   label,
+  valueKey,
   display,
   loading,
   suggested,
+  flash = false,
   onReset,
   children,
 }: {
   label: string;
+  valueKey: string;
   display: ReactNode;
+  flash?: boolean;
   loading: boolean;
   suggested: boolean;
   onReset?: () => void;
@@ -645,12 +764,14 @@ function PropertyChip({
             type="button"
             aria-label={`${label}${suggested ? ` (suggested by ${JEV_NAME})` : ""}`}
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-sm text-foreground transition-colors hover:bg-accent",
+              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-sm text-foreground hover:bg-accent",
+              CHANGE_TRANSITION,
               suggested ? "border-primary/40 bg-primary/5" : "border-border",
+              flash && FLASH_CLASSES,
             )}
           >
             {suggested ? <Sparkles aria-hidden className="size-3 text-primary" /> : null}
-            {display}
+            <span key={valueKey} className={cn("inline-flex items-center gap-1.5", FADE_IN)}>{display}</span>
             <ChevronDown aria-hidden className="size-3 text-muted-foreground" />
           </button>
         </PopoverTrigger>
@@ -704,11 +825,13 @@ function WorkModeChip({
   mode,
   loading,
   suggested,
+  flash = false,
   probabilities,
   onChange,
   onReset,
 }: {
   mode: IssueWorkMode;
+  flash?: boolean;
   loading: boolean;
   suggested: boolean;
   probabilities?: Record<string, number>;
@@ -726,11 +849,13 @@ function WorkModeChip({
           <button
             type="button"
             aria-label={`Mode${suggested ? ` (suggested by ${JEV_NAME})` : ""}`}
-            className={cn("inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-sm transition-colors", meta.classes.chip)}
+            className={cn("inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-sm", CHANGE_TRANSITION, meta.classes.chip, flash && FLASH_CLASSES)}
           >
             {suggested ? <Sparkles aria-hidden className="size-3" /> : null}
-            <Icon aria-hidden className="size-3.5" />
-            {meta.label}
+            <span key={mode} className={cn("inline-flex items-center gap-1.5", FADE_IN)}>
+              <Icon aria-hidden className="size-3.5" />
+              {meta.label}
+            </span>
             <ChevronDown aria-hidden className="size-3 opacity-60" />
           </button>
         </PopoverTrigger>

@@ -21,7 +21,7 @@ const meta = {
       description: {
         component:
           "Prototype: prompt-first task creation. You write what you need. Jev (`typesafe/jev-1.13`, TypeSafe's decision model on OpenRouter) answers " +
-          "`choice` questions for the task's mode, which is its type (Auto, Plan, or Ask), plus its assignee and project, each with a confidence and per-option probabilities. Jev doesn't generate text, so a separate small text model drafts the title, like Claude Code naming a session. " +
+          "`choice` questions for the task's mode, which is its type (Auto, Plan, or Ask), plus its assignee and project, each with a confidence and per-option probabilities. Mode, owner, and project update live as you type. Jev doesn't generate text, so a separate small text model drafts the title once, when the task is started with Start task or Enter, like Claude Code naming a session. " +
           "Suggested values carry a sparkle. Anything you change is yours and is never overwritten; the undo icon restores the suggestion. " +
           "Below the confidence threshold the task goes to the org's first active agent that reports to the board (else its first active agent), and Jev's best guesses appear as one-click buttons. **Instant** stories create first; the title and routing arrive a moment later. " +
           "Jev's answers are simulated locally in the documented response shape (`prototypes/jev-task-creation/jev-classifier.ts`); **How sure Jev is → Request sent to Jev** shows the real request body. No API is called and no task is persisted.",
@@ -33,6 +33,7 @@ const meta = {
     flow: { control: "inline-radio", options: ["suggest-first", "instant"] },
     latencyMs: { name: "Jev latency (ms)", control: { type: "range", min: 100, max: 4000, step: 50 } },
     titleLatencyMs: { name: "Title model latency (ms)", control: { type: "range", min: 100, max: 6000, step: 100 } },
+    liveDebounceMs: { name: "Re-route after typing pause (ms)", control: { type: "range", min: 0, max: 1500, step: 50 } },
   },
   render: (args) => <JevTaskComposer key={JSON.stringify(args)} {...args} />,
 } satisfies Meta<typeof JevTaskComposer>;
@@ -84,6 +85,19 @@ export const ModeProbabilities: Story = {
   play: async ({ canvasElement }) => {
     const chip = await within(canvasElement).findByRole("button", { name: /^Mode/ }, { timeout: 4000 });
     await userEvent.click(chip);
+  },
+};
+export const InstantLiveTyping: Story = {
+  name: "12a · Instant · Suggestions update live as you type",
+  args: { flow: "instant", initialPrompt: PROMPTS.bug, typeOnMount: true },
+};
+export const InstantEnterToStart: Story = {
+  name: "12b · Instant · Enter starts the task, then the title is written",
+  args: { flow: "instant", initialPrompt: PROMPTS.feature, titleLatencyMs: 1600 },
+  play: async ({ canvasElement }) => {
+    const box = await within(canvasElement).findByRole("textbox", { name: "Describe the task" });
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await userEvent.type(box, "{Enter}");
   },
 };
 export const InstantEmpty: Story = {
