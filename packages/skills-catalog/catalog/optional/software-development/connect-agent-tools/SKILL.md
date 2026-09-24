@@ -38,6 +38,12 @@ behind it — commands, observed output, and the correlated agent run — is in
 [`references/verification-log.md`](references/verification-log.md), so you can
 redo it rather than take the label on trust.
 
+**How this skill cites the product.** A file and a symbol you can grep for,
+never a line number: line numbers drift between the read and the reader, and
+this skill has already been caught citing four that had moved. Every source and
+runbook citation below was re-read at App commit `18dac1e1` (24 September 2026).
+If the commit in front of you disagrees, the commit wins — record the drift.
+
 ## Use This When
 
 - An agent cannot reach a tool it needs, and nobody has established why.
@@ -210,17 +216,17 @@ Self-hosted does not imply desktop-compatible. A locally launched MCP server
 that only calls a vendor's hosted API is portable; one that drives an open
 desktop app, local files or a private network needs those where the runtime is.
 
-Two configuration facts decide most of what follows, both at App commit
-`9335b7db10`:
+Two configuration facts decide most of what follows, both re-read at
+`18dac1e1`:
 
-- `local_trusted` **forces** exposure to `private`
-  (`server/src/config.ts:187-190`). A shape-A instance can never reach the
+- `local_trusted` **forces** exposure to `private` (`deploymentExposure` in
+  `server/src/config.ts`). A shape-A instance can never reach the
   `authenticated` + `public` combination that the private-endpoint guard
   refuses.
 - Paperclip refuses private, loopback and reserved MCP addresses only on a
   deployment that is both authenticated and publicly exposed
-  (`allowPrivateRemoteEndpoints` at `server/src/services/tool-access.ts:3195-3200`,
-  mirrored in `tool-gateway.ts:3135-3140`), and refuses link-local addresses in
+  (`allowPrivateRemoteEndpoints` at `server/src/services/tool-access.ts`,
+  mirrored in `tool-gateway.ts`), and refuses link-local addresses in
   every mode (`server/src/services/remote-http-endpoint-guard.ts`).
 
 Read those at the commit in front of you and record it. Never propose a tunnel,
@@ -231,10 +237,11 @@ always can.** `GET /api/companies/:companyId/tools/runtime-health` returns the
 live `supportMatrix` for the instance and requires board access: a run-scoped
 agent credential gets `403 {"error":"Board access required"}`, while a board
 actor on an instance they own reads it fine (both executed 19 September 2026;
-route at `server/src/routes/tool-access.ts:2500-2504`). So if you are the agent,
-ask the operator to run it and paste the `supportMatrix` block, or read the
-configuration directly. Do not guess it, and do not report the `403` as though
-the surface were unavailable — it is available to the person you are asking.
+route at the `tools/runtime-health` handler in
+`server/src/routes/tool-access.ts`). So if you are the agent, ask the operator
+to run it and paste the `supportMatrix` block, or read the configuration
+directly. Do not guess it, and do not report the `403` as though the surface
+were unavailable — it is available to the person you are asking.
 
 Label every capability you establish **verified**, **untested**, **unsupported**
 or **deferred**, each with its reason. Fill in a copy of
@@ -254,7 +261,7 @@ governing principle: "A catalog entry is a convenience layer, not a
 prerequisite. An operator can connect any standards-compliant remote HTTP MCP
 server from **Connect your own MCP server** or **Paste a config** with no
 Paperclip code change at all — including servers that need browser sign-in."
-(`CONNECTOR-PLAYBOOK.md:23-26`.)
+(`CONNECTOR-PLAYBOOK.md`, opening section.)
 
 1. **An existing connector.** Check the catalog and the provider pages first. If
    a connector exists and the workflow still fails, this is a configuration,
@@ -268,13 +275,14 @@ Paperclip code change at all — including servers that need browser sign-in."
    Name which condition failed rather than improvising.
 
    **None of those four conditions needs Paperclip Cloud.** DCR is
-   instance-local: each instance registers its own public client against its own
-   `/api/tools/oauth/callback`, and "Cloud-hosted and self-hosted instances use
-   the SAME path — the only per-instance difference is the hostname inside the
-   redirect URI" (`CONNECTOR-PLAYBOOK.md:1569-1578`). CIMD is the one tier that
-   needs a public HTTPS `PAPERCLIP_PUBLIC_URL`, and a deployment without one
-   falls through to DCR rather than failing. A self-hoster whose provider cannot
-   do DCR registers their own client and sets
+   instance-local: each instance registers its own public client against its
+   own `/api/tools/oauth/callback`, and "Cloud-hosted and self-hosted
+   instances use the SAME path — the only per-instance difference is the
+   hostname inside the redirect URI" (`CONNECTOR-PLAYBOOK.md`, **Dynamic
+   client registration (RFC 7591)** — grep `use the SAME path`). CIMD is the
+   one tier that needs a public HTTPS `PAPERCLIP_PUBLIC_URL`, and a deployment
+   without one falls through to DCR rather than failing. A self-hoster whose
+   provider cannot do DCR registers their own client and sets
    `PAPERCLIP_TOOL_OAUTH_<PROVIDER>_CLIENT_ID` / `_SECRET`. The only genuinely
    Cloud-gated path is the curated `platform_shared` Paperclip-managed OAuth
    profile; if that is the only option, say so and stop rather than implying a
@@ -316,22 +324,23 @@ anything:
 - Start writes at **Off** on a server nobody has reviewed and promote
   deliberately. Re-run **Refresh actions** after the server changes.
 
-  **Then re-check the profile, because promotion is not durable.** At App commit
-  `9335b7db10`, a connection created from a pasted URL is flagged
-  `unverifiedServer: true` and `quarantineNewEntries: false` in the same
-  expression (`server/src/services/tool-access.ts:12721`), so every catalog
-  refresh auto-allows whatever new tools the provider has started advertising —
-  including ones classified `destructive`. Verified by execution; see **F1** in
+  **Then re-check the profile, because promotion is not durable.** A
+  connection created from a pasted URL is flagged `unverifiedServer: true` and
+  `quarantineNewEntries: false` in the same expression — grep
+  `unverifiedServer` in `server/src/services/tool-access.ts` — so every catalog
+  refresh auto-allows whatever new tools the provider has started advertising,
+  including ones classified `destructive`. Verified by execution at
+  `9335b7db10` and still present at `18dac1e1`; see **F1** in
   [`references/deployment-support-matrix.md`](references/deployment-support-matrix.md).
   On a server you do not control, the tool set is provider-controlled, not
   operator-controlled. Say that out loud in your report.
 
-- **Check that the connection is installed on the agent, not merely permitted.**
-  Finishing the wizard with `access: {agentIds: [...]}` writes the tool-profile
-  binding but no install row, and readiness needs both
-  (`server/src/services/connection-intents.ts:241-248`). The symptom is a green
-  **Connected** badge and an allowed tool the agent cannot see. Verified on two
-  instances — **F10** in the same reference.
+- **Check that the connection is installed on the agent, not merely
+  permitted.** Finishing the wizard with `access: {agentIds: [...]}` writes
+  the tool-profile binding but no install row, and readiness needs both (the
+  `usable` predicate in `server/src/services/connection-intents.ts`). The
+  symptom is a green **Connected** badge and an allowed tool the agent cannot
+  see. Verified on two instances — **F10** in the same reference.
 
   ```sh
   curl -s -H "Authorization: Bearer $TOKEN" \
@@ -402,7 +411,8 @@ so contributors no longer need a private validation issue for it. Its nine
 scenarios are setup and consent, authentication, catalog and configuration,
 allowed execution, denied execution, runtime delivery, refresh and recovery,
 revoke and reconnect, and activity and secret handling
-(`CONNECTOR-PLAYBOOK.md:1445-1455`).
+(`CONNECTOR-PLAYBOOK.md`, **Step 9: Align With Production Validation** — the
+scenario table).
 
 Record **pass**, **fail**, **not run** or **not applicable** per scenario with a
 reason for the last two, plus environment, method key, commit, reproduction

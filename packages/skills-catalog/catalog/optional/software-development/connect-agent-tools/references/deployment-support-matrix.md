@@ -38,7 +38,7 @@ instance's configuration, not from a product tier name.
 | Deployment mode | `PAPERCLIP_DEPLOYMENT_MODE` | `local_trusted`, `authenticated` | `local_trusted` |
 | Exposure | `PAPERCLIP_DEPLOYMENT_EXPOSURE` | `private`, `public` | `private` |
 
-Source: `packages/shared/src/constants.ts:4-8` and `server/src/config.ts:170-190`
+Source: `packages/shared/src/constants.ts` and `server/src/config.ts`
 at Paperclip App commit `9335b7db10`. Both are also settable as
 `config.server.deploymentMode` / `config.server.exposure` in the instance's
 `config.json`, which is what `config.ts` reads after the environment.
@@ -46,7 +46,8 @@ at Paperclip App commit `9335b7db10`. Both are also settable as
 One consequence is easy to miss and worth writing down, because it is what makes
 the same-machine self-hosted path so capable:
 
-> `local_trusted` **forces** exposure to `private`. `server/src/config.ts:187-190`
+> `local_trusted` **forces** exposure to `private`. `deploymentExposure` in
+  `server/src/config.ts`
 > ignores `PAPERCLIP_DEPLOYMENT_EXPOSURE` when the mode is `local_trusted`.
 
 So a same-machine self-hosted instance can never land in the
@@ -75,7 +76,7 @@ Both were hit while filling this matrix, on `authenticated` + `public`:
    A public self-hosted instance needs an external PostgreSQL.
 2. **An explicit, resolvable public base URL.** `auth.baseUrlMode` must be
    explicit and `auth.publicBaseUrl` is required
-   (`packages/shared/src/config-schema.ts:167-187`). This value is not only
+   (`packages/shared/src/config-schema.ts`). This value is not only
    browser-facing: the runtime hands it to spawned agents as their control-plane
    URL, so it must resolve **from the machine the runtime runs on**, not just
    from your browser. A placeholder hostname produces `getaddrinfo ENOTFOUND` on
@@ -114,7 +115,7 @@ this package: [`verification-log.md`](./verification-log.md).
 | Capability | A. Self-hosted, same machine | B. Self-hosted, server/VPS | C. Paperclip Cloud | Evidence |
 | --- | --- | --- | --- | --- |
 | `mcp_remote` to a public provider endpoint | `untested` | **`verified`** on `authenticated` + `public` | `untested` | B: DeepWiki connected, catalog refreshed to 3 tools, `read_wiki_structure` executed through the gateway, `decision: allowed`. |
-| `mcp_remote` to a loopback endpoint (`127.0.0.1`) | **`verified`** | **`verified`** on `private`; **`unsupported`** on `public` | `unsupported` | A: connected, `healthStatus ok`, 7 tools, real agent runs against it. B `public`: `HTTP 400 {"code":"remote_http_private_endpoint"}` on connect, `HTTP 502` on refresh. Guard: `allowPrivateRemoteEndpoints`, `server/src/services/tool-access.ts:3195-3200`. |
+| `mcp_remote` to a loopback endpoint (`127.0.0.1`) | **`verified`** | **`verified`** on `private`; **`unsupported`** on `public` | `unsupported` | A: connected, `healthStatus ok`, 7 tools, real agent runs against it. B `public`: `HTTP 400 {"code":"remote_http_private_endpoint"}` on connect, `HTTP 502` on refresh. Guard: `allowPrivateRemoteEndpoints`, `server/src/services/tool-access.ts`. |
 | `mcp_remote` to a link-local address | `untested` | `untested` | `untested` | `isAlwaysDeniedLinkLocalIp` in `server/src/services/remote-http-endpoint-guard.ts` denies in every mode. Source-cited only; no live call was made. |
 | `local_stdio` with an approved template | `untested` — instance declares it **supported** | `untested` — instance declares it **unsupported** in both exposures | `untested` | The live `supportMatrix` differs by shape (blocks quoted in the verification report). No stdio connection was created, so the capability itself is untested everywhere. |
 | `rest_api` through the connected MCP gateway | `untested` | `untested` | `untested` | Not exposed through the gateway; needs an execution adapter. Runbook "Transport support and boundaries". |
@@ -131,12 +132,12 @@ Pick the shape that matches the provider.
 | --- | --- | --- | --- | --- |
 | `auth: "none"` remote MCP | **`verified`** | **`verified`** (both exposures) | `untested` | Connect → catalog → gateway execution on both instances. |
 | API key / PAT in a header | **`verified`** | `untested` | `untested` | A: connection with `credentialRefs: [{placement: "header", key: "x-api-key", secretId}]`; the provider's request log shows the header arrived, and the value appears nowhere in Paperclip (see redaction row). |
-| OAuth via dynamic client registration (RFC 7591) | `untested` | `untested` | `untested` | **DCR is instance-local.** Each instance registers its own public client against its own `/api/tools/oauth/callback`. "Cloud-hosted and self-hosted instances use the SAME path — the only per-instance difference is the hostname inside the redirect URI." `CONNECTOR-PLAYBOOK.md:1569-1578`. Consent needs an authorized provider account; not exercised. |
+| OAuth via dynamic client registration (RFC 7591) | `untested` | `untested` | `untested` | **DCR is instance-local.** Each instance registers its own public client against its own `/api/tools/oauth/callback`. "Cloud-hosted and self-hosted instances use the SAME path — the only per-instance difference is the hostname inside the redirect URI." `CONNECTOR-PLAYBOOK.md`, **Dynamic client registration (RFC 7591)**. Consent needs an authorized provider account; not exercised. |
 | OAuth via CIMD | `untested`; falls through to DCR on loopback/plain HTTP | `untested` with a public HTTPS origin; falls through without one | `untested` | CIMD "requires a public HTTPS base URL … the authorization server has to fetch that document server-to-server, so loopback and plain-HTTP deployments fall through to the next tier." `GENERIC-REMOTE-MCP.md:94-104`. Neither test instance had a public HTTPS origin. |
-| OAuth with a client you registered yourself | `untested` | `untested` | `untested` | Deployment-preconfigured `PAPERCLIP_TOOL_OAUTH_<PROVIDER>_CLIENT_ID` / `_SECRET` outranks every other tier — `server/src/services/tool-access.ts:8787-8804`. Not exercised. |
-| OAuth redirect from a plain-HTTP non-loopback origin | n/a — loopback is HTTP-allowed | **`unsupported`** for `https-or-loopback-http` providers | n/a — Cloud is HTTPS | Fails fast with `oauth_redirect_origin_unsupported`; configure TLS. `CONNECTOR-PLAYBOOK.md:1580-1594`. |
+| OAuth with a client you registered yourself | `untested` | `untested` | `untested` | Deployment-preconfigured `PAPERCLIP_TOOL_OAUTH_<PROVIDER>_CLIENT_ID` / `_SECRET` outranks every other tier — `safeOAuthEndpointUrl` in `server/src/services/tool-access.ts`. Not exercised. |
+| OAuth redirect from a plain-HTTP non-loopback origin | n/a — loopback is HTTP-allowed | **`unsupported`** for `https-or-loopback-http` providers | n/a — Cloud is HTTPS | Fails fast with `oauth_redirect_origin_unsupported`; configure TLS. `CONNECTOR-PLAYBOOK.md`, **Redirect-URI constraints**. |
 | Provider-generated secret-bearing URL | `untested` | `untested` | `untested` | Generic runtime path is complete. Treat the URL as a credential. |
-| Paperclip-managed OAuth (`platform_shared`) | **`unsupported`** | **`unsupported`** | `untested` | Requires a reviewed Cloud connector profile and Cloud's fixed provider callback. `CONNECTOR-PLAYBOOK.md:184`. |
+| Paperclip-managed OAuth (`platform_shared`) | **`unsupported`** | **`unsupported`** | `untested` | Requires a reviewed Cloud connector profile and Cloud's fixed provider callback. `CONNECTOR-PLAYBOOK.md`, **Authentication support matrix**. |
 
 **No Cloud account is required for self-hosted OAuth.** The playbook is explicit
 that DCR needs neither Paperclip ID nor Paperclip Connect, and that
@@ -149,7 +150,7 @@ one row of this table, not the default path. Note that the whole OAuth block is
 
 | Capability | A. Same machine | B. Server/VPS | C. Cloud | Evidence |
 | --- | --- | --- | --- | --- |
-| Connect by URL, no code change | **`verified`** | **`verified`** | `untested` | `POST …/tools/apps/connect` with a pasted link, then `/finish`. No catalog entry authored; `CONNECTOR-PLAYBOOK.md:23-26` says none is needed, and none was. |
+| Connect by URL, no code change | **`verified`** | **`verified`** | `untested` | `POST …/tools/apps/connect` with a pasted link, then `/finish`. No catalog entry authored; `CONNECTOR-PLAYBOOK.md` (opening section, grep `Connect your own MCP server`) says none is needed, and none was. |
 | Catalog discovery and risk classification | **`verified`** | **`verified`** | `untested` | A: `read` / `write` / `destructive` assigned correctly across 7 tools with no manual input. |
 | Effective policy on the acting agent | **`verified`** | **`verified`** | `untested` | A: `allowedToolNames` moved `[] → [list_notes, read_note] → +create_note` as entries were added; an ungranted agent stayed `[]`. |
 | Narrow read through the gateway | **`verified`** | **`verified`** | `untested` | A: two agent runs. B: DeepWiki `read_wiki_structure`. |
@@ -207,13 +208,13 @@ findings that do not change the advice.
 
 ### F1 — a pasted MCP server can widen its own permissions after approval
 
-On every catalog refresh, newly discovered entries are added to the connection's
-active managed profile unless `quarantineNewEntries` is set — and for a
-**user-pasted URL** it is explicitly set to `false`
-(`server/src/services/tool-access.ts:12721`, in the same expression that flags
-the connection `unverifiedServer: true`). Curated gallery apps and
-Paperclip-managed cloud connectors *do* quarantine. The least-trusted class does
-not.
+On every catalog refresh, newly discovered entries are added to the
+connection's active managed profile unless `quarantineNewEntries` is set — and
+for a **user-pasted URL** it is explicitly set to `false`
+(`server/src/services/tool-access.ts`, grep `unverifiedServer: true`, in the
+same expression that flags the connection `unverifiedServer: true`). Curated
+gallery apps and Paperclip-managed cloud connectors *do* quarantine. The
+least-trusted class does not.
 
 Executed: a connection finished with exactly two tools enabled and access limited
 to one agent. The provider then advertised `export_notes`, which returns every
@@ -249,11 +250,12 @@ for permission questions, and a real agent run for execution questions.
 
 `POST …/tools/apps/{id}/finish` with `access: {agentIds: [...]}` creates the
 tool-profile binding but **no `tool_connection_install` row**. Agent readiness
-requires both (`server/src/services/connection-intents.ts:241-248`), so the tool
-never enters the agent's session. Both wizard-created connections, on both
-instances, showed `installs: []` alongside a correct `allowedToolNames`. The
-board's access view showed the tool allowed and the connection green; the agent
-got `needs_user_action` and could not run.
+requires both (the `usable` predicate in
+`server/src/services/connection-intents.ts`), so the tool never enters the
+agent's session. Both wizard-created connections, on both instances, showed
+`installs: []` alongside a correct `allowedToolNames`. The board's access view
+showed the tool allowed and the connection green; the agent got
+`needs_user_action` and could not run.
 
 **What this means for the skill's advice.** After finishing the wizard, check
 `GET /api/tool-connections/{id}/installs` — not just the effective profile.

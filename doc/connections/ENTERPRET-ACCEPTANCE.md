@@ -252,7 +252,8 @@ that is precisely the protection a pasted URL lacks.
 
 ## 4. The nine production-validation scenarios
 
-Runbook matrix at `CONNECTOR-PLAYBOOK.md:1445-1455`. **Every row that names
+Runbook matrix at `CONNECTOR-PLAYBOOK.md`, **Step 9: Align With Production
+Validation**. **Every row that names
 Enterpret itself is `not run`, for one reason: there is no authorized
 credential, and registration, consent and tool calls are out of bounds.** The
 mirror result is recorded beside it, because the mirror exercises Paperclip's

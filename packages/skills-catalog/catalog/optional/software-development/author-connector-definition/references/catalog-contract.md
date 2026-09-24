@@ -2,22 +2,27 @@
 
 Index of the files and assertions a catalog-connector change has to satisfy.
 
-**Verified against Paperclip App commit `e558f25e` (15 September 2026), by
-re-reading each cited file and by running the command ladder below through the
-isolated harness.** Previously verified at `728f7185` (14 September 2026); every
-claim below survived that move, but several line numbers did not, so this
-revision cites symbols and landmarks you can grep for and keeps line numbers
-only where they are load-bearing. If the commit you read disagrees, the commit
-wins — and record the drift in your report so this file gets corrected.
+**Verified against Paperclip App commit `18dac1e1` (24 September 2026), by
+re-reading every cited file at that commit and running the command ladder below
+through the isolated harness.**
+
+**How this file cites things.** A file and a symbol, never a line number, and
+never a transcribed count. Both were tried and both rotted: between `728f7185`
+and `e558f25e` — nine days — several line numbers moved, and between `e558f25e`
+and `18dac1e1` the store-visible count went from 46 to 56 and the candidate
+count from 43 to 48. A reader who trusted a printed number would have written a
+failing assertion. So the counts below are commands that read the number out of
+the repository in front of you. Run them. If a symbol has moved or gone, the
+commit wins — record the drift in your report so this file gets corrected.
 
 ## Files a minimal store-visible connector touches
 
 | File | Role | Editable? |
 | --- | --- | --- |
-| `scripts/ingest-app-definitions.mjs` | Human-authored provider source. The `apps` array starts at line 180; the tuple mapper follows it (grep for `schemaVersion: 1,` inside the `.map((`, around line 795). | Yes — this is the source. |
+| `scripts/ingest-app-definitions.mjs` | Human-authored provider source. The `apps` array and, after it, the tuple mapper — grep `const apps = [` and `schemaVersion: 1,`. | Yes — this is the source. |
 | `ui/public/brands/apps/<slug>.svg` | Official mark. | Yes. |
 | `ui/public/brands/apps/manifest.json` | Branding provenance: slug, provider name, `catalogVisible`, `localAsset`, optional `darkAsset`, optional `aliases`. | Yes. |
-| `packages/shared/src/app-definitions.ts` | `CONNECTABLE_APP_SLUGS` (line 6) and `APP_STORE_HIDDEN_SLUGS` (line 44). | Yes. |
+| `packages/shared/src/app-definitions.ts` | `CONNECTABLE_APP_SLUGS` and `APP_STORE_HIDDEN_SLUGS`. | Yes. |
 | `packages/shared/src/types/app-definition.ts` | The field contract the generator output has to satisfy. | Read-only for authoring. |
 | `packages/shared/src/app-definitions/<slug>.json` | Generated definition. | **Generated** — see the exception below. |
 | `packages/shared/src/app-definitions.generated.ts` | Generated positional registry. | **Generated.** |
@@ -31,7 +36,7 @@ required for a store-visible provider.
 
 ## The generated-file exception
 
-`scripts/ingest-app-definitions.mjs:1379-1396` (`reviewedGoogleSlugs`) reads nine
+`scripts/ingest-app-definitions.mjs` (grep `reviewedGoogleSlugs`) reads nine
 definitions back from the output directory and re-emits them verbatim:
 
 ```js
@@ -48,15 +53,15 @@ change the next run reverts.
 
 ## Generator preconditions
 
-- **Corpus.** `scripts/ingest-app-definitions.mjs:4-9` resolves
+- **Corpus.** `scripts/ingest-app-definitions.mjs` resolves
   `PAPERCLIP_CONTENT_TEMPLATES`, defaulting to
-  `../../paperclip-content/research/connections/vercel/templates`. Line 1541-1542
-  throws `Expected 99 captures, found N` unless exactly 99 `.md` files
-  (excluding `INDEX.md`) are present. A new provider needs no capture of its
-  own; the corpus still has to be complete. The corpus lives in the
-  non-public `paperclip-content` repository: if you do not have it, this whole
-  path is closed to you and you report that rather than stubbing the guard out.
-- **Branding.** `brandingFor` (declared line 20, throws line 29) throws
+  `../../paperclip-content/research/connections/vercel/templates`. It throws
+  `Expected 99 captures, found N` unless exactly 99 `.md` files (excluding
+  `INDEX.md`) are present. A new provider needs no capture of its own; the
+  corpus still has to be complete. The corpus lives in the non-public
+  `paperclip-content` repository: if you do not have it, this whole path is
+  closed to you and you report that rather than stubbing the guard out.
+- **Branding.** `brandingFor` throws
   `<slug>: missing local branding provenance` unless the slug has a manifest row
   (only `oauth-generic` and `api-key-generic` are exempt). Branding precedes
   generation.
@@ -73,7 +78,7 @@ change the next run reverts.
   `content`, `data`, `developer`, `productivity`, `other`.
 - The 5th element (`domain`) is discarded by the mapper. `docsUrl` must go in
   `extra`, or it is only backfilled for providers that also appear in the
-  research ledger (`ingest-app-definitions.mjs:1315`).
+  research ledger (`ingest-app-definitions.mjs`, grep `docsUrl`).
 - `method(key, transport, auth, defaults, riskTier, guidanceMd, extra)` fills
   `ownershipModes` as `["customer", "dcr"]` for `oauth` and `["customer"]`
   otherwise, plus a default `whenToUse`.
@@ -89,28 +94,70 @@ APP_DEFINITIONS (generated, all providers)
 ```
 
 `GET /api/companies/:companyId/tools/apps` returns `APP_STORE_DEFINITIONS`
-directly (`server/src/routes/tool-access.ts:831`). There is no company-scoped
-definition store, and `connectToolAppSchema` accepts a `galleryKey` or a `link`
-and nothing else (`packages/shared/src/validators/tool-access.ts:472-474`). A
-catalog connector is therefore always a shared-source change.
+directly (`server/src/routes/tool-access.ts`, grep `tools/apps`). There is no
+company-scoped definition store, and `connectToolAppSchema` accepts a
+`galleryKey` or a `link` and nothing else (`connectToolAppSchema` in
+`packages/shared/src/validators/tool-access.ts`). A catalog connector is
+therefore always a shared-source change.
+
+### Three states, not two
+
+The chain above is about *listing*. It is not the whole visibility contract,
+and reading it as though it were is the mistake this file used to invite.
+
+| State | How you set it | What a user can do |
+| --- | --- | --- |
+| **Store-visible** | In `CONNECTABLE_APP_SLUGS`, not in `APP_STORE_HIDDEN_SLUGS` | Sees the card, connects. |
+| **Connectable but unlisted** | Add the slug to `APP_STORE_HIDDEN_SLUGS` | Does **not** see the card in the gallery, and can still connect by direct URL or by slug lookup. Hiding is not withholding. |
+| **Withheld** | `availability: { available: false, reason }` on the definition | Cannot connect. The reason renders where the Connect action would be. |
+
+The third one is the one to reach for when a connector is authored but not yet
+proven against the provider — offline authoring legitimately produces a column
+of "not run", and a definition in that state must not offer a Connect button
+that cannot work.
+
+`available: false` is enforced server-side, not just in the UI. Grep these
+before trusting the label:
+
+```sh
+git grep -n 'availability?\.available === false' server/src ui/src
+```
+
+At `18dac1e1` that is refused by the metadata preflight (`notFound("App not
+found")` in `server/src/services/tool-access.ts`), filtered out of agent
+connection intents (`server/src/services/connection-intents.ts`), and rendered
+as a disabled card with the reason in `ConnectionSetupFlow.tsx` and
+`Browse.tsx`.
 
 ## Assertions with exact counts or sets
 
 These fail on any addition. Update them deliberately.
 
-| Assertion | Location | What breaks |
+Read the current numbers before you touch anything. This prints every count
+the catalog pins, out of the checkout in front of you:
+
+```sh
+grep -nE 'toHaveLength\(|verifiedAt\)\.toBe' packages/shared/src/app-definitions.test.ts
+```
+
+At `18dac1e1` that reports `APP_STORE_DEFINITIONS` 56, `SELF_SERVE_MCP_CANDIDATES`
+48, `SELF_SERVE_MCP_RESEARCH.entries` 51, `verifiedAt` `"2026-08-26"`. Those four
+are here to show you what the output looks like, not to be copied into an edit —
+three of the four have already changed once since this file was written.
+
+| Assertion | Where | What breaks |
 | --- | --- | --- |
-| `expect(APP_STORE_DEFINITIONS).toHaveLength(46)` | `app-definitions.test.ts:689`, in `it("withholds unverified and reserved providers …")` | Any new store-visible provider. Bump the count. |
-| `catalogVisible` manifest set must equal the store-visible definition set, and asset paths must equal `branding` values | same test, from line 716 (`manifest.providers.filter(… catalogVisible)`) | A manifest row without a definition, or the reverse. Also enforces PNG ≥ 128×128 and rejects script/`foreignObject`/event handlers in SVG. |
-| Required non-advanced tenant/extension fields enumerated in a short allowlist | `app-definitions.test.ts` around line 905 (`field.required && field.advanced !== true && !field.hidden`) | Any visible required field on the default path. Prefer making the field optional or advanced with a default. |
-| `expect(SELF_SERVE_MCP_CANDIDATES).toHaveLength(43)` | `app-definitions.test.ts:280` | Adding a provider to the research ledger. |
-| Ledger entry count with a fixed `verifiedAt` (`"2026-08-26"` at this commit) | `app-definitions.test.ts:434-435` | Same. Also requires HTTPS `docsUrl`/`serverUrl`, a non-empty `authMode`, a prerequisite longer than 10 characters, and a valid tier. |
-| `APP_STORE_HIDDEN_SLUGS` exact sorted list | `app-definitions.test.ts:666-688` | Hiding a provider. Hidden slugs must still be connectable. |
-| Method and field invariants across the whole catalog | `it("enforces method and field invariants")`, `app-definitions.test.ts:961` | A missing `keyPlacement`, empty `ownershipModes`, or a required credential field with no placeholder. |
+| `expect(APP_STORE_DEFINITIONS).toHaveLength(N)` | `app-definitions.test.ts`, in `it("withholds unverified and reserved providers …")` | Any new store-visible provider. Set the count to what the command above reports, plus one. |
+| `catalogVisible` manifest set must equal the store-visible definition set, and asset paths must equal `branding` values | same test — grep `manifest.providers.filter` | A manifest row without a definition, or the reverse. Also enforces PNG ≥ 128×128 and rejects script/`foreignObject`/event handlers in SVG. |
+| Required non-advanced tenant/extension fields enumerated in a short allowlist | `app-definitions.test.ts` — grep `field.advanced !== true` | Any visible required field on the default path. Prefer making the field optional or advanced with a default. |
+| `expect(SELF_SERVE_MCP_CANDIDATES).toHaveLength(N)` | `app-definitions.test.ts` | Adding a provider to the research ledger. |
+| Ledger entry count with a fixed `verifiedAt` | `app-definitions.test.ts` — grep `SELF_SERVE_MCP_RESEARCH` | Same. Also requires HTTPS `docsUrl`/`serverUrl`, a non-empty `authMode`, a prerequisite longer than 10 characters, and a valid tier. |
+| `APP_STORE_HIDDEN_SLUGS` exact sorted list | `app-definitions.test.ts` — grep `APP_STORE_HIDDEN_SLUGS` | Hiding a provider. Hidden slugs must still be connectable. |
+| Method and field invariants across the whole catalog | `it("enforces method and field invariants")` | A missing `keyPlacement`, empty `ownershipModes`, or a required credential field with no placeholder. |
 
 The provider-slug membership check above those uses `arrayContaining`, so an
-addition does not break it. Confirmed at `e558f25e`: adding one store-visible
-provider failed exactly one assertion, the count at line 689.
+addition does not break it. Measured at `e558f25e`: adding one store-visible
+provider failed exactly one assertion, the `APP_STORE_DEFINITIONS` count.
 
 ## Network and deployment guard
 
@@ -119,7 +166,7 @@ is *not* both authenticated and publicly exposed; link-local egress is denied in
 every mode.
 
 ```ts
-// server/src/services/tool-access.ts:3175-3180 (and tool-gateway.ts:3132-3137)
+// allowPrivateRemoteEndpoints, in server/src/services/tool-access.ts
 function allowPrivateRemoteEndpoints() {
   return (
     options.deploymentMode !== "authenticated" ||
@@ -130,7 +177,7 @@ function allowPrivateRemoteEndpoints() {
 
 `DEPLOYMENT_MODES` is `["local_trusted", "authenticated"]` and
 `DEPLOYMENT_EXPOSURES` is `["private", "public"]`
-(`packages/shared/src/constants.ts:4-8`). The check runs inside
+(`packages/shared/src/constants.ts`). The check runs inside
 `guardedRemoteHttpFetch` at dial time rather than as a standalone pre-flight,
 which is what closes the DNS-rebinding window — so a same-machine desktop MCP
 endpoint is a local-deployment capability, not a configuration flag to widen.
@@ -163,7 +210,7 @@ manifest does nothing.
 | Transport | Manifest-only? | Boundary |
 | --- | --- | --- |
 | `mcp_remote` | Yes | First-class: discovery, health, catalog, gateway, OAuth, credential projection. |
-| `local_stdio` | Only via a registered template | Reported unsupported outside `local_trusted` mode or a configured trusted runtime host (`server/src/services/tool-access.ts:4788-4789`). Never put a bare command in a definition. |
+| `local_stdio` | Only via a registered template | Reported unsupported outside `local_trusted` mode or a configured trusted runtime host (`server/src/services/tool-access.ts`, grep `local_stdio`). Never put a bare command in a definition. |
 | `rest_api` | No | Not exposed through the connected MCP gateway. Needs an execution adapter first. |
 
 `api_key` is an authentication mode, not a transport. Most API-key catalog

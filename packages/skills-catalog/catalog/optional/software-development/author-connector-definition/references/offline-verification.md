@@ -13,9 +13,9 @@ checkout is untouched.
 This used to ship as `scripts/make-harness.sh` inside the skill. It is inlined
 here on purpose: a skill package containing anything under `scripts/` derives
 the `scripts_executables` trust level (`deriveTrustLevel` in
-`packages/skills-catalog/src/catalog-builder.ts:763-767`), and the shipped
+`packages/skills-catalog/src/catalog-builder.ts`), and the shipped
 catalog pins that set to exactly one key
-(`packages/skills-catalog/src/shipped-catalog.test.ts:132-136`). Carrying the
+(`packages/skills-catalog/src/shipped-catalog.test.ts`). Carrying the
 recipe as documentation keeps this package `markdown_only` and installable
 without an audit-allowlist change. Save it to a file yourself and `chmod +x` it
 if you prefer to run it as a script.

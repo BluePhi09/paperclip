@@ -27,12 +27,12 @@ Read from each instance's `config.json` and confirmed against its live
 `/api/health`. Neither instance had `PAPERCLIP_DEPLOYMENT_MODE`,
 `PAPERCLIP_DEPLOYMENT_EXPOSURE`, or `PAPERCLIP_PUBLIC_URL` set in the
 environment; the equivalent `config.json` keys are the source, which is what
-`server/src/config.ts:170-190` reads after the environment.
+`server/src/config.ts` reads after the environment.
 
 | | **Instance A — shape A** | **Instance B — shape B** |
 | --- | --- | --- |
 | Deployment mode | `config.server.deploymentMode = local_trusted` | `config.server.deploymentMode = authenticated` |
-| Exposure | **forced** `private` by `config.ts:187-190` | run as `private` **and** `public` |
+| Exposure | **forced** `private` by `deploymentExposure` in `config.ts` | run as `private` **and** `public` |
 | Public base URL | not set, not needed | `auth.publicBaseUrl` set and mandatory — see F7 |
 | Bind | loopback `127.0.0.1:3810` | loopback `127.0.0.1:3820` |
 | Database | embedded PostgreSQL | **external** PostgreSQL — embedded is refused, see F7 |
@@ -97,8 +97,9 @@ public exposure; the private-endpoint refusal happens at connect time, not here.
    account on that provider. The unauthenticated metadata probe in the skill's
    quickstart is current; the consent half stays `untested`.
 
-No catalog definition was authored. `CONNECTOR-PLAYBOOK.md:23-26` says the
-pasted-URL path needs no code change, and it did not.
+No catalog definition was authored. `CONNECTOR-PLAYBOOK.md` (opening section,
+grep `Connect your own MCP server`) says the pasted-URL path needs no code
+change, and it did not.
 
 ### Provider evidence record
 
@@ -114,10 +115,11 @@ pasted-URL path needs no code change, and it did not.
 
 ## 3. The nine production-validation scenarios
 
-These are the runbook's scenarios (`doc/connections/CONNECTOR-PLAYBOOK.md:1445-1455`).
-Environment for every row unless stated otherwise: **instance A**,
-`local_trusted` + `private`, commit `9335b7db10`, method key
-`connect-your-own-mcp-server` (pasted URL, `authMode: none`).
+These are the runbook's scenarios (`doc/connections/CONNECTOR-PLAYBOOK.md`,
+**Step 9: Align With Production Validation**). Environment for every row
+unless stated otherwise: **instance A**, `local_trusted` + `private`, commit
+`9335b7db10`, method key `connect-your-own-mcp-server` (pasted URL, `authMode:
+none`).
 
 ### 1. Setup and consent — pass
 
@@ -229,15 +231,15 @@ Environment for every row unless stated otherwise: **instance A**,
   invocation for `create-note`. That correlation is the whole proof: the agent,
   not the tester, did the work, and it went through the managed connection.
 
-- **Instance B, `authenticated` + `public`.** Run `f027aa16…`, `succeeded`, one
-  correlated invocation:
-  `mcp.app-gallery-link-…:read-wiki-structure | allow | succeeded | args {"repoName": "paperclipai/paperclip"}`.
-  The agent reported DeepWiki's 13 top-level sections verbatim, and separately
-  attempted `read_wiki_contents` — the tool it was *not* granted at `finish` —
-  which failed at local dispatch with no request reaching DeepWiki. So shape B
-  has an allowed agent execution and a hidden-tool denial in the same run,
-  against a real third-party provider. No provider-side readback there: DeepWiki
-  is read-only.
+- **Instance B, `authenticated` + `public`.** Run `f027aa16…`, `succeeded`,
+  one correlated invocation: `mcp.app-gallery-link-…:read-wiki-structure |
+  allow | succeeded | args {"repoName": "paperclipai/paperclip"}`. The agent
+  reported DeepWiki's 13 top-level sections verbatim, and separately attempted
+  `read_wiki_contents` — the tool it was *not* granted at `finish` — which
+  failed at local dispatch with no request reaching DeepWiki. So shape B has
+  an allowed agent execution and a hidden-tool denial in the same run, against
+  a real third-party provider. No provider-side readback there: DeepWiki is
+  read-only.
 - **It took three shape-B runs to get there, and both failures were findings
   rather than flakes.** Run 1 failed on `ENOTFOUND` because the mandatory
   `auth.publicBaseUrl` is also what the runtime hands spawned agents as their
@@ -264,11 +266,12 @@ Environment for every row unless stated otherwise: **instance A**,
   `POST …/grants/installations {"isDefault": true}` → a live gateway call.
 - **Expected.** Revocation blocks later execution; reconnect reuses the intended
   identity.
-- **Actual.** After revocation the gateway refuses:
-  `{"error": {"message": "Organization authorization is required", "reasonCode": "organization_authorization_required"}}`,
-  logged as `call_failed`. Disabling the connection refuses earlier, at policy:
-  `deny / deny_disabled_connection`. After re-adding the installation the same
-  read succeeds again, on the same connection id, with a new grant id and no
+- **Actual.** After revocation the gateway refuses: `{"error": {"message":
+  "Organization authorization is required", "reasonCode":
+  "organization_authorization_required"}}`, logged as `call_failed`. Disabling
+  the connection refuses earlier, at policy: `deny /
+  deny_disabled_connection`. After re-adding the installation the same read
+  succeeds again, on the same connection id, with a new grant id and no
   duplicate connection. The gap is **F4**.
 
 ### 9. Activity and secret handling — pass
@@ -306,13 +309,13 @@ them at the step where they bite. The rest are recorded here only.
 
 ### F1 — a pasted MCP server can widen its own permissions after approval
 
-On every catalog refresh, newly discovered entries join the connection's active
-managed profile unless `quarantineNewEntries` is set — and for a **user-pasted
-URL** it is explicitly set to `false`, in the same expression that flags the
-connection `unverifiedServer: true`
-(`server/src/services/tool-access.ts:12721`). Curated gallery apps and
-Paperclip-managed cloud connectors *do* quarantine. The least-trusted class does
-not.
+On every catalog refresh, newly discovered entries join the connection's
+active managed profile unless `quarantineNewEntries` is set — and for a
+**user-pasted URL** it is explicitly set to `false`, in the same expression
+that flags the connection `unverifiedServer: true`
+(`server/src/services/tool-access.ts`, grep `unverifiedServer: true`). Curated
+gallery apps and Paperclip-managed cloud connectors *do* quarantine. The
+least-trusted class does not.
 
 **Executed, on the recommended wizard path.** A connection was finished with
 exactly two tools enabled (`list_notes` allowed, `create_note` ask-first) and
@@ -364,10 +367,11 @@ as board" and show the agent's own decision beside the result.
 ### F10 — the connect wizard grants the policy but not the install
 
 `POST …/tools/apps/{id}/finish` with `access: {agentIds: [...]}` creates the
-tool-profile binding — the agent's `allowedToolNames` correctly lists the chosen
-tool — but creates **no `tool_connection_install` row**. Agent readiness
-(`usableConnectionForAgent`, `server/src/services/connection-intents.ts:241-248`)
-requires the connection to be both installed for the agent and permitted:
+tool-profile binding — the agent's `allowedToolNames` correctly lists the
+chosen tool — but creates **no `tool_connection_install` row**. Agent
+readiness (`usableConnectionForAgent`, the `usable` predicate in
+`server/src/services/connection-intents.ts`) requires the connection to be
+both installed for the agent and permitted:
 
 ```ts
 const usable = (connection) => connection
@@ -447,7 +451,7 @@ Both were found by hitting them:
    public self-hosted instance cannot use the embedded database at all.
 2. `auth.baseUrlMode must be explicit when deploymentMode=authenticated and
    exposure=public`, plus `auth.publicBaseUrl` required
-   (`packages/shared/src/config-schema.ts:167-187`).
+   (`packages/shared/src/config-schema.ts`).
 
 Neither is a defect. Both are the first two walls a self-hoster hits, which is
 why they are in the shape-B row of the matrix.

@@ -31,12 +31,12 @@ slug allowlist, branding validation, the exact-count test assertions, and the
 offline verification loop. It does not own the process around them.
 
 **A catalog entry is a convenience layer, not a prerequisite.** The runbook is
-explicit: an operator can connect any standards-compliant remote HTTP MCP server
-from **Connect your own MCP server** or **Paste a config** with no Paperclip
-code change at all, including servers that need browser sign-in
-(`CONNECTOR-PLAYBOOK.md:23-26`). Check that the requester actually needs a
-catalog entry before spending a single edit here. `connect-agent-tools` owns
-that decision.
+explicit: an operator can connect any standards-compliant remote HTTP MCP
+server from **Connect your own MCP server** or **Paste a config** with no
+Paperclip code change at all, including servers that need browser sign-in
+(`CONNECTOR-PLAYBOOK.md`, opening section). Check that the requester actually
+needs a catalog entry before spending a single edit here.
+`connect-agent-tools` owns that decision.
 
 **Self-hosted first.** Everything this skill produces is authored and verified
 against an App checkout and an instance you run yourself. Phases 8 and 9 of the
@@ -45,6 +45,12 @@ account is required to author, validate, or submit a connector. Where a method
 is genuinely Cloud-gated — the curated `platform_shared` Paperclip-managed OAuth
 profile is the one current case — record it as `unsupported` for self-hosted
 rather than treating Cloud as the baseline.
+
+**How this skill cites the product.** A file and a symbol you can grep for,
+never a line number: line numbers drift between the read and the reader, and
+this skill has already been caught citing four that had moved. Every source and
+runbook citation below was re-read at App commit `18dac1e1` (24 September 2026).
+If the commit in front of you disagrees, the commit wins — record the drift.
 
 ## Use This When
 
@@ -69,13 +75,14 @@ Hand the request to the right owner instead:
 | "The provider has no MCP server" | Out of scope. A manifest cannot wrap an arbitrary REST API, run an arbitrary local command, or register an OAuth client in a console Paperclip does not control. Report the boundary. |
 | "Ship it" / "install it" / "release it" | Not authorized here. See **Authorization boundaries**. |
 
-PR #13675 made the runbook self-contained so that "contributors can implement a
-connector without access to an internal issue tracker", and removed the separate
-private validation issue ("No separate private validation issue is required",
-`CONNECTOR-PLAYBOOK.md:1443`). Treat `prepare-mcp-integration` as an internal
-convenience for people working inside Paperclip Content, not as a gate a public
-contributor must pass. When it does apply, that skill drives and calls this one
-for the definition itself.
+PR #13675 made the runbook self-contained so that "contributors can implement
+a connector without access to an internal issue tracker", and removed the
+separate private validation issue ("No separate private validation issue is
+required", `CONNECTOR-PLAYBOOK.md`, **Step 9: Align With Production
+Validation**). Treat `prepare-mcp-integration` as an internal convenience for
+people working inside Paperclip Content, not as a gate a public contributor
+must pass. When it does apply, that skill drives and calls this one for the
+definition itself.
 
 ## Required Inputs
 
@@ -90,7 +97,13 @@ Collect these before step 1. Ask only for what you cannot determine safely.
    the runbook no longer requires a private research approval. Inside Paperclip
    Content, that decision is `prepare-mcp-integration`'s gate; if it applies and
    has not been taken, stop and route there.
-4. **Intended visibility**: store-visible, or connectable-but-hidden.
+4. **Intended visibility**, which is a three-way choice, not a toggle:
+   store-visible; connectable but unlisted (`APP_STORE_HIDDEN_SLUGS` — still
+   reachable by direct URL or slug, so hiding is not withholding); or withheld
+   (`availability: { available: false, reason }`, which refuses setup and
+   renders the reason instead of a Connect action). A connector authored
+   without a live provider proof belongs in the third state, not the second.
+   See the visibility chain in `references/catalog-contract.md`.
 5. **Location of the ingestion corpus** (`paperclip-content`), or the value for
    `PAPERCLIP_CONTENT_TEMPLATES`. This corpus is in a non-public repository; the
    generator refuses to run without it. If you do not have it, this skill's
@@ -151,8 +164,8 @@ Read from the recorded commit, not from memory and not from a stale worktree:
   instructions, provider handoffs, personal identity linking, the optional
   message test, and management states. Do not apply Slack's steps or credential
   types to a provider that does not work that way, and do not skip it when they
-  apply. `connect-agent-tools/references/chat-and-email.md` is the short routing
-  layer over it.
+  apply. The `connect-agent-tools` skill's `references/chat-and-email.md` is
+  the short routing layer over it.
 - `doc/connections/README.md` — the identity/connections boundary. Every
   connector is a plane P2 resource credential, never a sign-in authenticator.
   Sign-in tokens are never reused as resource tokens; `id.paperclip.ing` never
@@ -164,6 +177,20 @@ Read from the recorded commit, not from memory and not from a stale worktree:
   recommended access defaults.
 - `packages/shared/src/app-definitions.test.ts` — the assertions your change
   must satisfy.
+
+**Finding the sibling skill's files.** Installed catalog skills do not
+materialize under their bare slug. A run sees
+`connect-agent-tools--<hash>/`, where the suffix is generated per package, so
+`../connect-agent-tools/references/…` resolves to nothing and a relative link
+written that way is dead the moment the skill is installed rather than read out
+of a checkout. Resolve the directory before you read it:
+
+```sh
+find "$(dirname "$PWD")" -maxdepth 1 -name 'connect-agent-tools*' -type d
+```
+
+Inside an App checkout the bare name is correct; both forms appear, and only
+one of them is the one an installed reader has.
 
 Then read `references/catalog-contract.md` in this skill for the file-by-file
 map and the assertions that carry exact counts. Treat that reference as a
@@ -179,17 +206,35 @@ do not invent hosted OAuth for a same-machine, unauthenticated server. If the
 current transport or egress policy cannot support it, report the runtime gap.
 
 For OAuth providers, these unauthenticated requests inspect the transport and
-auth axes. Skip OAuth discovery for a provider that does not use OAuth:
+auth axes. Skip OAuth discovery for a provider that does not use OAuth.
+
+**Do not `curl` these URLs directly.** After the first request, the server
+picks where you go next: `resource_metadata` comes out of its challenge, and
+the issuer comes out of the document that URL returns. A hostile endpoint can
+point either at cloud metadata at `169.254.169.254`, at a loopback service, or
+at a public hostname whose DNS record is `127.0.0.1` — and a bare `curl` will
+go there with your network position. Set up `safe_curl` from
+[references/safe-discovery.md](references/safe-discovery.md) first. It
+validates scheme, port, userinfo and every resolved address before anything is
+sent, pins the connection to the addresses it validated so DNS cannot move the
+request afterwards, and refuses redirects. Refusal is exit 2 and means nothing
+left the machine.
 
 ```sh
-curl -s -i -X POST "$SERVER_URL" \
+source ./safe-fetch.sh   # see references/safe-discovery.md
+
+safe_curl "$SERVER_URL" -X POST \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}'
 # Read resource_metadata out of the WWW-Authenticate challenge, then:
-curl -s "$RESOURCE_METADATA_URL"          # RFC 9728 -> authorization_servers
-curl -s "$ISSUER/.well-known/oauth-authorization-server"   # RFC 8414
+safe_curl "$RESOURCE_METADATA_URL"          # RFC 9728 -> authorization_servers
+safe_curl "$ISSUER/.well-known/oauth-authorization-server"   # RFC 8414
 ```
+
+A refusal is a finding, not an obstacle to route around. Record the URL the
+provider supplied and what it resolved to, and escalate it — a catalog
+connector whose discovery points inside the authoring network does not ship.
 
 Record, with the date you read it: the endpoint and its trailing-slash
 behaviour; the unauthenticated status and challenge; the protected-resource and
@@ -273,14 +318,16 @@ Then split your evidence into three explicit buckets and never blur them:
 Then answer the runbook's nine production-validation scenarios — setup and
 consent, authentication, catalog and configuration, allowed execution, denied
 execution, runtime delivery, refresh and recovery, revoke and reconnect,
-activity and secret handling (`CONNECTOR-PLAYBOOK.md:1445-1455`) — with
-**pass / fail / not run / not applicable** and a reason for the last two, plus
-environment, method key, commit, and accessible redacted evidence. Offline
-authoring legitimately produces a column of "not run"; what it must never
-produce is a blank or an optimistic one.
+activity and secret handling (`CONNECTOR-PLAYBOOK.md`, **Step 9: Align With
+Production Validation** — the scenario table) — with **pass / fail / not run /
+not applicable** and a reason for the last two, plus environment, method key,
+commit, and accessible redacted evidence. Offline authoring legitimately
+produces a column of "not run"; what it must never produce is a blank or an
+optimistic one.
 
 Report those results per deployment, self-hosted first, using the four labels
-in `connect-agent-tools/references/deployment-support-matrix.md`. A pass on a
+in the `connect-agent-tools` skill's `references/deployment-support-matrix.md`.
+A pass on a
 self-hosted instance makes that row `verified` for self-hosted and leaves Cloud
 `untested`; the reverse is equally true.
 
@@ -340,7 +387,8 @@ Deliver exactly this, and nothing that implies more:
 5. **A deployment support matrix** — self-hosted same-machine, self-hosted
    server/VPS, and Cloud, each capability labelled `verified`, `untested`,
    `unsupported` or `deferred` with its evidence or named follow-up owner. Use
-   `connect-agent-tools/references/deployment-support-matrix.md` as the shape.
+   the `connect-agent-tools` skill's `references/deployment-support-matrix.md`
+   as the shape.
 6. **Remaining gaps** — unprobed constraints, the account-bound lifecycle, and
    anything a reviewer must authorize before release.
 7. **An explicit statement** of what did not happen: no push, no PR, no deploy,

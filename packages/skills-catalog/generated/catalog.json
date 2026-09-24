@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "packageName": "@paperclipai/skills-catalog",
   "packageVersion": "0.3.1",
-  "generatedAt": "2026-09-20T19:59:29.226Z",
+  "generatedAt": "2026-09-24T21:08:13.357Z",
   "skills": [
     {
       "id": "paperclipai:bundled:docs:doc-maintenance",
@@ -1147,14 +1147,14 @@
         {
           "path": "SKILL.md",
           "kind": "skill",
-          "sizeBytes": 20964,
-          "sha256": "ecdf045a004da99c6ed9a3384b6000151d6965564d2ed1543c76c94b336811b7"
+          "sizeBytes": 23654,
+          "sha256": "2b8ed818bc969425f6ebb7de0b70893b69ba6cbeae55d4a75660b4ae82046302"
         },
         {
           "path": "references/catalog-contract.md",
           "kind": "reference",
-          "sizeBytes": 13589,
-          "sha256": "f8a659b8c5790fd7c7b6d0a7bac1d3e16e175072f18c97ce3e5db1924f9abda3"
+          "sizeBytes": 15776,
+          "sha256": "e4a7f973ac2278bc23f86bf74e0199574d3341e91fe092a0fa06494a736ce930"
         },
         {
           "path": "references/live-acceptance.md",
@@ -1165,11 +1165,17 @@
         {
           "path": "references/offline-verification.md",
           "kind": "reference",
-          "sizeBytes": 18496,
-          "sha256": "3b5a73bc50963bc5a1d7044817642022397eb42229f78a75df4d3b3c8a43b0f1"
+          "sizeBytes": 18480,
+          "sha256": "f887188302dab5c3ea947a29fb21ebfe4281e57cf83c02bcfbfb42c4f2711500"
+        },
+        {
+          "path": "references/safe-discovery.md",
+          "kind": "reference",
+          "sizeBytes": 16680,
+          "sha256": "d65e3dbfee183e46923af1ac3b088dc589277551749d45cd8e4867db50c0d687"
         }
       ],
-      "contentHash": "sha256:830e6a1d3d1dfc06372e4bd17883b6f916d5425d7c45b6e53bec8a1c8aa3c2aa"
+      "contentHash": "sha256:853e1f442eb14f95e72d312f305c657cf235c4cd501455ca0846fb58a043a889"
     },
     {
       "id": "paperclipai:optional:software-development:connect-agent-tools",
@@ -1202,8 +1208,8 @@
         {
           "path": "SKILL.md",
           "kind": "skill",
-          "sizeBytes": 26975,
-          "sha256": "13ea45dccab92a5f7dfdd67baa5ffe2952987cbad7fa085cff8de5d0c5fc53ed"
+          "sizeBytes": 27587,
+          "sha256": "72634d7d8c3bbcbec22e29a011d917bf828c94236f5f9f5e17c68f83fd74199a"
         },
         {
           "path": "references/chat-and-email.md",
@@ -1214,17 +1220,17 @@
         {
           "path": "references/deployment-support-matrix.md",
           "kind": "reference",
-          "sizeBytes": 21348,
-          "sha256": "7afb36d0e2baa4e3920d83332f539b332267ae63e41194dfcbfd145f48addb67"
+          "sizeBytes": 21528,
+          "sha256": "5ee2477d76c39842af4a0e5172a1acaae39d93406c84131ba1757851a458a35a"
         },
         {
           "path": "references/verification-log.md",
           "kind": "reference",
-          "sizeBytes": 25233,
-          "sha256": "56cd4452bd75ad646113c1f62926aa6f2b2f965db2d1e9adea350afe60c55b14"
+          "sizeBytes": 25362,
+          "sha256": "fb3799a05d6f0054eeadc55cb7441278013f13959349e0479609fd6439ea3913"
         }
       ],
-      "contentHash": "sha256:15e41bb565bafee8b284fa21e32948a191e828f5956ee641ffe641d11804bd58"
+      "contentHash": "sha256:60fe80ab5181aeb9a55cbb5ccae090ac2bf38872435b08d7f98725eb0be9fd54"
     },
     {
       "id": "paperclipai:optional:software-development:prepare-mcp-integration",
