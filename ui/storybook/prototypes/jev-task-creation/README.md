@@ -33,8 +33,13 @@ Two models do the work, because they are good at different things:
 - Suggested values carry a sparkle. When you change a value, the sparkle goes
   away and the value is never overwritten. The undo icon restores the suggestion.
 - Every chip menu shows Jev's probability for each option.
-- Below the confidence threshold (`JEV_CONFIDENCE_THRESHOLD`, 0.6), the composer
-  says how sure Jev is and offers the next likely owners as one-click buttons.
+- **Low-confidence fallback.** When Jev's assignee confidence is below
+  `JEV_CONFIDENCE_THRESHOLD` (0.6), the task goes to the org's first active agent
+  that reports to the board (`reportsTo: null`, earliest `createdAt`). If no
+  active agent reports to the board, it goes to the org's first active agent.
+  Paused agents are skipped, and Jev never sees them as options. The composer says
+  so in one line and offers Jev's best guesses as one-click buttons
+  (`fallbackAssigneeId` in `jev-classifier.ts`; stories 09 and 09b).
 - **How sure Jev is** lists the confidence for each decision, the token cost, and
   the exact request body sent to Jev.
 - If Jev fails, the title still arrives, the chips work as manual pickers, and
@@ -70,15 +75,14 @@ too (`draftTitle`). No API is called and no task is persisted.
    instance's OpenRouter key, and a small chat model for the title, in parallel.
    Keep the key on the server.
 2. Return a `JevRouting`-shaped payload, so this UI doesn't change.
-3. Record the chosen values and Jev's confidences on the created task's activity
-   entry, so the board can audit routing decisions.
+3. Record the chosen values, Jev's confidences, and whether the fallback owner
+   was used on the created task's activity entry, so the board can audit routing
+   decisions.
 4. Label 100–200 real tasks and tune the confidence threshold against them, as the
    OpenRouter classification cookbook recommends.
 
 ## Open questions
 
-- Should a task auto-assign in the instant flow even when Jev's confidence is
-  low, or wait for the user to pick?
 - Does task **type** need to be a real field? Today `IssueWorkMode` and labels
   cover part of it.
 - Should Jev's criteria for each agent come from agent instructions or role

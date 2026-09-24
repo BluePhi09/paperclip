@@ -8,7 +8,7 @@ const PROMPTS = {
   research: "Should we move heartbeat scheduling onto a queue? How would that change wake latency for agents?",
   design: "The new task dialog feels cramped on mobile. The spacing and typography around the property chips need a design pass.",
   qa: "Before Friday's release, run the smoke tests and verify that invite links still work on authenticated private mode.",
-  ambiguous: "Something is off with the numbers for last month, can you take a look",
+  ambiguous: "The invite emails look wrong, can you sort it out",
   planning: "Plan the migration of agent runtime sessions to the new adapter, in phases, so nothing breaks mid-run.",
 };
 
@@ -23,7 +23,7 @@ const meta = {
           "Prototype: prompt-first task creation. You write what you need. Jev (`typesafe/jev-1.13`, TypeSafe's decision model on OpenRouter) answers " +
           "`choice` questions for task type, assignee, project, and work mode, with a confidence and per-option probabilities. Jev doesn't generate text, so a separate small text model drafts the title, like Claude Code naming a session. " +
           "Suggested values carry a sparkle. Anything you change is yours and is never overwritten; the undo icon restores the suggestion. " +
-          "Below the confidence threshold, likely alternate owners appear as one-click buttons. **Instant** stories create first; the title and routing arrive a moment later. " +
+          "Below the confidence threshold the task goes to the org's first active agent that reports to the board (else its first active agent), and Jev's best guesses appear as one-click buttons. **Instant** stories create first; the title and routing arrive a moment later. " +
           "Jev's answers are simulated locally in the documented response shape (`prototypes/jev-task-creation/jev-classifier.ts`); **How sure Jev is → Request sent to Jev** shows the real request body. No API is called and no task is persisted.",
       },
     },
@@ -51,8 +51,12 @@ export const Design: Story = { name: "06 · Design → DesignSystemCoder", args:
 export const QA: Story = { name: "07 · QA → QAChecker", args: { initialPrompt: PROMPTS.qa } };
 export const LargeScope: Story = { name: "08 · Large scope → Plan mode", args: { initialPrompt: PROMPTS.planning } };
 export const LowConfidence: Story = {
-  name: "09 · Unsure · Jev offers alternate owners",
+  name: "09 · Unsure · Goes to the agent reporting to the board",
   args: { initialPrompt: PROMPTS.ambiguous },
+};
+export const LowConfidenceBoardAgentPaused: Story = {
+  name: "09b · Unsure, CTO paused · Next board-reporting agent",
+  args: { initialPrompt: PROMPTS.ambiguous, pausedAgentIds: ["agent-cto"] },
 };
 export const UserOverride: Story = {
   name: "10 · You chose the assignee · Jev keeps it",

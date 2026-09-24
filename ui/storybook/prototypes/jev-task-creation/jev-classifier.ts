@@ -19,7 +19,7 @@ import type { IssueWorkMode } from "@paperclipai/shared";
 
 export const JEV_NAME = "Jev";
 export const JEV_MODEL = "typesafe/jev-1.13";
-/** Below this confidence, the UI asks the user to pick between likely owners. */
+/** Below this assignee confidence, the task goes to the fallback owner (see `fallbackAssigneeId`). */
 export const JEV_CONFIDENCE_THRESHOLD = 0.6;
 /** Prompts need a little substance before routing starts. */
 export const JEV_MIN_PROMPT_LENGTH = 18;
@@ -59,14 +59,24 @@ export const JEV_TASK_TYPES: { value: JevTaskType; label: string; hint: string }
   { value: "ops", label: "Ops", hint: "Admin, release, or coordination work" },
 ];
 
-export type JevAgent = { id: string; name: string; role: string; title: string; owns: string };
+export type JevAgent = {
+  id: string;
+  name: string;
+  role: string;
+  title: string;
+  owns: string;
+  /** `null` means the agent reports directly to the board. */
+  reportsTo: string | null;
+  createdAt: string;
+  paused?: boolean;
+};
 
 export const JEV_AGENTS: JevAgent[] = [
-  { id: "agent-codex", name: "CodexCoder", role: "engineer", title: "Senior Product Engineer", owns: "Product engineering: bugs and features in the app and API." },
-  { id: "agent-design-system", name: "DesignSystemCoder", role: "designer", title: "Design System Engineer", owns: "UI, UX, visual polish, and the design system." },
-  { id: "agent-qa", name: "QAChecker", role: "qa", title: "QA Engineer", owns: "Verification, reproduction, and release testing." },
-  { id: "agent-cto", name: "CTO", role: "cto", title: "CTO", owns: "Architecture decisions and open-ended technical questions." },
-  { id: "agent-darnold", name: "Darnold", role: "general", title: "Chief of Staff", owns: "Coordination, admin, and operational follow-ups." },
+  { id: "agent-codex", name: "CodexCoder", role: "engineer", title: "Senior Product Engineer", owns: "Product engineering: bugs and features in the app and API.", reportsTo: "agent-cto", createdAt: "2026-04-02T09:00:00Z" },
+  { id: "agent-design-system", name: "DesignSystemCoder", role: "designer", title: "Design System Engineer", owns: "UI, UX, visual polish, and the design system.", reportsTo: "agent-cto", createdAt: "2026-04-06T09:00:00Z" },
+  { id: "agent-qa", name: "QAChecker", role: "qa", title: "QA Engineer", owns: "Verification, reproduction, and release testing.", reportsTo: "agent-cto", createdAt: "2026-04-03T09:00:00Z" },
+  { id: "agent-cto", name: "CTO", role: "cto", title: "CTO", owns: "Architecture decisions and open-ended technical questions.", reportsTo: null, createdAt: "2026-04-01T09:00:00Z" },
+  { id: "agent-darnold", name: "Darnold", role: "general", title: "Chief of Staff", owns: "Coordination, admin, and operational follow-ups.", reportsTo: null, createdAt: "2026-04-10T09:00:00Z" },
 ];
 
 export type JevProject = { id: string; name: string; description: string };
@@ -82,12 +92,14 @@ export const JEV_NO_PROJECT = "none";
 // ---------------------------------------------------------------------------
 // Request builder: this is what a server would send to OpenRouter.
 
-export function buildJevDecisionRequest(prompt: string): JevDecisionRequest {
+export function buildJevDecisionRequest(prompt: string, agents: JevAgent[] = JEV_AGENTS): JevDecisionRequest {
+  // Paused agents can't take work, so Jev never sees them as options.
+  const available = agents.filter((agent) => !agent.paused);
   return {
     model: JEV_MODEL,
     state: {
       task_prompt: prompt,
-      agents: JEV_AGENTS.map(({ id, name, title, owns }) => ({ id, name, title, owns })),
+      agents: available.map(({ id, name, title, owns }) => ({ id, name, title, owns })),
       projects: JEV_PROJECTS.map(({ id, name, description }) => ({ id, name, description })),
     },
     questions: {
@@ -99,7 +111,7 @@ export function buildJevDecisionRequest(prompt: string): JevDecisionRequest {
       assignee: {
         type: "choice",
         instructions: "Which agent should own this task?",
-        criteria: Object.fromEntries(JEV_AGENTS.map((agent) => [agent.id, `${agent.name}, ${agent.title}. ${agent.owns}`])),
+        criteria: Object.fromEntries(available.map((agent) => [agent.id, `${agent.name}, ${agent.title}. ${agent.owns}`])),
       },
       project: {
         type: "choice",
@@ -186,10 +198,14 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
   if (Object.values(typeScores).every((value) => value === 0)) typeScores.research = 0.6;
   const typeProbabilities = softmax(typeScores);
 
-  const assigneeProbabilities: Record<string, number> = Object.fromEntries(JEV_AGENTS.map((agent) => [agent.id, 0]));
+  const assigneeQuestion = request.questions.assignee as JevChoiceQuestion;
+  const assigneeProbabilities: Record<string, number> = Object.fromEntries(Object.keys(assigneeQuestion.criteria).map((id) => [id, 0.02]));
   for (const [type, probability] of Object.entries(typeProbabilities)) {
-    assigneeProbabilities[TYPE_OWNER[type as JevTaskType]]! += probability;
+    const owner = TYPE_OWNER[type as JevTaskType];
+    if (owner in assigneeProbabilities) assigneeProbabilities[owner]! += probability;
   }
+  const assigneeTotal = Object.values(assigneeProbabilities).reduce((sum, value) => sum + value, 0);
+  for (const id of Object.keys(assigneeProbabilities)) assigneeProbabilities[id]! /= assigneeTotal;
 
   const projectScores: Record<string, number> = {
     ...Object.fromEntries(Object.entries(PROJECT_KEYWORDS).map(([id, keywords]) => [id, score(text, keywords)])),
@@ -219,27 +235,44 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
 
 export type JevField = "type" | "assignee" | "project" | "workMode";
 
+/**
+ * Who gets a task when Jev isn't confident about the owner: the org's first
+ * active agent that reports to the board, or else its first active agent.
+ */
+export function fallbackAssigneeId(agents: JevAgent[]): string | null {
+  const active = agents.filter((agent) => !agent.paused).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return (active.find((agent) => agent.reportsTo === null) ?? active[0])?.id ?? null;
+}
+
 export type JevRouting = {
   type: JevTaskType;
+  /** The owner to use: Jev's pick, or the fallback when Jev is unsure. */
   assigneeId: string;
+  assigneeSource: "jev" | "fallback";
+  /** Jev's own top pick, kept even when the fallback is used. */
+  jevAssigneeId: string;
   projectId: string | null;
   workMode: IssueWorkMode;
   confidence: Record<JevField, number>;
   probabilities: Record<JevField, Record<string, number>>;
-  /** Likely owners other than the top pick, shown when assignee confidence is low. */
+  /** Jev's likely owners other than the one assigned, offered when Jev is unsure. */
   alternateAssigneeIds: string[];
   usage: JevDecisionResponse["usage"];
 };
 
-export function routingFromJev(response: JevDecisionResponse): JevRouting {
+export function routingFromJev(response: JevDecisionResponse, agents: JevAgent[] = JEV_AGENTS): JevRouting {
   const { task_type: type, assignee, project, work_mode: mode } = response.answers as Record<string, JevChoiceAnswer>;
+  const fallbackId = assignee!.confidence < JEV_CONFIDENCE_THRESHOLD ? fallbackAssigneeId(agents) : null;
+  const assigneeId = fallbackId ?? assignee!.choice;
   const alternateAssigneeIds = Object.entries(assignee!.probabilities)
-    .filter(([id, probability]) => id !== assignee!.choice && probability >= 0.1)
+    .filter(([id, probability]) => id !== assigneeId && probability >= 0.1)
     .slice(0, 2)
     .map(([id]) => id);
   return {
     type: type!.choice as JevTaskType,
-    assigneeId: assignee!.choice,
+    assigneeId,
+    assigneeSource: fallbackId ? "fallback" : "jev",
+    jevAssigneeId: assignee!.choice,
     projectId: project!.choice === JEV_NO_PROJECT ? null : project!.choice,
     workMode: mode!.choice as IssueWorkMode,
     confidence: { type: type!.confidence, assignee: assignee!.confidence, project: project!.confidence, workMode: mode!.confidence },
@@ -250,6 +283,7 @@ export function routingFromJev(response: JevDecisionResponse): JevRouting {
 }
 
 export type LatencyOptions = { latencyMs?: number; fail?: boolean; signal?: AbortSignal };
+export type RouteOptions = LatencyOptions & { agents?: JevAgent[] };
 
 function delay<T>(produce: () => T, { latencyMs = 400, fail = false, signal }: LatencyOptions, failure: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -262,8 +296,8 @@ function delay<T>(produce: () => T, { latencyMs = 400, fail = false, signal }: L
 }
 
 /** Jev is a fast decision model, so routing usually lands before the title. */
-export function routeTaskWithJev(prompt: string, options: LatencyOptions = {}): Promise<JevRouting> {
-  return delay(() => routingFromJev(simulateJevDecisions(buildJevDecisionRequest(prompt))), options, `${JEV_NAME} is unavailable right now.`);
+export function routeTaskWithJev(prompt: string, { agents = JEV_AGENTS, ...options }: RouteOptions = {}): Promise<JevRouting> {
+  return delay(() => routingFromJev(simulateJevDecisions(buildJevDecisionRequest(prompt, agents)), agents), options, `${JEV_NAME} is unavailable right now.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +309,7 @@ const CURATED_TITLES: Record<string, string> = {
   "should we move": "Evaluate moving heartbeats to a queue",
   "the new task dialog feels": "Tighten spacing in the new task dialog",
   "before friday's release": "Run release smoke tests before Friday",
-  "something is off": "Investigate last month's numbers",
+  "the invite emails": "Sort out the invite emails",
   "rotate the": "Rotate the GitHub App private key",
   "plan the migration": "Plan phased migration of runtime sessions to the new adapter",
 };

@@ -40,6 +40,8 @@ export type JevTaskComposerProps = {
   jevUnavailable?: boolean;
   /** Pre-set the assignee as if the user already chose it. Jev never overwrites it. */
   presetAssigneeId?: string;
+  /** Agents to treat as paused. Jev never routes to them and the fallback skips them. */
+  pausedAgentIds?: string[];
   /** Types `initialPrompt` in character by character to show suggestions arriving. */
   typeOnMount?: boolean;
   mobile?: boolean;
@@ -81,9 +83,15 @@ export function JevTaskComposer({
   titleLatencyMs = 1200,
   jevUnavailable = false,
   presetAssigneeId,
+  pausedAgentIds,
   typeOnMount = false,
   mobile = false,
 }: JevTaskComposerProps) {
+  const pausedKey = (pausedAgentIds ?? []).join(",");
+  const agents = useMemo(
+    () => JEV_AGENTS.map((agent) => (pausedKey.split(",").includes(agent.id) ? { ...agent, paused: true } : agent)),
+    [pausedKey],
+  );
   const [prompt, setPrompt] = useState(typeOnMount ? "" : initialPrompt);
   const [routingStatus, setRoutingStatus] = useState<Status>("idle");
   const [routing, setRouting] = useState<JevRouting | null>(null);
@@ -117,7 +125,7 @@ export function JevTaskComposer({
     const ignoreAbort = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
 
     setRoutingStatus("thinking");
-    routeTaskWithJev(text, { latencyMs, fail: jevUnavailable, signal: controller.signal })
+    routeTaskWithJev(text, { latencyMs, fail: jevUnavailable, signal: controller.signal, agents })
       .then((result) => { setRouting(result); setRoutingStatus("ready"); })
       .catch((error: unknown) => { if (!ignoreAbort(error)) setRoutingStatus("error"); });
 
@@ -125,7 +133,7 @@ export function JevTaskComposer({
     draftTaskTitle(text, { latencyMs: titleLatencyMs, signal: controller.signal })
       .then((title) => { setSuggestedTitle(title); setTitleStatus("ready"); })
       .catch((error: unknown) => { if (!ignoreAbort(error)) setTitleStatus("error"); });
-  }, [latencyMs, titleLatencyMs, jevUnavailable]);
+  }, [latencyMs, titleLatencyMs, jevUnavailable, agents]);
 
   // Suggest-first: re-run after the user pauses typing.
   useEffect(() => {
@@ -245,6 +253,7 @@ export function JevTaskComposer({
           status={routingStatus}
           promptLength={prompt.trim().length}
           prompt={createdPrompt || prompt.trim()}
+          agents={agents}
           routing={routing}
           effective={effective}
           fromJev={fromJev}
@@ -382,6 +391,7 @@ function RoutingPanel({
   status,
   promptLength,
   prompt,
+  agents,
   routing,
   effective,
   fromJev,
@@ -396,6 +406,7 @@ function RoutingPanel({
   status: Status;
   promptLength: number;
   prompt: string;
+  agents: typeof JEV_AGENTS;
   routing: JevRouting | null;
   effective: Effective;
   fromJev: (field: Exclude<OverrideField, "title">) => boolean;
@@ -405,11 +416,17 @@ function RoutingPanel({
   onToggleDetails: () => void;
   onRetry: () => void;
 }) {
-  const unsureOwner = routing !== null && fromJev("assignee") && routing.confidence.assignee < JEV_CONFIDENCE_THRESHOLD;
+  // Below the confidence threshold the task goes to the org's fallback owner (see `fallbackAssigneeId`).
+  const fallbackOwner = routing?.assigneeSource === "fallback" && fromJev("assignee")
+    ? JEV_AGENTS.find((agent) => agent.id === routing.assigneeId) ?? null
+    : null;
 
   const statusLine = (() => {
     if (status === "thinking" && !routing) return created ? `${JEV_NAME} is routing this task…` : `${JEV_NAME} is reading your request…`;
-    if (unsureOwner) return `${JEV_NAME} is ${percent(routing!.confidence.assignee)} sure about the owner. Pick one:`;
+    if (fallbackOwner) {
+      const why = fallbackOwner.reportsTo === null ? "who reports to the board" : "the first agent in your org";
+      return `${JEV_NAME} wasn't sure who should own this (${percent(routing!.confidence.assignee)}), so it goes to ${fallbackOwner.name}, ${why}.`;
+    }
     if (status === "idle" && flow === "instant" && !created) return `${JEV_NAME} picks the type and owner after you start. You can change anything later.`;
     if (status === "idle" && promptLength > 0 && promptLength < JEV_MIN_PROMPT_LENGTH) return "Keep going. Suggestions start once there's a bit more to go on.";
     return null;
@@ -466,11 +483,11 @@ function RoutingPanel({
           <PropertyChip
             label="Assignee"
             loading={loading}
-            suggested={fromJev("assignee")}
+            suggested={fromJev("assignee") && !fallbackOwner}
             onReset={resetFor("assignee")}
             display={assignee ? <><AgentAvatar agent={assignee} size={16} />{assignee.name}</> : <span>Assignee</span>}
           >
-            {(close) => JEV_AGENTS.map((agent) => (
+            {(close) => agents.map((agent) => (
               <MenuItem
                 key={agent.id}
                 selected={agent.id === effective.assignee}
@@ -480,7 +497,9 @@ function RoutingPanel({
                 <AgentAvatar agent={agent} size={20} />
                 <span className="flex flex-col">
                   <span>{agent.name}</span>
-                  <span className="text-xs text-muted-foreground">{agent.title}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {agent.title}{agent.paused ? " · Paused" : ""}{agent.id === fallbackOwner?.id ? " · Fallback owner" : ""}
+                  </span>
                 </span>
               </MenuItem>
             ))}
@@ -525,9 +544,9 @@ function RoutingPanel({
         </div>
       ) : null}
 
-      {unsureOwner && alternates.length > 0 ? (
+      {fallbackOwner && alternates.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-muted-foreground">Or:</span>
+          <span className="text-muted-foreground">{JEV_NAME}'s best guesses:</span>
           {alternates.map((agent) => (
             <Button key={agent.id} variant="outline" size="xs" onClick={() => setField("assignee", agent.id)}>
               <AgentAvatar agent={agent} size={16} />{agent.name}
@@ -543,7 +562,7 @@ function RoutingPanel({
             <ChevronDown aria-hidden className={cn("size-3 transition-transform", !detailsOpen && "-rotate-90")} />
             How sure {JEV_NAME} is
           </button>
-          {detailsOpen ? <ConfidenceDetails routing={routing} prompt={prompt} /> : null}
+          {detailsOpen ? <ConfidenceDetails routing={routing} prompt={prompt} agents={agents} /> : null}
         </div>
       ) : null}
     </div>
@@ -554,12 +573,17 @@ const FIELD_LABELS: Record<JevField, string> = { type: "Type", assignee: "Assign
 
 function choiceLabel(field: JevField, routing: JevRouting): string {
   if (field === "type") return JEV_TASK_TYPES.find((option) => option.value === routing.type)?.label ?? routing.type;
-  if (field === "assignee") return JEV_AGENTS.find((agent) => agent.id === routing.assigneeId)?.name ?? routing.assigneeId;
+  if (field === "assignee") {
+    const name = (id: string) => JEV_AGENTS.find((agent) => agent.id === id)?.name ?? id;
+    return routing.assigneeSource === "fallback"
+      ? `${name(routing.assigneeId)} (fallback; ${JEV_NAME} leaned ${name(routing.jevAssigneeId)})`
+      : name(routing.assigneeId);
+  }
   if (field === "project") return JEV_PROJECTS.find((project) => project.id === routing.projectId)?.name ?? "No project";
   return workModeMetaFor(routing.workMode).label;
 }
 
-function ConfidenceDetails({ routing, prompt }: { routing: JevRouting; prompt: string }) {
+function ConfidenceDetails({ routing, prompt, agents }: { routing: JevRouting; prompt: string; agents: typeof JEV_AGENTS }) {
   const fields: JevField[] = ["type", "assignee", "project", "workMode"];
   return (
     <div className="mt-2 flex flex-col gap-2 pl-4">
@@ -593,7 +617,7 @@ function ConfidenceDetails({ routing, prompt }: { routing: JevRouting; prompt: s
       <details>
         <summary className="cursor-pointer hover:text-foreground">Request sent to {JEV_NAME}</summary>
         <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-muted p-2 font-mono text-xs text-foreground">
-          {`POST https://openrouter.ai/api/alpha/decisions\n${JSON.stringify(buildJevDecisionRequest(prompt), null, 2)}`}
+          {`POST https://openrouter.ai/api/alpha/decisions\n${JSON.stringify(buildJevDecisionRequest(prompt, agents), null, 2)}`}
         </pre>
       </details>
     </div>
