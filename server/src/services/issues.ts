@@ -1,3 +1,4 @@
+import { mirrorSlackBoardComment, slackBoardReplyBindings } from "./slack-board-messages.js";
 import { externalConversationStateSql, nonIdleSlackIssueCondition, resumeSlackConversation } from "./slack-conversation-state.js";
 import { documentService } from "./documents.js";
 import { parseTaskSearch, taskSearchCtes, taskSearchScore } from "./task-search.js";
@@ -64,6 +65,8 @@ import {
   issueReadStates,
   issueThreadInteractions,
   toolActionRequests,
+  toolActionDeliveries,
+  toolInvocations,
   issues,
   labels,
   projectWorkspaces,
@@ -1131,6 +1134,7 @@ export async function resolveChatOriginPublicationBindings(
     const run = await dbOrTx
       .select({
         agentId: heartbeatRuns.agentId,
+        responsibleUserId: heartbeatRuns.responsibleUserId,
         contextSnapshot: heartbeatRuns.contextSnapshot,
       })
       .from(heartbeatRuns)
@@ -1144,6 +1148,7 @@ export async function resolveChatOriginPublicationBindings(
         (
           rows: Array<{
             agentId: string;
+            responsibleUserId: string | null;
             contextSnapshot: Record<string, unknown> | null;
           }>,
         ) => rows[0] ?? null,
@@ -1157,6 +1162,12 @@ export async function resolveChatOriginPublicationBindings(
       readStringFromRecord(snapshot, "issueId") ??
       readStringFromRecord(snapshot, "taskId");
     if (snapshotIssueId && snapshotIssueId !== issueId) return [];
+
+    const boardBindings = await slackBoardReplyBindings(dbOrTx, {
+      companyId, issueId, agentId: lineageAgentId!,
+      commentIds: readChatWakeCommentIds(snapshot), userId: run.responsibleUserId,
+    });
+    if (boardBindings.length) return boardBindings;
 
     // A native runner can emit its continuation immediately after the durable
     // `request.resolve` command is queued, before the delivery worker records
@@ -1302,6 +1313,51 @@ export async function resolveChatOriginPublicationBindings(
     }
 
     const contextSource = readStringFromRecord(snapshot, "source");
+    if (contextSource === "tool_action_review") {
+      // Review results use their own durable wake, not the ordinary interaction
+      // response key. Attest the entire batch before following its origin; the
+      // model's context/sourceRunId alone never grants publication authority.
+      const [wake] = await dbOrTx.select({ payload: agentWakeupRequests.payload,
+        idempotencyKey: agentWakeupRequests.idempotencyKey })
+        .from(agentWakeupRequests).where(and(
+          eq(agentWakeupRequests.companyId, companyId),
+          eq(agentWakeupRequests.agentId, lineageAgentId!),
+          eq(agentWakeupRequests.runId, originRunId),
+          like(agentWakeupRequests.idempotencyKey, "tool-action-response:%"),
+        )).limit(1);
+      const requestIds = wake?.payload?.toolActionRequestIds;
+      const sourceRunId = readStringFromRecord(snapshot, "sourceRunId");
+      if (!Array.isArray(requestIds) || requestIds.length === 0 ||
+        requestIds.some((id: unknown) => typeof id !== "string" || !isUuidLike(id)) ||
+        !sourceRunId || !isUuidLike(sourceRunId) || sourceRunId !== wake.payload.sourceRunId ||
+        wake.idempotencyKey !== `tool-action-response:${requestIds[0]}` ||
+        snapshot.interactionId !== wake.payload.interactionId) return [];
+      const receipts = await dbOrTx.select({ id: toolActionRequests.id })
+        .from(toolActionRequests)
+        .innerJoin(toolInvocations, and(
+          eq(toolInvocations.id, toolActionRequests.invocationId),
+          eq(toolInvocations.companyId, companyId),
+          eq(toolInvocations.issueId, issueId),
+          eq(toolInvocations.agentId, lineageAgentId!),
+          eq(toolInvocations.runId, sourceRunId),
+        ))
+        .innerJoin(toolActionDeliveries, and(
+          eq(toolActionDeliveries.actionRequestId, toolActionRequests.id),
+          eq(toolActionDeliveries.companyId, companyId),
+          eq(toolActionDeliveries.issueId, issueId),
+          eq(toolActionDeliveries.interactionId, toolActionRequests.interactionId),
+        ))
+        .where(and(
+          eq(toolActionRequests.companyId, companyId),
+          eq(toolActionRequests.issueId, issueId),
+          eq(toolActionRequests.requestedByAgentId, lineageAgentId!),
+          inArray(toolActionRequests.id, requestIds),
+          inArray(toolActionRequests.status, ["executed", "failed", "rejected", "expired", "cancelled"]),
+        ));
+      if (receipts.length !== requestIds.length) return [];
+      originRunId = sourceRunId;
+      continue;
+    }
     if (contextSource?.startsWith("chat:")) {
       contextSnapshot = snapshot;
       break;
@@ -12024,6 +12080,8 @@ export function issueService(db: Db) {
         sourceTrust?: typeof issueComments.$inferInsert.sourceTrust;
         createdAt?: Date | string | null;
         clientRequestId?: string;
+        /** Server-only: authenticated Paperclip messages also belong in the Slack thread. */
+        mirrorToSlack?: boolean;
       },
       dbOrTx: any = db,
     ): Promise<IssueComment> {
@@ -12516,6 +12574,9 @@ export function issueService(db: Db) {
       if (issue.conversationAgentId && actor.userId) {
         await dbOrTx.update(issues).set({ conversationState: "active" }).where(eq(issues.id, issueId));
       }
+      if (options?.mirrorToSlack && actor.userId && authorType === "user") {
+        await mirrorSlackBoardComment(dbOrTx, comment, { attachmentIds: options.attachmentIds });
+      }
       if (authorType === "user" || actor.userId) {
         await resumeSlackConversation(dbOrTx, issue.companyId, issueId);
       }
@@ -12537,7 +12598,13 @@ export function issueService(db: Db) {
         // channel" publications use the separate publication path.
         const chatFinalOwnsProviderReply =
           createdByRun !== null &&
-          isExternalChatPresentationContext(createdByRun.contextSnapshot) &&
+          isExternalChatPresentationContext(
+            createdByRun.contextSnapshot,
+            readStringFromRecord(createdByRun.contextSnapshot, "source") === "tool_action_review" &&
+              (await resolveChatOriginPublicationBindings(
+                dbOrTx, issue.companyId, issueId, createdByRunId,
+              )).length > 0,
+          ) &&
           metadata?.authorizationReason !==
             CHAT_RUN_PRESENTATION_AUTHORIZATION_REASON;
         const interactionOwnsProviderReply = createdByRunId
