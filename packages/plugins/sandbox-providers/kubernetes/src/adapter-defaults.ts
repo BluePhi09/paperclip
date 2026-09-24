@@ -13,13 +13,15 @@ const REGISTRY: Record<string, AdapterDefaults> = {
   claude_local: {
     runtimeImage: "ghcr.io/paperclipai/agent-runtime-claude:latest",
     envKeys: ["ANTHROPIC_API_KEY"],
-    allowFqdns: ["api.anthropic.com"],
+    // Claude Code 2.1.278 setup-token invokes ConsoleOAuthFlow(mode=setup-token);
+    // its OAuth constants name claude.com/cai/oauth/authorize and platform.claude.com/v1/oauth/token.
+    allowFqdns: ["api.anthropic.com", "claude.com", "platform.claude.com"],
     probeCommand: ["claude", "--version"],
   },
   codex_local: {
     runtimeImage: "ghcr.io/paperclipai/agent-runtime-codex:latest",
     envKeys: ["OPENAI_API_KEY"],
-    allowFqdns: ["api.openai.com"],
+    allowFqdns: ["api.openai.com", "auth.openai.com"],
     probeCommand: ["codex", "--version"],
   },
   gemini_local: {

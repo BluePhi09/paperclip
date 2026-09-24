@@ -2,7 +2,7 @@
 
 First-party Paperclip sandbox-provider plugin for Kubernetes.
 
-**Alpha:** the default backend (`sandbox-cr`) is built on `kubernetes-sigs/agent-sandbox` v1alpha1 — expect breaking changes as that CRD evolves toward Beta. A stable fallback backend (`job`, using `batch/v1` Job) is available for clusters without agent-sandbox installed, but it does NOT support multi-command exec (paperclip-server's adapter-install pattern requires sandbox-cr).
+**Alpha:** the default backend (`sandbox-cr`) is built on `kubernetes-sigs/agent-sandbox` v1alpha1 — expect breaking changes as that CRD evolves toward Beta. Legacy `job` leases remain supported, but new `job` environment configurations are rejected because the driver advertises managed login PTY.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ First-party Paperclip sandbox-provider plugin for Kubernetes.
 2. [`kubernetes-sigs/agent-sandbox`](https://github.com/kubernetes-sigs/agent-sandbox) controller installed in the cluster (alpha — installs the `sandboxes.agents.x-k8s.io/v1alpha1` CRD and controller)
 3. Paperclip-server running with access to the cluster (in-cluster via `inCluster: true` or external via `kubeconfig`)
 
-### For `job` backend (stable fallback)
+### For legacy `job` backend (existing leases only)
 
 1. A Kubernetes cluster running k8s 1.27+
 2. Paperclip-server with cluster access — no additional controllers or CRDs required
@@ -36,15 +36,54 @@ The plugin supports two backend modes, selected via the `backend` config field:
 | Backend | Default | Stability | Multi-command exec | Requires |
 |---|---|---|---|---|
 | `sandbox-cr` | Yes | Alpha | Yes | `kubernetes-sigs/agent-sandbox` controller |
-| `job` | No | Stable | No | Nothing beyond k8s 1.27+ |
+| `job` (legacy only) | No | Stable API | No | Nothing beyond k8s 1.27+ |
 
 **`sandbox-cr` (default):** Creates a `Sandbox` CR (`agents.x-k8s.io/v1alpha1`) whose controller provisions a long-lived pod running `sleep infinity`. paperclip-server execs individual commands into the running pod — this is the multi-command adapter-install pattern. When you `releaseLease`, the Sandbox CR is deleted and the controller tears down the pod.
 
-**`job` (stable fallback):** Creates a `batch/v1` Job. The container entrypoint runs once and exits — no multi-command exec possible. Use this when you cannot install agent-sandbox, or when you need strictly stable Kubernetes APIs. Note: paperclip-server's adapter-install pattern will not work in job mode.
+**`job` (legacy fallback, not available for new validated environments):** Creates a `batch/v1` Job. The container entrypoint runs once and exits — no multi-command exec or login PTY. Because the driver advertises login PTY, config validation rejects `backend: job` rather than falsely offering interactive login; existing job leases can still be handled by the worker.
+
+### Managed login PTY (sandbox-cr only)
+
+The driver advertises `supportsLoginPty` and implements the worker open/input/stop/close hooks using a persistent Kubernetes `pods/exec` WebSocket with `tty=true`. The worker accepts only a lease acquired or resumed by this worker for the same company and environment, and maps the fixed `claude`, `codex`, and `grok` keys to `claude setup-token`, `codex login --device-auth`, and `grok login --device-auth`; caller-supplied shell commands are not executed. Each login gets a UUID-shaped session directory, and the browser code enters over PTY stdin rather than a command argument. The worker caps individual output/input chunks at 64 KiB, each session's output at 4 MiB, queued stdin at 256 KiB, and concurrent routes at 16; excess output or queued input stops the terminal. Route IDs are reserved during asynchronous opens, and lease release/destroy and worker shutdown close their associated terminals.
+
+This requires a running sandbox-cr pod, an image with `/bin/sh` and the relevant CLI installed, cluster credentials authorized for `pods/exec`, and network egress to the provider's authentication endpoints (which may differ from inference API domains). Built-in `claude_local` egress includes `api.anthropic.com`, `claude.com`, and `platform.claude.com`. Local Claude Code CLI 2.1.278's `setup-token` command invokes `ConsoleOAuthFlow` with `mode: "setup-token"`; its OAuth constants specify `https://claude.com/cai/oauth/authorize` (`CLAUDE_AI_AUTHORIZE_URL`) and `https://platform.claude.com/v1/oauth/token` (`TOKEN_URL`). This is static CLI evidence, not a live login trace; redirects or version changes may require additional operator-supplied FQDNs. Custom adapter registries replace built-in FQDNs, so include the needed auth hosts there too. The `job` backend cannot host an interactive login and is rejected by environment config validation. Sessions are in-memory and do not survive a plugin-worker restart; an existing lease must be resumed on that worker before login can open. This package's tests use a scripted Exec socket, not a live apiserver or real Claude authentication.
+
+Set `paperclipServerPodSelector` (for example `{ "app": "paperclip" }`) if the API pod accepting callbacks on TCP 3100 does not carry the default `app: paperclip-server` label. This only changes the callback target, not the agent pod selector. Tenant network policies are created once and are not reconciled on config changes; existing tenants require an operator-managed policy update before a new selector takes effect. No cluster policy is changed by configuration validation alone.
+
+#### Known limitation: lease expiry attestation is a stopgap, not an upstream fix
+
+`onEnvironmentAcquireLease` returns `expiresAt` computed from the caller's
+`requestedExpiresAt` (rounded down to whole seconds, falling back to
+`podActivityDeadlineSec` when no deadline is requested) and forwards the
+same bound to the `sandbox-cr` pod as `activeDeadlineSeconds`. This exists
+solely because Paperclip's setup-token login route fails closed
+(`the acquired lease expiry does not bound the session deadline`) whenever a
+sandbox-provider plugin's acquire response carries no `expiresAt` at all —
+which is what this plugin did before this patch. The fix satisfies that
+server-side contract; it has **not** been validated against the full range of
+edge cases an official implementation would need to cover (e.g. clock skew
+between plugin worker and Kubernetes apiserver, sub-second precision loss,
+interaction with `reuseLease`/resumed leases, or a caller deadline that
+arrives after the pod is already past its `activeDeadlineSeconds`). It was
+written by an external operator (not the Paperclip team) as the minimum
+change to unblock a self-hosted login-PTY deployment, and it has only been
+exercised against a single real cluster, not Paperclip's own CI or fleet of
+providers.
+
+**This is a local, temporary fix — not an upstream contribution (yet).** If
+you are reading this in a fork or a locally-built plugin, treat the
+lease-expiry logic in `onEnvironmentAcquireLease` as provisional. The
+Paperclip team should ideally review, generalize, and fold proper
+`requestedExpiresAt` → `expiresAt` handling into the plugin (and ideally into
+the SDK/provider contract itself, since every sandbox provider needs this),
+the same way the `daytona` provider already does it with `setTtl`. Until an
+upstream release covers this natively, treat this behavior as
+implementation-specific glue and re-verify it after every Paperclip server
+or plugin-SDK upgrade.
 
 ### Migrating from `job` to `sandbox-cr`
 
-1. Install the agent-sandbox controller: `kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/install.yaml`
+1. Install a controller compatible with the v1alpha1 Sandbox CRD (verify the controller version and CRD before making cluster changes; do not assume the latest release still serves v1alpha1).
 2. Update your environment config to set `backend: "sandbox-cr"` (or remove `backend` since `sandbox-cr` is the default)
 3. New leases will use the Sandbox CR backend. Existing leases created with `job` mode continue to use job semantics until they are released.
 
@@ -60,7 +99,8 @@ Common optional fields:
 
 | Field | Default | Purpose |
 |---|---|---|
-| `backend` | `"sandbox-cr"` | `sandbox-cr` (alpha, requires agent-sandbox controller) or `job` (stable, one-shot entrypoint). |
+| `backend` | `"sandbox-cr"` | Only `sandbox-cr` is accepted for new validated environments; legacy `job` leases remain supported. |
+| `paperclipServerPodSelector` | `{ "app": "paperclip-server" }` | Pod labels on the Paperclip API callback target in the server namespace (e.g. `{ "app": "paperclip" }`). |
 | `adapterType` | `"claude_local"` | One of the supported adapter types (claude_local, codex_local, gemini_local, cursor_local, opencode_local, pi_local). Determines runtime image + env keys + egress allow-list. |
 | `namespacePrefix` | `"paperclip-"` | Prefix for the per-company tenant namespace. |
 | `companySlug` | derived from companyId | Override the auto-derived company slug. |

@@ -77,6 +77,20 @@ describe("ensureTenant", () => {
     expect((npCalls[0].body as { metadata: { name: string } }).metadata.name).toBe("paperclip-deny-all");
   });
 
+  it.each(["standard", "cilium"] as const)("passes the callback selector through tenant provisioning (%s)", async (egressMode) => {
+    const clients = makeMockClients();
+    await ensureTenant(clients as never, { ...baseInput, egressMode, paperclipServerPodSelector: { app: "paperclip" } });
+    if (egressMode === "standard") {
+      const policy = clients.calls.find((c) => c.kind === "NetworkPolicy" && (c.body as any).metadata.name === "paperclip-egress-allow");
+      expect((policy?.body as any).spec.egress[1].to[0].podSelector.matchLabels).toEqual({ app: "paperclip" });
+    } else {
+      const policy = clients.calls.find((c) => c.kind === "CiliumNetworkPolicy");
+      expect((policy?.body as any).spec.egress[2].toEndpoints[0].matchLabels).toEqual({
+        app: "paperclip", "k8s:io.kubernetes.pod.namespace": "paperclip",
+      });
+    }
+  });
+
   it("applies serviceAccountAnnotations to the ServiceAccount", async () => {
     const clients = makeMockClients();
     await ensureTenant(clients as never, {

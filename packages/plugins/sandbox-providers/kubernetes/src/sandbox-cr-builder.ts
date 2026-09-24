@@ -38,6 +38,14 @@ export interface BuildSandboxCrManifestInput {
    * out-of-band and have no registry path at pod-start time.
    */
   preloadedImages?: boolean;
+  /**
+   * Provider-side hard stop for the pod, mirroring the Job backend's
+   * `activeDeadlineSeconds`. A crash or an outage on paperclip-server must
+   * not leave a Sandbox pod running forever, so this bounds it independently
+   * of any in-process cleanup. Omitted when the caller requests no deadline
+   * (falls back to the config default `podActivityDeadlineSec` upstream).
+   */
+  activeDeadlineSeconds?: number;
 }
 
 export function buildSandboxCrManifest(
@@ -71,6 +79,9 @@ export function buildSandboxCrManifest(
           // Sandbox controller requires restartPolicy: Always so the pod
           // stays running between exec calls.
           restartPolicy: "Always",
+          ...(typeof input.activeDeadlineSeconds === "number"
+            ? { activeDeadlineSeconds: input.activeDeadlineSeconds }
+            : {}),
           ...(input.runtimeClassName
             ? { runtimeClassName: input.runtimeClassName }
             : {}),
