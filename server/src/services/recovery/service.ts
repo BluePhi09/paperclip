@@ -3580,15 +3580,25 @@ export function recoveryService(
       {
         authorType: "system",
         presentation: compactRecoveryPresentation(
-          "Recovery: disposition repair escalated — source owner preserved",
+          "Agent needs attention",
         ),
-        metadata: recoveryNoticeMetadata({
-          cause: "deliberate_wait_without_target",
-          latestRun: input.latestRun,
-          recoveryActionId: action.id,
-          previousStatus: input.issue.status,
-          recoveryOwner: null,
-        }),
+        metadata: {
+          ...recoveryNoticeMetadata({
+            cause: "deliberate_wait_without_target",
+            latestRun: input.latestRun,
+            recoveryActionId: action.id,
+            previousStatus: input.issue.status,
+            recoveryOwner: null,
+          }),
+          recovery: {
+            kind: "disposition_repair_escalated",
+            actionId: action.id,
+            attemptCount: input.attemptCount,
+            maxAttempts: input.legacyEpisode?.maxAttempts ?? DISPOSITION_REPAIR_MAX_ATTEMPTS,
+            reason: input.terminalReason,
+            assigneeAgentId: input.issue.assigneeAgentId,
+          },
+        },
       },
     );
 

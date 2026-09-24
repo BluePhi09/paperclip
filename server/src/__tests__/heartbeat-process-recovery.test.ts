@@ -6468,6 +6468,10 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
         sourceMaxAttempts: 5,
       }),
     });
+    const notices = await db.select().from(issueComments).where(eq(issueComments.issueId, issueId));
+    expect(notices.some(comment => comment.metadata?.recovery?.kind === "disposition_repair_escalated")).toBe(true);
+    const snapshot = notices.find(comment => comment.metadata?.recovery?.kind === "disposition_repair_escalated")!.metadata!.recovery;
+    expect(snapshot).toEqual({ kind: "disposition_repair_escalated", actionId: action!.id, assigneeAgentId: agentId, attemptCount: 5, maxAttempts: 5, reason: "unchanged_source_state_exhausted" });
     expect(substituteWakes).toHaveLength(0);
     expect(sourceAttemptSix).toHaveLength(0);
   });

@@ -1996,6 +1996,28 @@ describeEmbeddedPostgres("issue recovery actions", () => {
     );
   });
 
+  it("retries an exhausted disposition action once, preserving the owner and audit trail", async () => {
+    const { companyId, coderId, sourceIssueId } = await seedCompany();
+    await db.update(issues).set({ status: "blocked", assigneeAgentId: coderId }).where(eq(issues.id, sourceIssueId));
+    const action = await issueRecoveryActionService(db).upsertSourceScoped({
+      companyId, sourceIssueId, kind: "deliberate_wait_without_target", ownerType: "board",
+      previousOwnerAgentId: coderId, returnOwnerAgentId: coderId, cause: "deliberate_wait_without_target",
+      fingerprint: "disposition:exhausted", evidence: { terminalReason: "unchanged_source_state_exhausted", sourceAttemptCount: 2, sourceMaxAttempts: 2 },
+      nextAction: "Review the outcome.", wakePolicy: { type: "board_escalation" },
+    });
+    const wake = vi.fn(async () => null);
+    const app = createApp(undefined, { recoveryActionEnqueueWakeup: wake });
+    const body = { actionId: action.id, outcome: "restored", sourceIssueStatus: "todo" };
+    const first = await request(app).post(`/api/issues/${sourceIssueId}/recovery-actions/resolve`).send(body).expect(200);
+    expect(first.body.issue).toMatchObject({ status: "todo", assigneeAgentId: coderId, activeRecoveryAction: null });
+    expect(first.body.recoveryAction).toMatchObject({ id: action.id, status: "resolved", outcome: "handed_back" });
+    await request(app).post(`/api/issues/${sourceIssueId}/recovery-actions/resolve`).send(body).expect(200);
+    expect(wake).toHaveBeenCalledTimes(1);
+    const logs = await db.select().from(activityLog).where(eq(activityLog.entityId, sourceIssueId));
+    expect(logs.filter(entry => entry.action === "issue.recovery_action_resolved")).toHaveLength(1);
+    expect((await db.select().from(issues).where(eq(issues.id, sourceIssueId)))[0]).toMatchObject({ status: "todo", assigneeAgentId: coderId });
+  });
+
   it("hands restored work back to the recorded return owner and records the outcome", async () => {
     const { companyId, managerId, coderId, sourceIssueId } = await seedCompany();
     await db

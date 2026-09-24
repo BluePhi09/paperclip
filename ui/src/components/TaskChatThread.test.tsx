@@ -246,6 +246,18 @@ describe.each(["legacy", "native"] as const)("%s task history readiness", (runti
   );
 });
 
+it("preserves the typed disposition notice through the task-chat adapter", () => {
+  render(<TaskChatThread comments={[{
+    id: "typed-recovery", companyId: "company", issueId: "issue", authorType: "system", authorAgentId: null, authorUserId: null,
+    body: "Unrelated prose", createdAt: new Date(), updatedAt: new Date(),
+    presentation: { kind: "system_notice", title: "Different wording", tone: "warning", detailsDefaultOpen: false, density: "compact" },
+    metadata: { version: 1, sections: [], recovery: { kind: "disposition_repair_escalated", actionId: "action", assigneeAgentId: "agent", attemptCount: 2, maxAttempts: 2, reason: "unchanged_source_state_exhausted" } },
+  }]} onAdd={async () => {}} issueStatus="blocked" />);
+  expect(container.querySelector('[data-testid="disposition-recovery-notice"]')).not.toBeNull();
+  expect(container.textContent).toContain("Two automatic attempts");
+  expect(container.textContent).not.toContain("Unrelated prose");
+});
+
 it("keeps an acknowledged optimistic bubble mounted with its canonical comment target", () => {
   const comment = {
     companyId: "company",
