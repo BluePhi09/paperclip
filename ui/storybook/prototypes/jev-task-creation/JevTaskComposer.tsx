@@ -15,6 +15,7 @@ import {
   JEV_NAME,
   JEV_NO_PROJECT,
   JEV_PROJECTS,
+  agentContextCoverage,
   buildJevDecisionRequest,
   draftTaskTitle,
   routeTaskWithJev,
@@ -585,16 +586,35 @@ function ConfidenceDetails({ routing, prompt, agents }: { routing: JevRouting; p
         {JEV_MODEL} returns a choice and probabilities, not reasons. Open a chip to see every option's probability.
         Anything you change stays as you set it.
       </p>
+      <AgentContextLine agents={agents.filter((agent) => !agent.paused)} />
       <p className="tabular-nums">
         {routing.usage.input_tokens} input tokens · ${routing.usage.cost.toFixed(6)} · output tokens are free
       </p>
       <details>
         <summary className="cursor-pointer hover:text-foreground">Request sent to {JEV_NAME}</summary>
-        <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-muted p-2 font-mono text-xs text-foreground">
+        <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs text-foreground">
           {`POST https://openrouter.ai/api/alpha/decisions\n${JSON.stringify(buildJevDecisionRequest(prompt, agents), null, 2)}`}
         </pre>
       </details>
     </div>
+  );
+}
+
+/** Which agent context sources fed the assignee decision, highest fidelity first. */
+function AgentContextLine({ agents }: { agents: typeof JEV_AGENTS }) {
+  const coverage = agentContextCoverage(agents);
+  const sources = [
+    ["finished tasks", coverage.history],
+    ["project leads", coverage.leads],
+    ["custom instructions", coverage.instructions],
+    ["skills", coverage.skills],
+    ["capabilities", coverage.capabilities],
+  ] as const;
+  return (
+    <p>
+      Agent context sent: title and role for all {coverage.total}
+      {sources.map(([label, count]) => `, ${label} for ${count}`).join("")}.
+    </p>
   );
 }
 

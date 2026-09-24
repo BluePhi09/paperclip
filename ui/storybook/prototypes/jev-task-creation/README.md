@@ -63,9 +63,29 @@ Two models do the work, because they are good at different things:
 ## What's real and what's simulated
 
 `jev-classifier.ts` builds the real Decisions API request body
-(`buildJevDecisionRequest`): the prompt, the company's agents, and its projects go
-in `state`, with four `choice` questions. The request and response types follow
-the OpenRouter docs.
+(`buildJevDecisionRequest`): the prompt, the company's agents and projects in
+`state`, and three `choice` questions. The request and response types follow the
+OpenRouter docs.
+
+Each agent's option in the assignee question is described by
+`describeAgentForJev`. It uses the context Paperclip already stores, highest
+fidelity first, and skips any source that is empty:
+
+1. Name, title, and role. These are always present, but rarely decide anything.
+2. `agents.capabilities`, when set. Built-in agents and imports fill it; the
+   new-agent flow can't, so hand-made agents usually lack it.
+3. Projects it leads (`projects.leadAgentId`).
+4. Assigned skills (`adapterConfig.paperclipSkillSync`).
+5. Its last 10 finished tasks (`issues.assigneeAgentId`, status done). This is
+   the strongest signal, because it shows what the agent really does.
+6. An excerpt of its `AGENTS.md` instructions, only when customized. The default
+   template says nothing about the agent, so it is left out.
+
+The fixtures have realistic gaps: CodexCoder is hand-made with no capabilities
+and default instructions, the CTO comes from the teams catalog, and Darnold is a
+built-in agent. **How sure Jev is** says which sources were available, and
+**Request sent to Jev** shows the full body. Five agents come to roughly 900
+input tokens, far under Jev's 32K limit.
 
 The response is simulated (`simulateJevDecisions`): keyword signals go through a
 softmax to produce probabilities in Jev's response shape. The title is simulated
@@ -88,5 +108,6 @@ too (`draftTitle`). No API is called and no task is persisted.
 
 ## Open questions
 
-- Should Jev's criteria for each agent come from agent instructions or role
-  metadata, rather than a hand-written "owns" line?
+- Should the new-agent flow and the configuration page let people set
+  `capabilities`? It is the one field built for describing an agent, and today
+  hand-made agents can't set it.

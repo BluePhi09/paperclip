@@ -49,12 +49,29 @@ export type JevDecisionResponse = {
 // ---------------------------------------------------------------------------
 // Company fixtures (match the Storybook company)
 
+/**
+ * An agent as Paperclip stores it, reduced to the fields that describe what it
+ * does. Ranked by how well they separate agents for routing:
+ *
+ * 1. `recentDoneTaskTitles`: issues it finished (`issues.assigneeAgentId`, status done).
+ * 2. Projects it leads (`projects.leadAgentId`, on `JevProject`).
+ * 3. `customInstructionsExcerpt`: its `AGENTS.md` bundle, only when customized.
+ * 4. `skills`: assigned company skills (`adapterConfig.paperclipSkillSync`).
+ * 5. `capabilities`: free text (`agents.capabilities`). Set by built-in agents and
+ *    imports; the new-agent flow can't set it, so hand-made agents usually lack it.
+ * 6. `name`, `title`, `role`: always present, rarely decisive.
+ */
 export type JevAgent = {
   id: string;
   name: string;
   role: string;
   title: string;
-  owns: string;
+  capabilities: string | null;
+  skills: string[];
+  /** Null while the agent still uses the default instructions template, which says nothing about it. */
+  customInstructionsExcerpt: string | null;
+  /** Most recent first. Empty for new agents. */
+  recentDoneTaskTitles: string[];
   /** `null` means the agent reports directly to the board. */
   reportsTo: string | null;
   createdAt: string;
@@ -62,20 +79,115 @@ export type JevAgent = {
 };
 
 export const JEV_AGENTS: JevAgent[] = [
-  { id: "agent-codex", name: "CodexCoder", role: "engineer", title: "Senior Product Engineer", owns: "Product engineering: bugs and features in the app and API.", reportsTo: "agent-cto", createdAt: "2026-04-02T09:00:00Z" },
-  { id: "agent-design-system", name: "DesignSystemCoder", role: "designer", title: "Design System Engineer", owns: "UI, UX, visual polish, and the design system.", reportsTo: "agent-cto", createdAt: "2026-04-06T09:00:00Z" },
-  { id: "agent-qa", name: "QAChecker", role: "qa", title: "QA Engineer", owns: "Verification, reproduction, and release testing.", reportsTo: "agent-cto", createdAt: "2026-04-03T09:00:00Z" },
-  { id: "agent-cto", name: "CTO", role: "cto", title: "CTO", owns: "Architecture decisions and open-ended technical questions.", reportsTo: null, createdAt: "2026-04-01T09:00:00Z" },
-  { id: "agent-darnold", name: "Darnold", role: "general", title: "Chief of Staff", owns: "Coordination, admin, and operational follow-ups.", reportsTo: null, createdAt: "2026-04-10T09:00:00Z" },
+  {
+    id: "agent-codex",
+    name: "CodexCoder",
+    role: "engineer",
+    title: "Senior Product Engineer",
+    // Hand-created: no capabilities, default instructions. History carries it.
+    capabilities: null,
+    skills: ["paperclip", "github-pr-workflow"],
+    customInstructionsExcerpt: null,
+    recentDoneTaskTitles: [
+      "Fix inbox unread badge after archiving",
+      "Retry issue checkout on 409 conflicts",
+      "Paginate the activity feed API",
+      "Fix duplicate toast on task create",
+    ],
+    reportsTo: "agent-cto",
+    createdAt: "2026-04-02T09:00:00Z",
+  },
+  {
+    id: "agent-design-system",
+    name: "DesignSystemCoder",
+    role: "designer",
+    title: "Design System Engineer",
+    capabilities: "Owns the design system: tokens, shared components, and Storybook coverage.",
+    skills: ["paperclip", "design-guide"],
+    customInstructionsExcerpt: "You maintain the token layer in ui/src/index.css and the shared components. Every UI change must pass the token gates. Review spacing, typography, and dark mode on every surface you touch.",
+    recentDoneTaskTitles: ["Tokenize spacing in dialogs", "Add dark-mode stories for badges", "Tighten mobile layout of the inbox"],
+    reportsTo: "agent-cto",
+    createdAt: "2026-04-06T09:00:00Z",
+  },
+  {
+    id: "agent-qa",
+    name: "QAChecker",
+    role: "qa",
+    title: "QA Engineer",
+    capabilities: null,
+    skills: ["paperclip", "release-smoke"],
+    customInstructionsExcerpt: null,
+    recentDoneTaskTitles: ["Run release smoke for v1.14", "Reproduce invite link 404 in private mode", "Verify budget hard-stop pauses agents"],
+    reportsTo: "agent-cto",
+    createdAt: "2026-04-03T09:00:00Z",
+  },
+  {
+    id: "agent-cto",
+    name: "CTO",
+    role: "cto",
+    title: "Chief Technology Officer",
+    // Hired from the teams catalog: catalog instructions and skills, no capabilities text.
+    capabilities: null,
+    skills: ["github-pr-workflow", "task-planning", "doc-maintenance"],
+    customInstructionsExcerpt: "You own technical direction. Break large work into planned child issues for the engineers, review architecture proposals, and answer technical questions from the board.",
+    recentDoneTaskTitles: ["Decide between a queue and cron for routines", "Review the adapter plugin API proposal"],
+    reportsTo: null,
+    createdAt: "2026-04-01T09:00:00Z",
+  },
+  {
+    id: "agent-darnold",
+    name: "Darnold",
+    role: "general",
+    title: "Chief of Staff",
+    // Built-in agent: capabilities come from its short purpose.
+    capabilities: "Prepares concise operational briefs for the board and agent company.",
+    skills: ["paperclip"],
+    customInstructionsExcerpt: null,
+    recentDoneTaskTitles: ["Weekly board brief", "Follow up on overdue approvals", "Send the invoice reminder to finance"],
+    reportsTo: null,
+    createdAt: "2026-04-10T09:00:00Z",
+  },
 ];
 
-export type JevProject = { id: string; name: string; description: string };
+export type JevProject = { id: string; name: string; description: string; leadAgentId: string | null };
 
 export const JEV_PROJECTS: JevProject[] = [
-  { id: "project-board-ui", name: "Board UI", description: "The operator-facing web app: pages, dialogs, inbox, mobile." },
-  { id: "project-agent-runtime", name: "Agent Runtime", description: "Adapters, heartbeats, runners, and agent sessions." },
-  { id: "project-budget-guardrails", name: "Budget Guardrails", description: "Spend limits, cost tracking, and billing." },
+  { id: "project-board-ui", name: "Board UI", description: "The operator-facing web app: pages, dialogs, inbox, mobile.", leadAgentId: "agent-codex" },
+  { id: "project-agent-runtime", name: "Agent Runtime", description: "Adapters, heartbeats, runners, and agent sessions.", leadAgentId: "agent-cto" },
+  { id: "project-budget-guardrails", name: "Budget Guardrails", description: "Spend limits, cost tracking, and billing.", leadAgentId: null },
 ];
+
+/** How many finished task titles to send per agent. */
+export const JEV_RECENT_TASKS_PER_AGENT = 10;
+const INSTRUCTIONS_EXCERPT_MAX = 280;
+
+/** One line per agent for Jev's choice criteria, highest-fidelity context first; empty sources are skipped. */
+export function describeAgentForJev(agent: JevAgent, projects: JevProject[] = JEV_PROJECTS): string {
+  const leads = projects.filter((project) => project.leadAgentId === agent.id).map((project) => project.name);
+  const recent = agent.recentDoneTaskTitles.slice(0, JEV_RECENT_TASKS_PER_AGENT);
+  const instructions = agent.customInstructionsExcerpt?.slice(0, INSTRUCTIONS_EXCERPT_MAX);
+  return [
+    `${agent.name}, ${agent.title} (${agent.role}).`,
+    agent.capabilities ? agent.capabilities : null,
+    leads.length ? `Leads ${leads.join(", ")}.` : null,
+    agent.skills.length ? `Skills: ${agent.skills.join(", ")}.` : null,
+    recent.length ? `Recently finished: ${recent.map((title) => `"${title}"`).join("; ")}.` : null,
+    instructions ? `Instructions: ${instructions}` : null,
+  ].filter(Boolean).join(" ");
+}
+
+/** Which context sources were available for the agents sent to Jev. */
+export function agentContextCoverage(agents: JevAgent[], projects: JevProject[] = JEV_PROJECTS) {
+  const count = (predicate: (agent: JevAgent) => boolean) => agents.filter(predicate).length;
+  return {
+    total: agents.length,
+    history: count((agent) => agent.recentDoneTaskTitles.length > 0),
+    leads: count((agent) => projects.some((project) => project.leadAgentId === agent.id)),
+    instructions: count((agent) => agent.customInstructionsExcerpt !== null),
+    skills: count((agent) => agent.skills.length > 0),
+    capabilities: count((agent) => agent.capabilities !== null),
+  };
+}
 
 export const JEV_NO_PROJECT = "none";
 
@@ -89,8 +201,9 @@ export function buildJevDecisionRequest(prompt: string, agents: JevAgent[] = JEV
     model: JEV_MODEL,
     state: {
       task_prompt: prompt,
-      agents: available.map(({ id, name, title, owns }) => ({ id, name, title, owns })),
-      projects: JEV_PROJECTS.map(({ id, name, description }) => ({ id, name, description })),
+      // Each agent's full description lives in the assignee criteria, so it is sent once.
+      agents: available.map(({ id, name, title, reportsTo }) => ({ id, name, title, reports_to: reportsTo ?? "board" })),
+      projects: JEV_PROJECTS.map(({ id, name, description, leadAgentId }) => ({ id, name, description, lead_agent_id: leadAgentId })),
     },
     questions: {
       work_mode: {
@@ -105,7 +218,7 @@ export function buildJevDecisionRequest(prompt: string, agents: JevAgent[] = JEV
       assignee: {
         type: "choice",
         instructions: "Which agent should own this task?",
-        criteria: Object.fromEntries(available.map((agent) => [agent.id, `${agent.name}, ${agent.title}. ${agent.owns}`])),
+        criteria: Object.fromEntries(available.map((agent) => [agent.id, describeAgentForJev(agent)])),
       },
       project: {
         type: "choice",
@@ -205,7 +318,8 @@ export function simulateJevDecisions(request: JevDecisionRequest): JevDecisionRe
   const isInvestigation = /^(investigate|research|find out|figure out|look into|compare|evaluate)\b/.test(text);
   const modeScores = { standard: 1, planning: isLarge ? 3 : 0, ask: isQuestion ? 3 : isInvestigation ? 1.6 : 0 };
 
-  const inputTokens = 380 + Math.round(prompt.length / 4);
+  // Rough estimate: about four characters per token.
+  const inputTokens = Math.round(JSON.stringify(request).length / 4);
   return {
     model: request.model,
     answers: {
