@@ -189,6 +189,97 @@ describe("ensureTenant", () => {
       }
     });
 
+    it("keeps FQDNs granted to another adapter's pods in the same tenant", async () => {
+      // A Claude lease provisioned the tenant; a Codex lease arrives while the
+      // Claude pod is still running.
+      const claude = makeMockClients();
+      await ensureTenant(claude as never, { ...baseInput, egressMode: "cilium", egressAllowFqdns: ["api.anthropic.com", "claude.com"] });
+      const claudePolicy = claude.calls.find((c) => c.kind === "CiliumNetworkPolicy")!.body as { metadata: Record<string, unknown> };
+
+      const codex = makeMockClients();
+      codex.custom.getNamespacedCustomObject.mockResolvedValue({
+        ...claudePolicy,
+        metadata: { ...claudePolicy.metadata, resourceVersion: "5" },
+      });
+      await ensureTenant(codex as never, { ...baseInput, egressMode: "cilium", egressAllowFqdns: ["api.openai.com"] });
+      const replaced = codex.calls.find((c) => c.kind === "ReplaceCiliumNetworkPolicy");
+      expect(replaced).toBeDefined();
+      const spec = JSON.stringify((replaced!.body as { spec: unknown }).spec);
+      for (const host of ["api.anthropic.com", "claude.com", "api.openai.com"]) expect(spec).toContain(host);
+
+      // Another Claude lease sees the merged policy as up to date: no flip-flop.
+      const again = makeMockClients();
+      again.custom.getNamespacedCustomObject.mockResolvedValue(replaced!.body);
+      await ensureTenant(again as never, { ...baseInput, egressMode: "cilium", egressAllowFqdns: ["claude.com", "api.anthropic.com"] });
+      expect(again.custom.replaceNamespacedCustomObject).not.toHaveBeenCalled();
+    });
+
+    it("keeps the standard-mode FQDN fallback for a later adapter without FQDNs", async () => {
+      const first = makeMockClients();
+      await ensureTenant(first as never, baseInput);
+      const [denyAll, egress] = first.calls.filter((c) => c.kind === "NetworkPolicy");
+
+      const second = makeMockClients();
+      second.networking.readNamespacedNetworkPolicy.mockImplementation(async ({ name }: { name: string }) =>
+        [denyAll, egress].find((p) => metadataOf(p.body).name === name)!.body,
+      );
+      await ensureTenant(second as never, { ...baseInput, egressAllowFqdns: [] });
+      expect(second.networking.replaceNamespacedNetworkPolicy).not.toHaveBeenCalled();
+    });
+
+    it("re-reads and merges when a concurrent lease replaced the policy first", async () => {
+      const clients = makeMockClients();
+      const stale = { metadata: { name: "paperclip-egress-fqdn", resourceVersion: "1" }, spec: { egress: [] } };
+      const winner = {
+        metadata: {
+          name: "paperclip-egress-fqdn",
+          resourceVersion: "2",
+          annotations: { "paperclip.io/allowed-fqdns": "api.openai.com" },
+        },
+        spec: { egress: [] },
+      };
+      clients.custom.getNamespacedCustomObject.mockResolvedValueOnce(stale).mockResolvedValueOnce(winner);
+      clients.custom.replaceNamespacedCustomObject
+        .mockRejectedValueOnce({ code: 409 })
+        .mockImplementationOnce(async (arg: { body: unknown }) => ({ body: arg.body }));
+      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium" });
+
+      expect(clients.custom.replaceNamespacedCustomObject).toHaveBeenCalledTimes(2);
+      const body = clients.custom.replaceNamespacedCustomObject.mock.calls[1][0].body as {
+        metadata: { resourceVersion: string };
+        spec: unknown;
+      };
+      expect(body.metadata.resourceVersion).toBe("2");
+      expect(JSON.stringify(body.spec)).toContain("api.openai.com");
+      expect(JSON.stringify(body.spec)).toContain("api.anthropic.com");
+    });
+
+    it("merges with a policy a concurrent lease created first", async () => {
+      const clients = makeMockClients();
+      clients.custom.getNamespacedCustomObject
+        .mockRejectedValueOnce({ code: 404 })
+        .mockResolvedValueOnce({
+          metadata: {
+            name: "paperclip-egress-fqdn",
+            resourceVersion: "1",
+            annotations: { "paperclip.io/allowed-fqdns": "api.openai.com" },
+          },
+          spec: { egress: [] },
+        });
+      clients.custom.createNamespacedCustomObject.mockRejectedValueOnce({ code: 409 });
+      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium" });
+      const body = clients.custom.replaceNamespacedCustomObject.mock.calls[0][0].body as { spec: unknown };
+      expect(JSON.stringify(body.spec)).toContain("api.openai.com");
+      expect(JSON.stringify(body.spec)).toContain("api.anthropic.com");
+    });
+
+    it("gives up after repeated conflicts", async () => {
+      const clients = makeMockClients();
+      clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({ metadata: { name: "x", resourceVersion: "1" } });
+      clients.networking.replaceNamespacedNetworkPolicy.mockRejectedValue({ code: 409 });
+      await expect(ensureTenant(clients as never, baseInput)).rejects.toEqual({ code: 409 });
+    });
+
     it("surfaces non-permission replace failures", async () => {
       const clients = makeMockClients();
       clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({ metadata: { name: "x" } });
