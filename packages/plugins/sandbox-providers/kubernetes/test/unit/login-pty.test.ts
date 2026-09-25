@@ -70,11 +70,21 @@ describe("Kubernetes login PTY", () => {
     expect(h.connections[0].close).toHaveBeenCalledOnce();
   });
 
-  it("caps concurrent routes rather than opening unlimited WebSockets", async () => {
+  it("caps concurrent routes per company rather than opening unlimited WebSockets", async () => {
     const h = harness();
-    for (let i = 0; i < 16; i++) await h.manager.open({ ...h.request, hostRouteId: `route-${i}` });
+    for (let i = 0; i < 4; i++) await h.manager.open({ ...h.request, hostRouteId: `route-${i}` });
     await expect(h.manager.open({ ...h.request, hostRouteId: "overflow" })).rejects.toThrow(/limit/i);
-    expect(h.connections).toHaveLength(16);
+    expect(h.connections).toHaveLength(4);
+  });
+
+  it("does not let one company's sessions starve another company's login attempts", async () => {
+    const h = harness();
+    for (let i = 0; i < 4; i++) await h.manager.open({ ...h.request, hostRouteId: `route-${i}` });
+    await expect(h.manager.open({ ...h.request, hostRouteId: "overflow" })).rejects.toThrow(/limit/i);
+    h.manager.remember("lease-other", { companyId: "other-co", environmentId: "env", namespace: "ns", podName: "pod", config: { inCluster: true } });
+    const otherRequest = { ...h.request, providerLeaseId: "lease-other", companyId: "other-co", hostRouteId: "other-route" };
+    await expect(h.manager.open(otherRequest)).resolves.toEqual({ workerSessionId: expect.any(String) });
+    expect(h.connections).toHaveLength(5);
   });
 
   it("bounds output and input, stops and tears down only matching lease sessions", async () => {
