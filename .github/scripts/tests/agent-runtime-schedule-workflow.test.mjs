@@ -50,7 +50,7 @@ test('check-for-cli-updates only runs on the schedule event', () => {
   assert.match(block, /if:\s*github\.event_name == 'schedule'/);
 });
 
-test('check-for-cli-updates only reads (npm registry + a read-only docker pull/run probe), never builds/bakes/pushes/signs', () => {
+test('check-for-cli-updates only reads (npm registry + a docker pull + package.json read), never builds/bakes/pushes/signs', () => {
   const block = extractJobBlock('check-for-cli-updates');
   const stripped = stripComments(block);
   assert.doesNotMatch(stripped, /docker (buildx |)(build|bake)/);
@@ -63,11 +63,15 @@ test('check-for-cli-updates only reads (npm registry + a read-only docker pull/r
   assert.doesNotMatch(stripped, /uses:\s*docker\/[\w-]*build[\w-]*-action/);
   assert.doesNotMatch(stripped, /push:\s*true/);
   // It IS allowed (and expected) to pull the already-published image and
-  // run a read-only --version probe inside it -- that's how this job tells
-  // deployed-tag staleness apart from upstream-npm staleness.
+  // read the baked-in CLI version from its package.json -- that's how this
+  // job tells deployed-tag staleness apart from upstream-npm staleness. But
+  // it must never execute anything from that (mutable, possibly
+  // compromised) image on the runner: no `docker run` / `docker exec` /
+  // `docker start`, only `docker create` + `docker cp`.
   assert.match(block, /docker pull/);
-  assert.match(block, /docker run --rm --entrypoint/);
-  assert.match(block, /--version/);
+  assert.match(block, /docker create/);
+  assert.match(block, /docker cp .*package\.json/);
+  assert.doesNotMatch(stripped, /docker (run|exec|start)\b/);
 });
 
 test('check-for-cli-updates only makes a read-only npm registry query, passed via env (never interpolated into the script)', () => {
@@ -111,4 +115,9 @@ test('all five harness Dockerfiles are checked, not just claude', () => {
       `expected the PACKAGES map to include harness "${harness}"`
     );
   }
+});
+
+test('a failed version lookup is reported as UNKNOWN, never as STALE', () => {
+  const block = stripComments(extractJobBlock('check-for-cli-updates'));
+  assert.match(block, /if \[ -z "\$\{deployed\}" \] \|\| \[ "\$\{latest\}" = "unknown" \]; then\s*\n[^\n]*\n\s*status="UNKNOWN/);
 });
