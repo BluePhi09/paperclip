@@ -963,31 +963,32 @@ async function createSandbox(
       timeout: toTimeoutSeconds(config.timeoutMs),
     });
   } catch (createError) {
+    const cleanup: PluginEnvironmentCreationCleanup = {
+      providerLeaseId: name, companyId: params.companyId, environmentId: params.environmentId,
+      ...("runId" in params ? { runId: params.runId } : {}),
+      attemptId, labels, accountFingerprint: sandboxAccountDiscriminator(config),
+    };
     try {
       // A not-found lookup after an uncertain create is not a deletion receipt:
       // the provider may still materialize the request. Keep the name in the
       // error so cleanup can be reconciled rather than declaring success.
-      await destroyFailedCreation(config, {
-        providerLeaseId: name, companyId: params.companyId, environmentId: params.environmentId,
-        ...("runId" in params ? { runId: params.runId } : {}),
-        attemptId, labels, accountFingerprint: sandboxAccountDiscriminator(config),
-      });
+      await destroyFailedCreation(config, cleanup);
     } catch (cleanupError) {
       throw new PluginEnvironmentCreationCleanupError([createError, cleanupError],
-        `Daytona sandbox creation failed; cleanup could not be confirmed for ${name}`, {
-          providerLeaseId: name, companyId: params.companyId, environmentId: params.environmentId,
-          ...("runId" in params ? { runId: params.runId } : {}),
-          attemptId, labels, accountFingerprint: sandboxAccountDiscriminator(config),
-        });
+        `Daytona sandbox creation failed; cleanup could not be confirmed for ${name}`, cleanup);
     }
     throw createError;
   }
 }
 
 // Resolve by the immutable creation name, not through the admitted-lease cache:
-// the SDK's returned sandbox ID differs from this provisional name. A 404 is
-// still uncertain and must leave the host's pending-cleanup row eligible to retry.
-async function destroyFailedCreation(config: DaytonaDriverConfig, cleanup: PluginEnvironmentCreationCleanup): Promise<void> {
+// the SDK's returned sandbox ID differs from this provisional name. Persist a
+// verified provider ID before host-driven deletion. Its later absence is then
+// conclusive, even if the deletion receipt or database update was lost.
+async function destroyFailedCreation(
+  config: DaytonaDriverConfig, cleanup: PluginEnvironmentCreationCleanup,
+  requireDurableObservation = false,
+): Promise<void> {
   if (cleanup.providerLeaseId !== `paperclip-create-${cleanup.attemptId}` ||
       cleanup.accountFingerprint !== sandboxAccountDiscriminator(config) ||
       cleanup.labels["paperclip-provider"] !== "daytona" ||
@@ -998,9 +999,26 @@ async function destroyFailedCreation(config: DaytonaDriverConfig, cleanup: Plugi
     throw new Error("Failed-create sandbox ownership does not match");
   }
   const client = createDaytonaClient(config);
-  const orphan = await withLivenessTimeout("sandbox.failedCreateLookup", 10_000, () => client.get(cleanup.providerLeaseId));
-  if (orphan.name !== cleanup.providerLeaseId || Object.entries(cleanup.labels).some(([key, value]) => orphan.labels?.[key] !== value)) {
+  let orphan: Sandbox;
+  try {
+    orphan = await withLivenessTimeout("sandbox.failedCreateLookup", 10_000,
+      () => client.get(cleanup.observedProviderLeaseId ?? cleanup.providerLeaseId));
+  } catch (error) {
+    // A name that has never been observed may still materialize. An ID already
+    // observed with exact ownership cannot materialize as a new allocation.
+    if (cleanup.observedProviderLeaseId && error instanceof DaytonaNotFoundError) return;
+    throw error;
+  }
+  if ((cleanup.observedProviderLeaseId && orphan.id !== cleanup.observedProviderLeaseId) ||
+      orphan.name !== cleanup.providerLeaseId || Object.entries(cleanup.labels).some(([key, value]) => orphan.labels?.[key] !== value)) {
     throw new Error("Failed-create sandbox ownership does not match");
+  }
+  if (!cleanup.observedProviderLeaseId) {
+    cleanup.observedProviderLeaseId = orphan.id;
+    if (requireDurableObservation) {
+      // No destructive call yet: the host journals the observation and retries.
+      throw new PluginEnvironmentCreationCleanupError([], "Persist observed sandbox identity before cleanup", cleanup);
+    }
   }
   await withLivenessTimeout("sandbox.failedCreateDelete", 15_000, () => orphan.delete(10, true));
 }
@@ -2460,7 +2478,7 @@ const plugin = definePlugin({
           cleanup.providerLeaseId !== params.providerLeaseId) {
         throw new Error("Failed-create sandbox cleanup scope does not match");
       }
-      await destroyFailedCreation(config, cleanup);
+      await destroyFailedCreation(config, cleanup, true);
       return { providerLeaseId: params.providerLeaseId, state: "destroyed" };
     }
     const scope: SandboxScope = {

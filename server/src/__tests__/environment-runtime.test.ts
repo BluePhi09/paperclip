@@ -712,6 +712,68 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     }
   });
 
+  it.each(["deleted receipt lost", "observation response lost", "journal write failed", "foreign observation"])(
+    "journals observed creation identity before deletion and recovers: %s", async (fault) => {
+      const seeded = await seedReusablePluginSandboxLease();
+      await environmentService(db).releaseLease(seeded.reusableLease.id, "expired");
+      const cleanup = {
+        providerLeaseId: `paperclip-create-${randomUUID()}`, attemptId: randomUUID(),
+        companyId: seeded.companyId, environmentId: seeded.environment.id, runId: seeded.runId,
+        accountFingerprint: "a".repeat(64), labels: { "paperclip-provider": "fake-plugin" },
+      };
+      const observed = { ...cleanup, observedProviderLeaseId: "verified-provider-id" };
+      const failure = Object.assign(new Error("Creation uncertain"), {
+        data: { schema: "paperclip/environment-creation-cleanup/v1", cleanup },
+      });
+      let injected = false;
+      let deleted = false;
+      const call = vi.fn(async (_id: string, method: string, params: Record<string, unknown>) => {
+        if (method === "environmentAcquireLease") throw failure;
+        if (method !== "environmentDestroyLease") throw new Error(`Unexpected ${method}`);
+        const evidence = (params.leaseMetadata as { failedCreateCleanup: typeof observed }).failedCreateCleanup;
+        if (!evidence.observedProviderLeaseId) {
+          expect(deleted).toBe(false);
+          if (!injected && fault === "observation response lost") {
+            injected = true;
+            throw new Error("Lost observation response");
+          }
+          if (!injected && fault === "foreign observation") {
+            injected = true;
+            throw Object.assign(new Error("Foreign observation"), {
+              data: { schema: "paperclip/environment-creation-cleanup/v1", cleanup: { ...observed, companyId: "another-company" } },
+            });
+          }
+          if (!injected && fault === "journal write failed") {
+            injected = true;
+            vi.spyOn(db, "update").mockImplementationOnce(() => { throw new Error("Database unavailable"); });
+          }
+          throw Object.assign(new Error("Persist observed sandbox identity before cleanup"), {
+            data: { schema: "paperclip/environment-creation-cleanup/v1", cleanup: observed },
+          });
+        }
+        const rows = await db.select().from(environmentLeases).where(eq(environmentLeases.providerLeaseId, cleanup.providerLeaseId));
+        expect(rows).toHaveLength(1);
+        expect(rows[0].metadata).toMatchObject({ failedCreateCleanup: observed });
+        if (!deleted) {
+          deleted = true;
+          if (fault === "deleted receipt lost") throw new Error("Deletion succeeded but reply lost");
+        }
+        return { providerLeaseId: cleanup.providerLeaseId, state: "destroyed" };
+      });
+      const worker = { isRunning: () => true, getWorker: () => ({ supportedMethods: ["environmentDestroyLease"] }), call } as unknown as PluginWorkerManager;
+      const runtime = environmentRuntimeService(db, { pluginWorkerManager: worker });
+      await expect(runtime.acquireRunLease({ companyId: seeded.companyId, environment: seeded.environment,
+        issueId: null, heartbeatRunId: seeded.runId, persistedExecutionWorkspace: null })).rejects.toBe(failure);
+      const rows = await db.select().from(environmentLeases).where(eq(environmentLeases.providerLeaseId, cleanup.providerLeaseId));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe("pending_cleanup");
+      expect(deleted).toBe(fault === "deleted receipt lost");
+      const restarted = environmentRuntimeService(db, { pluginWorkerManager: worker });
+      await expect(restarted.retryPendingSandboxTeardown({ environment: null, lease: rows[0]! })).resolves.toEqual({ providerLeaseId: cleanup.providerLeaseId, state: "destroyed" });
+      expect(deleted).toBe(true);
+    },
+  );
+
   it("resumes the same provider lease on the next per-turn run", async () => {
     const seeded = await seedReusablePluginSandboxLease();
     const workerManager = {

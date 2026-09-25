@@ -21,6 +21,7 @@ async function invoke(method: string, error: Error) {
     async setup() {},
     async onEnvironmentAcquireLease() { throw error; },
     async onEnvironmentProbe() { throw error; },
+    async onEnvironmentDestroyLease() { throw error; },
   }) });
   try {
     const response = new Promise<JsonRpcResponse>((resolve) => {
@@ -37,17 +38,17 @@ async function invoke(method: string, error: Error) {
 }
 
 describe("failed environment creation ownership", () => {
-  it("crosses the actual worker RPC as allowlisted ownership only", async () => {
+  it.each(["environmentAcquireLease", "environmentDestroyLease"])("crosses %s RPC as allowlisted ownership only", async (method) => {
     const cleanup = { ...ownership, accessToken: "secret-token", config: { apiKey: "secret-key" } };
     const error = new PluginEnvironmentCreationCleanupError([new Error("secret-provider-response")], "Cleanup required", cleanup);
-    const response = await invoke("environmentAcquireLease", error);
+    const response = await invoke(method, error);
     expect("error" in response && response.error).toMatchObject({ data: { schema, cleanup: ownership } });
     if (!("error" in response) || !response.error) throw new Error("Expected RPC error");
     expect(readEnvironmentCreationCleanupError(new JsonRpcCallError(response.error))).toEqual(ownership);
     expect(JSON.stringify(response)).not.toContain("secret-");
   });
 
-  it.each(["environmentAcquireLease", "environmentProbe"])("does not forward arbitrary error data for %s", async (method) => {
+  it.each(["environmentAcquireLease", "environmentDestroyLease", "environmentProbe"])("does not forward arbitrary error data for %s", async (method) => {
     const response = await invoke(method, Object.assign(new Error("provider failure"), { data: { apiKey: "secret-key", schema, cleanup: ownership } }));
     expect("error" in response && response.error).not.toHaveProperty("data");
   });
@@ -59,7 +60,7 @@ describe("failed environment creation ownership", () => {
 
   it.each([
     { providerLeaseId: "../other" }, { companyId: "" }, { environmentId: null }, { attemptId: "a".repeat(201) },
-    { runId: "other/run" }, { accountFingerprint: "secret-key" }, { labels: { apiKey: "secret-key" } },
+    { runId: "other/run" }, { observedProviderLeaseId: "../other" }, { accountFingerprint: "secret-key" }, { labels: { apiKey: "secret-key" } },
     { labels: { "paperclip-provider": "Bearer secret-key" } }, { labels: [] },
     { labels: Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`paperclip-${String.fromCharCode(97 + i)}`, "x"])) },
   ])("rejects malformed evidence %j", (invalid) => {
