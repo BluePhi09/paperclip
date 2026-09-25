@@ -955,7 +955,9 @@ async function createSandbox(
     purpose: options.purpose,
     reuseLease: config.reuseLease,
   }), "paperclip-create-attempt": attemptId };
-  const createParams = { ...buildCreateParams(config, labels), name };
+  // The SDK mutates params.labels (for example, code-toolbox-language).
+  // Preserve our immutable ownership snapshot for validation and retry.
+  const createParams = { ...buildCreateParams(config, { ...labels }), name };
   try {
     return await client.create(createParams, {
       timeout: toTimeoutSeconds(config.timeoutMs),
