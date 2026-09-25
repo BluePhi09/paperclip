@@ -380,6 +380,7 @@ const plugin = definePlugin({
       paperclipServerPodSelector: config.paperclipServerPodSelector,
       serviceAccountAnnotations: config.serviceAccountAnnotations,
       egressMode: config.egressMode,
+      environmentId: params.environmentId,
       egressAllowFqdns: [...adapterDefaults.allowFqdns, ...config.egressAllowFqdns],
       retainableFqdns: allAdapterAllowFqdns(config.adapters),
       egressAllowCidrs: config.egressAllowCidrs,
@@ -555,6 +556,10 @@ const plugin = definePlugin({
       backend: leaseBackend,
       readyTimeoutMs: RESUME_READY_TIMEOUT_MS,
       pollMs: RESUME_READY_POLL_MS,
+      // Unbounded leases only carry the 24h backstop deadline, which the server
+      // does not know about; retire the pod before it can kill a new run.
+      // ponytail: fixed 1h margin, make it configurable if runs are longer.
+      ...(typeof params.leaseMetadata?.expiresAt === "string" ? {} : { minRemainingSec: 60 * 60 }),
     });
 
     if (!check.resumable) {
