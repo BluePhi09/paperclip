@@ -1,3 +1,4 @@
+import { readEnvironmentCreationCleanupError } from "@paperclipai/plugin-sdk";
 import { remoteTerminationReceipt } from "./remote-execution-termination.js";
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -2019,38 +2020,80 @@ function createSandboxEnvironmentDriver(
             });
           }
         }
-        const acquiredLease = providerLease ?? await pluginWorkerManager.call(
-          pluginProvider.resolved.plugin.id,
-          "environmentAcquireLease",
-          {
-            driverKey: parsed.config.provider,
-            companyId: input.companyId,
-            environmentId: input.environment.id,
-            issueId: input.issueId,
-            config: workerConfig,
-            // Plugin SDK requires a string; ad-hoc test leases use a fresh
-            // UUID so providers that validate or persist the runId still see
-            // a well-formed identifier.
-            runId: input.heartbeatRunId ?? randomUUID(),
-            workspaceMode: input.executionWorkspaceMode ?? undefined,
-            agentId: input.agentId ?? undefined,
-            executionWorkspaceId: input.executionWorkspaceId ?? undefined,
-            // The agent's harness for THIS run, so the plugin picks the matching
-            // runtime image (per-run adapter, mixed-harness environments).
-            // NOTE: environment-runtime.ts has TWO drivers calling
-            // environmentAcquireLease; this plugin-sandbox one is the HEARTBEAT
-            // path. Omitting adapterType here silently falls back to the
-            // environment's default adapter image (a pi agent then runs in the
-            // opencode image and the harness binary is missing at exec time).
-            adapterType: input.adapterType ?? undefined,
-            // Forward a caller deadline so the provider configures a provider-side
-            // expiry at or before it and returns the real provider expiry.
-            ...(requestedExpiresAtParam(input.requestedExpiresAt) !== undefined
-              ? { requestedExpiresAt: requestedExpiresAtParam(input.requestedExpiresAt) }
-              : {}),
-          },
-          resolvePluginSandboxRpcTimeoutMs(workerConfig),
-        );
+        const acquisitionRunId = input.heartbeatRunId ?? randomUUID();
+        const acquiredLease = providerLease ?? await (async () => {
+          try {
+            return await pluginWorkerManager.call(
+              pluginProvider.resolved.plugin.id,
+              "environmentAcquireLease",
+              {
+                driverKey: parsed.config.provider,
+                companyId: input.companyId,
+                environmentId: input.environment.id,
+                issueId: input.issueId,
+                config: workerConfig,
+                // Plugin SDK requires a string; ad-hoc test leases use a fresh
+                // UUID so providers that validate or persist the runId still see
+                // a well-formed identifier.
+                runId: acquisitionRunId,
+                workspaceMode: input.executionWorkspaceMode ?? undefined,
+                agentId: input.agentId ?? undefined,
+                executionWorkspaceId: input.executionWorkspaceId ?? undefined,
+                // The agent's harness for THIS run, so the plugin picks the matching
+                // runtime image (per-run adapter, mixed-harness environments).
+                // NOTE: environment-runtime.ts has TWO drivers calling
+                // environmentAcquireLease; this plugin-sandbox one is the HEARTBEAT
+                // path. Omitting adapterType here silently falls back to the
+                // environment's default adapter image (a pi agent then runs in the
+                // opencode image and the harness binary is missing at exec time).
+                adapterType: input.adapterType ?? undefined,
+                // Forward a caller deadline so the provider configures a provider-side
+                // expiry at or before it and returns the real provider expiry.
+                ...(requestedExpiresAtParam(input.requestedExpiresAt) !== undefined
+                  ? { requestedExpiresAt: requestedExpiresAtParam(input.requestedExpiresAt) }
+                  : {}),
+              },
+              resolvePluginSandboxRpcTimeoutMs(workerConfig),
+            );
+          } catch (error) {
+            const cleanup = readEnvironmentCreationCleanupError(error);
+            // The authenticated worker may identify its uncertain allocation,
+            // but cannot redirect cleanup to another company, environment, or run.
+            if (cleanup && cleanup.companyId === input.companyId &&
+                cleanup.environmentId === input.environment.id && cleanup.runId === acquisitionRunId) {
+              const cleanupMetadata = {
+                ...sandboxConfigForLeaseMetadata(storedConfig),
+                failedCreateCleanup: cleanup,
+                driver: input.environment.driver,
+                pluginId: pluginProvider.resolved.plugin.id,
+                pluginKey: pluginProvider.resolved.plugin.pluginKey,
+                sandboxProviderPlugin: true,
+              };
+              // Record before retrying the provider. Existing pending-cleanup
+              // recovery (including its durable spool) survives controller loss.
+              await cleanUpRejectedOrphanSandbox({
+                record: {
+                  companyId: input.companyId, environmentId: input.environment.id,
+                  executionWorkspaceId: input.executionWorkspaceId ?? null,
+                  issueId: input.issueId ?? null, heartbeatRunId: input.heartbeatRunId ?? null,
+                  provider: parsed.config.provider, providerLeaseId: cleanup.providerLeaseId,
+                  metadata: cleanupMetadata,
+                },
+                cause: error,
+                canTeardown: pluginWorkerManager.isRunning(pluginProvider.resolved.plugin.id),
+                teardown: () => pluginWorkerManager.call(pluginProvider.resolved.plugin.id, "environmentDestroyLease", {
+                  driverKey: parsed.config.provider, companyId: input.companyId,
+                  environmentId: input.environment.id, issueId: input.issueId,
+                  config: workerConfig, providerLeaseId: cleanup.providerLeaseId,
+                  leaseMetadata: { failedCreateCleanup: cleanup },
+                }, resolvePluginSandboxRpcTimeoutMs(workerConfig)),
+              });
+            }
+            // A cleanup record is not a usable lease. Keep acquisition failed,
+            // even when its compensating deletion succeeds on this attempt.
+            throw error;
+          }
+        })();
 
         // Ad-hoc test leases are never publishable for reuse: storing them
         // as `reuse_by_environment` would let a concurrent heartbeat resume
@@ -2524,16 +2567,25 @@ function createSandboxEnvironmentDriver(
           { issueId: input.lease.issueId, heartbeatRunId: input.lease.heartbeatRunId },
         );
         const workerConfig = stripSandboxProviderEnvelope(config as SandboxEnvironmentConfig);
+        const failedCreation = readEnvironmentCreationCleanupError({ data: {
+          schema: "paperclip/environment-creation-cleanup/v1",
+          cleanup: input.lease.metadata?.failedCreateCleanup,
+        } });
+        // An environment deletion clears the lease FK. Retain the original
+        // ownership scope for uncertain allocations without accepting a foreign
+        // company, provider name, or changed environment from metadata.
+        if (failedCreation && (failedCreation.companyId !== input.lease.companyId ||
+            failedCreation.providerLeaseId !== input.lease.providerLeaseId ||
+            (input.lease.environmentId !== null && failedCreation.environmentId !== input.lease.environmentId))) {
+          throw new Error("Pending creation cleanup ownership does not match the lease");
+        }
         return await pluginWorkerManager.call(
           pluginProvider.resolved.plugin.id,
           "environmentDestroyLease",
           {
             driverKey: recordedProvider,
             companyId: input.lease.companyId,
-            // The provider teardown keys on the provider lease id. The
-            // environment id is only context, and it is empty when a delete
-            // removed the environment before this orphan was recorded.
-            environmentId: input.lease.environmentId ?? input.environment?.id ?? "",
+            environmentId: failedCreation?.environmentId ?? input.lease.environmentId ?? input.environment?.id ?? "",
             issueId: input.lease.issueId,
             config: workerConfig,
             providerLeaseId: input.lease.providerLeaseId,

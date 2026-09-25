@@ -653,6 +653,58 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     expect(call.mock.calls.filter((entry) => entry[1] === "environmentResumeLease")).toHaveLength(shouldResume ? 1 : 0);
   });
 
+  it.each(["pending", "inline", "foreign scope", "foreign environment", "foreign run", "malformed", "deleted environment"])("retains uncertain plugin creation for durable cleanup: %s", async (mode) => {
+    const seeded = await seedReusablePluginSandboxLease();
+    await environmentService(db).releaseLease(seeded.reusableLease.id, "expired");
+    const attemptId = randomUUID();
+    const providerLeaseId = `paperclip-create-${attemptId}`;
+    const cleanup = {
+      providerLeaseId, attemptId, companyId: mode === "foreign scope" ? randomUUID() : seeded.companyId,
+      environmentId: mode === "foreign environment" ? randomUUID() : seeded.environment.id,
+      runId: mode === "foreign run" ? randomUUID() : seeded.runId,
+      accountFingerprint: mode === "malformed" ? "invalid" : "a".repeat(64), labels: { "paperclip-provider": "fake-plugin" },
+    };
+    const failure = Object.assign(new Error("Provider creation cleanup required"), {
+      data: { schema: "paperclip/environment-creation-cleanup/v1", cleanup },
+    });
+    let available = mode === "inline";
+    const call = vi.fn(async (_id: string, method: string, params: Record<string, unknown>) => {
+      if (method === "environmentAcquireLease") throw failure;
+      if (method === "environmentDestroyLease") {
+        const pending = await db.select().from(environmentLeases).where(eq(environmentLeases.providerLeaseId, providerLeaseId));
+        expect(pending).toHaveLength(1);
+        expect(pending[0].status).toBe("pending_cleanup");
+        expect(params).toMatchObject({ providerLeaseId, companyId: seeded.companyId, environmentId: seeded.environment.id, leaseMetadata: { failedCreateCleanup: cleanup } });
+        if (!available) throw new Error("provider not visible yet");
+        return { providerLeaseId, state: "destroyed" };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    });
+    const worker = { isRunning: () => true, getWorker: () => ({ supportedMethods: ["environmentDestroyLease"] }), call } as unknown as PluginWorkerManager;
+    const candidate = environmentRuntimeService(db, { pluginWorkerManager: worker });
+    await expect(candidate.acquireRunLease({ companyId: seeded.companyId, environment: seeded.environment,
+      issueId: null, heartbeatRunId: seeded.runId, persistedExecutionWorkspace: null })).rejects.toBe(failure);
+    const rows = await db.select().from(environmentLeases).where(eq(environmentLeases.providerLeaseId, providerLeaseId));
+    if (["foreign scope", "foreign environment", "foreign run", "malformed"].includes(mode)) {
+      expect(rows).toHaveLength(0);
+      expect(call.mock.calls.filter((c) => c[1] === "environmentDestroyLease")).toHaveLength(0);
+      return;
+    }
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: mode === "inline" ? "expired" : "pending_cleanup",
+      cleanupStatus: mode === "inline" ? "success" : "failed", companyId: seeded.companyId,
+      metadata: { pluginId: seeded.pluginId, sandboxProviderPlugin: true, failedCreateCleanup: cleanup } });
+    if (mode === "pending" || mode === "deleted environment") {
+      available = true;
+      if (mode === "deleted environment") {
+        await db.update(environmentLeases).set({ environmentId: null }).where(eq(environmentLeases.id, rows[0].id));
+      }
+      const restarted = environmentRuntimeService(db, { pluginWorkerManager: worker });
+      const persisted = await environmentService(db).getLeaseById(rows[0].id);
+      await expect(restarted.retryPendingSandboxTeardown({ environment: null, lease: persisted! })).resolves.toEqual({ providerLeaseId, state: "destroyed" });
+    }
+  });
+
   it("resumes the same provider lease on the next per-turn run", async () => {
     const seeded = await seedReusablePluginSandboxLease();
     const workerManager = {

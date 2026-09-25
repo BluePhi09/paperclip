@@ -36,6 +36,7 @@ import plugin, {
   __setDaytonaPluginContextForTest,
 } from "./plugin.js";
 import type { PluginContext } from "@paperclipai/plugin-sdk";
+import { environmentCreationCleanupErrorData, readEnvironmentCreationCleanupError } from "@paperclipai/plugin-sdk";
 import manifest from "./manifest.js";
 import { parseTarVerboseListingLine, splitLinkEntryOnce } from "./file-sync.js";
 
@@ -539,6 +540,50 @@ describe("Daytona sandbox provider plugin", () => {
       const requested = mockCreate.mock.calls.at(-1)![0];
       return { ...createMockSandbox(), name: requested.name, labels: { ...requested.labels } };
     }
+
+    async function unresolvedCreation() {
+      mockGet.mockRejectedValue(new MockDaytonaNotFoundError("not visible yet"));
+      const error = await plugin.definition.onEnvironmentAcquireLease!(params).catch(error => error);
+      const cleanup = readEnvironmentCreationCleanupError(error);
+      expect(cleanup).not.toBeNull();
+      return { error, cleanup: cleanup! };
+    }
+
+    it("hands non-secret cleanup ownership to the host when creation is uncertain", async () => {
+      const { error, cleanup } = await unresolvedCreation();
+      expect(cleanup).toMatchObject({ companyId: params.companyId, environmentId: params.environmentId, runId: params.runId,
+        providerLeaseId: mockCreate.mock.calls[0][0].name, labels: mockCreate.mock.calls[0][0].labels });
+      expect(cleanup.accountFingerprint).toMatch(/^[a-f0-9]{64}$/);
+      expect(JSON.stringify(environmentCreationCleanupErrorData(error))).not.toContain("host-key");
+      expect(JSON.stringify(environmentCreationCleanupErrorData(error))).not.toContain(createError.message);
+    });
+
+    it("retries a late-visible failed creation using its persisted ownership envelope", async () => {
+      const { cleanup } = await unresolvedCreation();
+      const orphan = ownedSandbox(); mockGet.mockResolvedValue(orphan);
+      await expect(plugin.definition.onEnvironmentDestroyLease!({ ...params, providerLeaseId: cleanup.providerLeaseId,
+        leaseMetadata: { failedCreateCleanup: cleanup } })).resolves.toEqual({ providerLeaseId: cleanup.providerLeaseId, state: "destroyed" });
+      expect(mockGet).toHaveBeenLastCalledWith(cleanup.providerLeaseId);
+      expect(orphan.delete).toHaveBeenCalledWith(10, true);
+      expect(orphan.process.executeCommand).not.toHaveBeenCalled();
+    });
+
+    it("keeps a failed-creation retry unresolved while the allocation is still not visible", async () => {
+      const { cleanup } = await unresolvedCreation();
+      await expect(plugin.definition.onEnvironmentDestroyLease!({ ...params, providerLeaseId: cleanup.providerLeaseId,
+        leaseMetadata: { failedCreateCleanup: cleanup } })).rejects.toThrow();
+    });
+
+    it.each(["company", "account", "labels"])("fences failed-creation retries by %s", async (mismatch) => {
+      const { cleanup } = await unresolvedCreation();
+      const orphan = ownedSandbox(); mockGet.mockResolvedValue(orphan);
+      if (mismatch === "labels") orphan.labels["paperclip-run-id"] = "foreign-run";
+      const retry = { ...params, providerLeaseId: cleanup.providerLeaseId, leaseMetadata: { failedCreateCleanup: cleanup } };
+      if (mismatch === "company") retry.companyId = "foreign-company";
+      if (mismatch === "account") process.env.DAYTONA_API_KEY = "another-account-key";
+      await expect(plugin.definition.onEnvironmentDestroyLease!(retry)).rejects.toThrow();
+      expect(orphan.delete).not.toHaveBeenCalled();
+    });
 
     it("deletes the exact sandbox left behind when create times out, then preserves the create error", async () => {
       let orphan: ReturnType<typeof ownedSandbox>;
