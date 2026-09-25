@@ -311,6 +311,38 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
     });
   }
 
+  it.each([true, false])("serializes assignment claims by issue without serializing unrelated work (same issue: %s)", async (sameIssue) => {
+    const { companyId, agentId } = await seedCompanyAndAgent({ maxConcurrentRuns: 2 });
+    const firstIssueId = randomUUID();
+    const secondIssueId = sameIssue ? firstIssueId : randomUUID();
+    for (const id of new Set([firstIssueId, secondIssueId])) {
+      await db.insert(issues).values({ id, companyId, title: "Concurrent assignment", status: "todo", assigneeAgentId: agentId });
+    }
+    await seedQueuedRun({ companyId, agentId, issueId: firstIssueId, wakeReason: "issue_assigned", contextExtras: { source: "issue.create" } });
+    await seedQueuedRun({ companyId, agentId, issueId: secondIssueId, wakeReason: "issue_assigned", contextExtras: { source: "issue.assigned_todo_liveness_dispatch" } });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mockAdapterExecute.mockImplementation(async () => {
+      await gate;
+      return { exitCode: 0, signal: null, timedOut: false, errorMessage: null, summary: "Assignment finished.", provider: "test", model: "test-model" };
+    });
+    try {
+      await heartbeat.resumeQueuedRuns();
+      expect(await waitForCondition(() => Promise.resolve(mockAdapterExecute.mock.calls.length > 0))).toBe(true);
+      const runs = await db.select().from(heartbeatRuns);
+      const running = runs.filter((run) => run.status === "running");
+      expect(running).toHaveLength(sameIssue ? 1 : 2);
+      expect(runs.filter((run) => run.status === "queued")).toHaveLength(sameIssue ? 1 : 0);
+      for (const run of running) {
+        const [issue] = await db.select().from(issues).where(eq(issues.id, (run.contextSnapshot as { issueId: string }).issueId));
+        expect(issue.executionRunId).toBe(run.id);
+      }
+    } finally {
+      release();
+      await heartbeat.drainActiveRunExecutions();
+    }
+  });
+
   it("skips generic timer wakes with no actionable assigned work before adapter execution", async () => {
     const { agentId } = await seedCompanyAndAgent({
       heartbeatConfig: {

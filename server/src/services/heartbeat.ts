@@ -17639,9 +17639,38 @@ export function heartbeatService(
               agentNameKey: normalizeAgentNameKey(agent.name),
             });
           }
-          return tx.update(heartbeatRuns).set(claimValues).where(and(
-            eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued"),
-          )).returning().then((rows) => rows[0] ?? null);
+          return tx.transaction(async (claimTx) => {
+            // Several queued assignments can enter the same admission batch
+            // before executeRun registers an in-memory owner. Claim the issue
+            // and run together, so only its exact owner reaches provider setup.
+            const issueOwner = issueId && context.wakeReason !== "source_scoped_recovery_action"
+              ? await claimTx.select({
+                  assigneeAgentId: issues.assigneeAgentId,
+                  executionRunId: issues.executionRunId,
+                  checkoutRunId: issues.checkoutRunId,
+                }).from(issues).where(and(
+                  eq(issues.id, issueId), eq(issues.companyId, run.companyId),
+                )).for("update").then((rows) => rows[0] ?? null)
+              : null;
+            if (issueOwner?.assigneeAgentId === run.agentId &&
+                ((issueOwner.executionRunId && issueOwner.executionRunId !== run.id) ||
+                 (run.scheduledRetryReason === "native_safe_replacement" &&
+                  issueOwner.checkoutRunId && issueOwner.checkoutRunId !== run.id))) {
+              return null;
+            }
+            const claimedRun = await claimTx.update(heartbeatRuns).set(claimValues).where(and(
+              eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued"),
+            )).returning().then((rows) => rows[0] ?? null);
+            if (claimedRun && issueId && issueOwner?.assigneeAgentId === run.agentId) {
+              await claimTx.update(issues).set({
+                executionRunId: claimedRun.id,
+                executionAgentNameKey: normalizeAgentNameKey(agent.name),
+                executionLockedAt: claimedAt,
+                updatedAt: claimedAt,
+              }).where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)));
+            }
+            return claimedRun;
+          });
         });
     if (!claimed) return null;
 
