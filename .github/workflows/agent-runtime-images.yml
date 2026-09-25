@@ -32,7 +32,90 @@ env:
   VERSION: ${{ github.event.inputs.version || format('git-{0}', github.sha) }}
 
 jobs:
+  check-for-cli-updates:
+    # Runs on the weekly schedule only. Never pushes or signs anything —
+    # it just builds the claude image locally (no --push) so it can read the
+    # CLI version actually resolved by `npm install -g @latest` today, diffs
+    # that against the version already published under :latest, and opens a
+    # tracking issue if they differ. A human then reviews and runs
+    # `workflow_dispatch` to trigger the real, signed, published build.
+    #
+    # This is deliberately NOT the same job as build-and-sign: publishing a
+    # cosign-signed image straight from mutable `npm install -g <pkg>@latest`
+    # resolution, with no human in the loop, means a compromised upstream npm
+    # release could get built, signed, and pushed to GHCR fully unattended by
+    # this cron alone. Keeping the schedule limited to "detect and notify"
+    # keeps every signed, published image behind an explicit push or manual
+    # workflow_dispatch from a trusted maintainer.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build claude image locally (no push, no sign)
+        run: |
+          docker buildx bake \
+            -f docker/agent-runtime/buildx-bake.hcl \
+            claude \
+            --load
+
+      - name: Compare local CLI version against published :latest
+        id: diff
+        run: |
+          LOCAL_VERSION=$(docker run --rm --entrypoint claude "${{ env.REGISTRY }}/agent-runtime-claude:${{ env.VERSION }}" --version || echo "unknown")
+          docker pull "${{ env.REGISTRY }}/agent-runtime-claude:latest" || true
+          PUBLISHED_VERSION=$(docker run --rm --entrypoint claude "${{ env.REGISTRY }}/agent-runtime-claude:latest" --version 2>/dev/null || echo "unavailable")
+          echo "local=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
+          echo "published=$PUBLISHED_VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$LOCAL_VERSION" != "$PUBLISHED_VERSION" ]; then
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open a tracking issue if the published image is stale
+        if: steps.diff.outputs.stale == 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const local = "${{ steps.diff.outputs.local }}";
+            const published = "${{ steps.diff.outputs.published }}";
+            const title = "agent-runtime-claude image is behind the latest Claude Code CLI";
+            const body = `The weekly agent-runtime CLI check found a newer Claude Code CLI than what's published:\n\n- Currently published (\`:latest\`): \`${published}\`\n- Resolved by a fresh \`npm install -g @anthropic-ai/claude-code@latest\` build today: \`${local}\`\n\nThis issue is opened automatically instead of auto-publishing, so a maintainer reviews the upstream release before it gets built, signed, and pushed. To publish the refreshed image, trigger the \`Agent runtime images\` workflow manually via \`workflow_dispatch\`.`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "agent-runtime-stale-image",
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["agent-runtime-stale-image"],
+              });
+            }
+
   build-and-sign:
+    # Deliberately excludes `schedule` — publishing signed images stays behind
+    # a human-initiated push or workflow_dispatch. See check-for-cli-updates
+    # above for what the weekly schedule actually does.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
