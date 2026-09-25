@@ -7,6 +7,14 @@ on:
       - "docker/agent-runtime/**"
       - "tools/agent-shim/**"
       - ".github/workflows/agent-runtime-images.yml"
+  schedule:
+    # Weekly rebuild so the harness CLIs installed via `npm install -g
+    # <pkg>@latest` in the Dockerfiles (claude-code, codex, gemini-cli,
+    # opencode-ai, pi-coding-agent) stay current even when nothing under
+    # docker/agent-runtime changes. Without this, the published images
+    # silently drift behind upstream CLI releases (see #13544, #8757) until
+    # someone happens to touch this path.
+    - cron: "17 6 * * 1"
   workflow_dispatch:
     inputs:
       version:
