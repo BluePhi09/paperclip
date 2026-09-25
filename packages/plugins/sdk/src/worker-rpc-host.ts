@@ -1573,7 +1573,8 @@ export function startWorkerRpcHost(options: WorkerRpcHostOptions): WorkerRpcHost
           : PLUGIN_RPC_ERROR_CODES.WORKER_ERROR;
 
       sendMessage(createErrorResponse(id, errorCode, errorMessage,
-        method === "environmentAcquireLease" ? environmentCreationCleanupErrorData(err) : undefined));
+        method === "environmentAcquireLease" || method === "environmentDestroyLease"
+          ? environmentCreationCleanupErrorData(err) : undefined));
     }
   }
 

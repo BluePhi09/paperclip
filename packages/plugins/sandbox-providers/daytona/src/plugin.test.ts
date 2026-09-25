@@ -549,6 +549,15 @@ describe("Daytona sandbox provider plugin", () => {
       return { error, cleanup: cleanup! };
     }
 
+    async function journalObservation(cleanup: NonNullable<ReturnType<typeof readEnvironmentCreationCleanupError>>) {
+      const error = await plugin.definition.onEnvironmentDestroyLease!({ ...params,
+        providerLeaseId: cleanup.providerLeaseId, leaseMetadata: { failedCreateCleanup: cleanup },
+      }).catch(error => error);
+      const observed = readEnvironmentCreationCleanupError(error);
+      expect(observed?.observedProviderLeaseId).toBeTruthy();
+      return observed!;
+    }
+
     it("hands non-secret cleanup ownership to the host when creation is uncertain", async () => {
       const { error, cleanup } = await unresolvedCreation();
       expect(cleanup).toMatchObject({ companyId: params.companyId, environmentId: params.environmentId, runId: params.runId,
@@ -569,8 +578,10 @@ describe("Daytona sandbox provider plugin", () => {
       expect(cleanup.labels).not.toHaveProperty("code-toolbox-language");
       const orphan = ownedSandbox();
       mockGet.mockResolvedValue(orphan);
+      const observed = await journalObservation(cleanup);
+      expect(orphan.delete).not.toHaveBeenCalled();
       await expect(plugin.definition.onEnvironmentDestroyLease!({ ...params,
-        providerLeaseId: cleanup.providerLeaseId, leaseMetadata: { failedCreateCleanup: cleanup },
+        providerLeaseId: cleanup.providerLeaseId, leaseMetadata: { failedCreateCleanup: observed },
       })).resolves.toEqual({ providerLeaseId: cleanup.providerLeaseId, state: "destroyed" });
       expect(orphan.delete).toHaveBeenCalledWith(10, true);
     });
@@ -578,9 +589,11 @@ describe("Daytona sandbox provider plugin", () => {
     it("retries a late-visible failed creation using its persisted ownership envelope", async () => {
       const { cleanup } = await unresolvedCreation();
       const orphan = ownedSandbox(); mockGet.mockResolvedValue(orphan);
+      const observed = await journalObservation(cleanup);
+      expect(orphan.delete).not.toHaveBeenCalled();
       await expect(plugin.definition.onEnvironmentDestroyLease!({ ...params, providerLeaseId: cleanup.providerLeaseId,
-        leaseMetadata: { failedCreateCleanup: cleanup } })).resolves.toEqual({ providerLeaseId: cleanup.providerLeaseId, state: "destroyed" });
-      expect(mockGet).toHaveBeenLastCalledWith(cleanup.providerLeaseId);
+        leaseMetadata: { failedCreateCleanup: observed } })).resolves.toEqual({ providerLeaseId: cleanup.providerLeaseId, state: "destroyed" });
+      expect(mockGet).toHaveBeenLastCalledWith(orphan.id);
       expect(orphan.delete).toHaveBeenCalledWith(10, true);
       expect(orphan.process.executeCommand).not.toHaveBeenCalled();
     });
@@ -589,6 +602,34 @@ describe("Daytona sandbox provider plugin", () => {
       const { cleanup } = await unresolvedCreation();
       await expect(plugin.definition.onEnvironmentDestroyLease!({ ...params, providerLeaseId: cleanup.providerLeaseId,
         leaseMetadata: { failedCreateCleanup: cleanup } })).rejects.toThrow();
+    });
+
+    it("accepts absence only after a matching provider ID was observed", async () => {
+      const { cleanup } = await unresolvedCreation();
+      const orphan = ownedSandbox(); mockGet.mockResolvedValue(orphan);
+      const observed = await journalObservation(cleanup);
+      expect(orphan.delete).not.toHaveBeenCalled();
+      mockGet.mockRejectedValue(new MockDaytonaNotFoundError("already deleted"));
+      await expect(plugin.definition.onEnvironmentDestroyLease!({ ...params,
+        providerLeaseId: cleanup.providerLeaseId, leaseMetadata: { failedCreateCleanup: observed },
+      })).resolves.toEqual({ providerLeaseId: cleanup.providerLeaseId, state: "destroyed" });
+      expect(mockGet).toHaveBeenLastCalledWith(orphan.id);
+    });
+
+    it("retains the observed ID when immediate deletion loses its acknowledgement", async () => {
+      let orphan: ReturnType<typeof ownedSandbox>;
+      mockGet.mockImplementation(async () => {
+        orphan = ownedSandbox();
+        orphan.delete.mockRejectedValue(new Error("delete response lost"));
+        return orphan;
+      });
+      const error = await plugin.definition.onEnvironmentAcquireLease!(params).catch(error => error);
+      const cleanup = readEnvironmentCreationCleanupError(error)!;
+      expect(cleanup.observedProviderLeaseId).toBe(orphan!.id);
+      mockGet.mockRejectedValue(new MockDaytonaNotFoundError("already deleted"));
+      await expect(plugin.definition.onEnvironmentDestroyLease!({ ...params,
+        providerLeaseId: cleanup.providerLeaseId, leaseMetadata: { failedCreateCleanup: cleanup },
+      })).resolves.toEqual({ providerLeaseId: cleanup.providerLeaseId, state: "destroyed" });
     });
 
     it.each(["company", "account", "labels"])("fences failed-creation retries by %s", async (mismatch) => {

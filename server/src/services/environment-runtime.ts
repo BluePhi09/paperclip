@@ -1556,6 +1556,37 @@ function createSandboxEnvironmentDriver(
     });
   };
 
+  // Resolve an uncertain creation to a verified provider ID, journal it, then
+  // authorize deletion. This makes a later missing-ID response conclusive even
+  // when the destructive RPC reply or the final lease update was lost.
+  const destroyWithCreationObservation = async (input: {
+    leaseId: string | null;
+    metadata: Record<string, unknown>;
+    teardown: (metadata: Record<string, unknown>) => Promise<unknown>;
+  }): Promise<unknown> => {
+    try {
+      return await input.teardown(input.metadata);
+    } catch (error) {
+      const previous = readEnvironmentCreationCleanupError({ data: {
+        schema: "paperclip/environment-creation-cleanup/v1", cleanup: input.metadata.failedCreateCleanup,
+      } });
+      const observed = readEnvironmentCreationCleanupError(error);
+      const scopeKeys = ["providerLeaseId", "companyId", "environmentId", "runId", "attemptId", "accountFingerprint"] as const;
+      if (!input.leaseId || !previous || previous.observedProviderLeaseId || !observed?.observedProviderLeaseId ||
+          scopeKeys.some((key) => previous[key] !== observed[key]) ||
+          Object.keys(previous.labels).length !== Object.keys(observed.labels).length ||
+          Object.entries(previous.labels).some(([key, value]) => observed.labels[key] !== value)) throw error;
+      const lease = await environmentsSvc.getLeaseById(input.leaseId);
+      if (!lease || lease.companyId !== previous.companyId || lease.providerLeaseId !== previous.providerLeaseId ||
+          (lease.environmentId !== null && lease.environmentId !== previous.environmentId)) throw error;
+      const metadata = { ...lease.metadata, failedCreateCleanup: observed };
+      // A failed write must stop here; no destructive call is permitted until
+      // the provider identity can survive a host or worker restart.
+      if (!await environmentsSvc.updateLeaseMetadata(lease.id, metadata)) throw error;
+      return await input.teardown(metadata);
+    }
+  };
+
   // Clean up an orphan after a rejected insert or uncertain provider creation.
   // The acquire provisioned a remote sandbox, then the insert rejected (a
   // foreign-company binding), so no lease row tracks the live sandbox. This
@@ -1579,14 +1610,14 @@ function createSandboxEnvironmentDriver(
     record: DeferredOrphanCleanupRecord;
     cause: unknown;
     canTeardown: boolean;
-    teardown: () => Promise<unknown>;
+    teardown: (pendingLeaseId: string | null) => Promise<unknown>;
   }): Promise<boolean> => {
     const durable = await tryWriteDurablePendingCleanup(input.record);
     let teardownFailed = !input.canTeardown;
     let receipt: unknown;
     if (!teardownFailed) {
       try {
-        receipt = await input.teardown();
+        receipt = await input.teardown(durable.leaseId);
       } catch {
         teardownFailed = true;
       }
@@ -2081,12 +2112,15 @@ function createSandboxEnvironmentDriver(
                 },
                 cause: error,
                 canTeardown: pluginWorkerManager.isRunning(pluginProvider.resolved.plugin.id),
-                teardown: () => pluginWorkerManager.call(pluginProvider.resolved.plugin.id, "environmentDestroyLease", {
-                  driverKey: parsed.config.provider, companyId: input.companyId,
-                  environmentId: input.environment.id, issueId: input.issueId,
-                  config: workerConfig, providerLeaseId: cleanup.providerLeaseId,
-                  leaseMetadata: { failedCreateCleanup: cleanup },
-                }, resolvePluginSandboxRpcTimeoutMs(workerConfig)),
+                teardown: (pendingLeaseId) => destroyWithCreationObservation({
+                  leaseId: pendingLeaseId, metadata: cleanupMetadata,
+                  teardown: (metadata) => pluginWorkerManager.call(pluginProvider.resolved.plugin.id, "environmentDestroyLease", {
+                    driverKey: parsed.config.provider, companyId: input.companyId,
+                    environmentId: input.environment.id, issueId: input.issueId,
+                    config: workerConfig, providerLeaseId: cleanup.providerLeaseId,
+                    leaseMetadata: metadata,
+                  }, resolvePluginSandboxRpcTimeoutMs(workerConfig)),
+                }),
               });
               if (cleanupConfirmed) {
                 throw new Error("Sandbox creation failed; allocated sandbox cleanup was confirmed.", { cause: error });
@@ -2582,7 +2616,7 @@ function createSandboxEnvironmentDriver(
             (input.lease.environmentId !== null && failedCreation.environmentId !== input.lease.environmentId))) {
           throw new Error("Pending creation cleanup ownership does not match the lease");
         }
-        return await pluginWorkerManager.call(
+        const teardown = (metadata: Record<string, unknown>) => pluginWorkerManager.call(
           pluginProvider.resolved.plugin.id,
           "environmentDestroyLease",
           {
@@ -2592,10 +2626,13 @@ function createSandboxEnvironmentDriver(
             issueId: input.lease.issueId,
             config: workerConfig,
             providerLeaseId: input.lease.providerLeaseId,
-            leaseMetadata: input.lease.metadata ?? undefined,
+            leaseMetadata: metadata,
           },
           resolvePluginSandboxRpcTimeoutMs(workerConfig),
         );
+        return failedCreation
+          ? await destroyWithCreationObservation({ leaseId: input.lease.id, metadata: input.lease.metadata ?? {}, teardown })
+          : await teardown(input.lease.metadata ?? {});
       }
 
       // Built-in provider path. Resolve the recorded config secrets through the
