@@ -1556,7 +1556,7 @@ function createSandboxEnvironmentDriver(
     });
   };
 
-  // Clean up an orphan sandbox after the conditional lease insert rejected it.
+  // Clean up an orphan after a rejected insert or uncertain provider creation.
   // The acquire provisioned a remote sandbox, then the insert rejected (a
   // foreign-company binding), so no lease row tracks the live sandbox. This
   // handler records the durable `pending_cleanup` row FIRST, before the inline
@@ -1580,7 +1580,7 @@ function createSandboxEnvironmentDriver(
     cause: unknown;
     canTeardown: boolean;
     teardown: () => Promise<unknown>;
-  }): Promise<void> => {
+  }): Promise<boolean> => {
     const durable = await tryWriteDurablePendingCleanup(input.record);
     let teardownFailed = !input.canTeardown;
     let receipt: unknown;
@@ -1596,15 +1596,15 @@ function createSandboxEnvironmentDriver(
       if (durable.leaseId !== null) {
         await releaseCleanedUpOrphanRow(durable.leaseId, orphanDiagnosticFields(input.record), receipt);
       }
-      return;
+      return true;
     }
     // The teardown failed, so the orphan sandbox is still live.
     if (durable.leaseId !== null) {
       // The durable row already tracks the orphan, so a sweep finds and releases
       // it. The caller rethrows the original insert rejection.
-      return;
+      return false;
     }
-    await escalateUnwrittenOrphan(input.record, input.cause, durable.lastError);
+    return await escalateUnwrittenOrphan(input.record, input.cause, durable.lastError);
   };
 
   // The run-time exec parent context, held per lease id. A plugin sandbox
@@ -2071,7 +2071,7 @@ function createSandboxEnvironmentDriver(
               };
               // Record before retrying the provider. Existing pending-cleanup
               // recovery (including its durable spool) survives controller loss.
-              await cleanUpRejectedOrphanSandbox({
+              const cleanupConfirmed = await cleanUpRejectedOrphanSandbox({
                 record: {
                   companyId: input.companyId, environmentId: input.environment.id,
                   executionWorkspaceId: input.executionWorkspaceId ?? null,
@@ -2088,6 +2088,9 @@ function createSandboxEnvironmentDriver(
                   leaseMetadata: { failedCreateCleanup: cleanup },
                 }, resolvePluginSandboxRpcTimeoutMs(workerConfig)),
               });
+              if (cleanupConfirmed) {
+                throw new Error("Sandbox creation failed; allocated sandbox cleanup was confirmed.", { cause: error });
+              }
             }
             // A cleanup record is not a usable lease. Keep acquisition failed,
             // even when its compensating deletion succeeds on this attempt.
