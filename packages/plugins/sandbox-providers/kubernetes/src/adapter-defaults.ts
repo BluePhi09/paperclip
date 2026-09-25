@@ -95,16 +95,6 @@ export function getAdapterDefaults(
 }
 
 /**
- * Every adapter's default egress hosts, from the same source getAdapterDefaults
- * resolves against. Used to keep other adapters' hosts in the shared tenant
- * egress policy without keeping hosts the operator revoked.
- */
-export function allAdapterAllowFqdns(registry?: readonly AdapterRegistryEntry[]): string[] {
-  const entries = registry && registry.length > 0 ? registry : Object.values(REGISTRY);
-  return entries.flatMap((e) => e.allowFqdns ?? []);
-}
-
-/**
  * Resolve the adapter type for a single run: prefer the run's adapter (the agent's,
  * from the lease params) so one environment can serve mixed harnesses; fall back to
  * the environment's configured default adapter when the run does not specify one.
