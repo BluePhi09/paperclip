@@ -50,20 +50,45 @@ test('check-for-cli-updates only runs on the schedule event', () => {
   assert.match(block, /if:\s*github\.event_name == 'schedule'/);
 });
 
-test('check-for-cli-updates never invokes docker build/bake/push', () => {
-  const block = stripComments(extractJobBlock('check-for-cli-updates'));
-  assert.doesNotMatch(block, /docker (buildx |)(build|bake)/);
-  assert.doesNotMatch(block, /--push/);
-  assert.doesNotMatch(block, /cosign sign/);
+test('check-for-cli-updates only reads (npm registry + a read-only docker pull/run probe), never builds/bakes/pushes/signs', () => {
+  const block = extractJobBlock('check-for-cli-updates');
+  const stripped = stripComments(block);
+  assert.doesNotMatch(stripped, /docker (buildx |)(build|bake)/);
+  assert.doesNotMatch(stripped, /--push/);
+  assert.doesNotMatch(stripped, /cosign sign/);
+  // Also reject the GitHub Actions form of "build and publish an image"
+  // (e.g. docker/build-push-action with push: true), not just the raw CLI
+  // invocation -- a step could add that action instead of a `docker` CLI
+  // call and still slip past a check that only looks for the CLI form.
+  assert.doesNotMatch(stripped, /uses:\s*docker\/[\w-]*build[\w-]*-action/);
+  assert.doesNotMatch(stripped, /push:\s*true/);
+  // It IS allowed (and expected) to pull the already-published image and
+  // run a read-only --version probe inside it -- that's how this job tells
+  // deployed-tag staleness apart from upstream-npm staleness.
+  assert.match(block, /docker pull/);
+  assert.match(block, /docker run --rm --entrypoint/);
+  assert.match(block, /--version/);
 });
 
-test('check-for-cli-updates only makes a read-only npm registry query, passed via env (not string-interpolated)', () => {
+test('check-for-cli-updates only makes a read-only npm registry query, passed via env (never interpolated into the script)', () => {
   const block = extractJobBlock('check-for-cli-updates');
   assert.match(block, /registry\.npmjs\.org/);
   assert.match(block, /VERSION_TABLE:\s*\$\{\{\s*steps\.versions\.outputs\.table\s*\}\}/);
   // The table must be read from process.env in the github-script step, never
   // interpolated directly into the script template literal (injection risk).
   assert.match(block, /process\.env\.VERSION_TABLE/);
+  // Isolate the github-script `script:` block specifically (not the whole
+  // job, which legitimately contains `${{ steps.versions.outputs.table }}`
+  // once, in the step's `env:` mapping) and assert that block never embeds
+  // an interpolated GitHub Actions expression directly in the JS source --
+  // only process.env reads are allowed there.
+  const scriptMatch = block.match(/script:\s*\|\n([\s\S]*?)(?=\n {6}- name:|\n {4}[a-zA-Z-]+:\n|$)/);
+  assert.ok(scriptMatch, 'expected to find a github-script `script: |` block');
+  assert.doesNotMatch(
+    scriptMatch[1],
+    /\$\{\{/,
+    'the github-script body must never contain a raw ${{ ... }} expression -- all dynamic data must come through process.env'
+  );
 });
 
 test('build-and-sign is excluded from the schedule event', () => {

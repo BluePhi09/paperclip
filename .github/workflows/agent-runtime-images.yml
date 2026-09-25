@@ -69,16 +69,58 @@ jobs:
             [opencode]="opencode-ai"
             [pi]="@mariozechner/pi-coding-agent"
           )
+          # The binary each harness's Dockerfile puts on PATH and its
+          # `--version` flag, matching packages/plugins/sandbox-providers/
+          # kubernetes/src/adapter-defaults.ts's probeCommand for each
+          # adapter. Used to read the CLI version actually baked into the
+          # currently *deployed* image (the ":latest" tag the Kubernetes
+          # sandbox provider's built-in adapter defaults pull), not just
+          # what npm currently publishes -- so this can tell staleness of
+          # deployed tags apart from staleness of upstream npm.
+          declare -A PROBE_BINS=(
+            [claude]="claude-code"
+            [codex]="codex"
+            [gemini]="gemini"
+            [opencode]="opencode"
+            [pi]="pi"
+          )
           echo "table<<EOF" >> "$GITHUB_OUTPUT"
           for harness in "${!PACKAGES[@]}"; do
             pkg="${PACKAGES[$harness]}"
+            bin="${PROBE_BINS[$harness]}"
             # Sanity-check the Dockerfile still installs this exact package,
             # so this table can't silently drift from what actually ships.
             if ! grep -q "npm install -g ${pkg}@latest" "docker/agent-runtime/Dockerfile.${harness}"; then
               echo "::warning::docker/agent-runtime/Dockerfile.${harness} no longer installs ${pkg}@latest -- update the PACKAGES map in this workflow"
             fi
             latest=$(curl -fsSL --retry 3 "https://registry.npmjs.org/${pkg}/latest" | jq -r '.version // "unknown"')
-            echo "| \`agent-runtime-${harness}\` | \`${pkg}\` | ${latest} |" >> "$GITHUB_OUTPUT"
+
+            # Read the version actually baked into the currently published
+            # ":latest" image by pulling it (public GHCR image, no build, no
+            # code from this run gets built or signed) and running the
+            # harness's own --version probe inside it. This is the same
+            # already-signed, already-published image the Kubernetes sandbox
+            # provider's default runtimeImage points at -- we are not
+            # executing anything untrusted that this workflow produced.
+            image="ghcr.io/paperclipai/agent-runtime-${harness}:latest"
+            deployed="unknown (image not found)"
+            if docker pull --quiet "${image}" >/dev/null 2>&1; then
+              probe_output=$(docker run --rm --entrypoint "${bin}" "${image}" --version 2>/dev/null || true)
+              # Keep only the first line and strip anything but a plausible
+              # version token, so unexpected/garbled CLI output can never
+              # reach the tracking-issue table as anything other than a
+              # plain "unknown" -- it is never interpolated as code either
+              # way, since it only ever reaches github-script via env below.
+              deployed=$(printf '%s' "${probe_output}" | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*' | head -n1 || true)
+              deployed="${deployed:-unknown (unparseable --version output)}"
+            fi
+
+            status="up to date"
+            if [ "${deployed}" != "${latest}" ]; then
+              status="STALE"
+            fi
+
+            echo "| \`agent-runtime-${harness}\` | \`${pkg}\` | ${latest} | ${deployed} | ${status} |" >> "$GITHUB_OUTPUT"
           done
           echo "EOF" >> "$GITHUB_OUTPUT"
 
@@ -104,13 +146,14 @@ jobs:
             const title = "Weekly agent-runtime CLI version check";
             const body = [
               "Automated weekly check of the npm packages installed by the",
-              "`agent-runtime-*` Dockerfiles. This does **not** build or publish",
-              "anything -- compare against the version baked into the currently",
-              "published images, and trigger `workflow_dispatch` on the",
-              "`Agent runtime images` workflow if a rebuild is warranted.",
+              "`agent-runtime-*` Dockerfiles, compared against the CLI version",
+              "actually baked into each currently published `:latest` image",
+              "(pulled read-only from GHCR and probed with `--version` -- no",
+              "build, sign, or push happens here). Trigger `workflow_dispatch`",
+              "on the `Agent runtime images` workflow for any row marked STALE.",
               "",
-              "| Image | npm package | npm latest |",
-              "| --- | --- | --- |",
+              "| Image | npm package | npm latest | deployed (`:latest`) | status |",
+              "| --- | --- | --- | --- | --- |",
               table.trim(),
             ].join("\n");
             const existing = await github.rest.issues.listForRepo({
