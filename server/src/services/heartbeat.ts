@@ -17318,10 +17318,28 @@ export function heartbeatService(
             eq(heartbeatRuns.id, owner.executionRunId),
             eq(heartbeatRuns.companyId, run.companyId),
           ));
-        // Success can precede native workspace/lease cleanup. Only transfer a
-        // terminal pointer once the in-process executor has fully settled.
+        // A terminal result can precede workspace/lease cleanup on this or
+        // another controller. Local absence alone is not a release receipt.
         if (!isHeartbeatRunTerminalStatus(previous?.status) ||
             liveRunExecutions.has(owner.executionRunId)) {
+          return { ownsIssue, blocked: true };
+        }
+        const [pendingLease] = await tx.select({ id: environmentLeases.id })
+          .from(environmentLeases).where(and(
+            eq(environmentLeases.companyId, run.companyId),
+            eq(environmentLeases.heartbeatRunId, owner.executionRunId),
+            or(isNull(environmentLeases.releasedAt),
+              eq(environmentLeases.status, "pending_cleanup"),
+              eq(environmentLeases.cleanupStatus, "failed")),
+          )).limit(1);
+        const [finalization] = await tx.select({
+          phase: nativeRunFinalizations.phase, leaseOwner: nativeRunFinalizations.leaseOwner,
+        }).from(nativeRunFinalizations).where(and(
+          eq(nativeRunFinalizations.companyId, run.companyId),
+          eq(nativeRunFinalizations.runId, owner.executionRunId),
+        ));
+        if (pendingLease || (finalization && (finalization.leaseOwner ||
+            !["committed", "applied", "terminal_failure"].includes(finalization.phase)))) {
           return { ownsIssue, blocked: true };
         }
       }
