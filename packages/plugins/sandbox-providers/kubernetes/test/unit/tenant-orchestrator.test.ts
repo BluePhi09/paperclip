@@ -31,12 +31,10 @@ function makeMockClients() {
     networking: {
       readNamespacedNetworkPolicy: vi.fn().mockRejectedValue({ code: 404 }),
       createNamespacedNetworkPolicy: track("NetworkPolicy"),
-      replaceNamespacedNetworkPolicy: track("ReplaceNetworkPolicy"),
     },
     custom: {
       getNamespacedCustomObject: vi.fn().mockRejectedValue({ code: 404 }),
       createNamespacedCustomObject: track("CiliumNetworkPolicy"),
-      replaceNamespacedCustomObject: track("ReplaceCiliumNetworkPolicy"),
     },
   };
 }
@@ -49,8 +47,6 @@ describe("ensureTenant", () => {
     serviceAccountAnnotations: {},
     egressMode: "standard" as const,
     egressAllowFqdns: ["api.anthropic.com"],
-    environmentId: "env-a",
-    retainableFqdns: ["api.anthropic.com", "claude.com", "api.openai.com"],
     egressAllowCidrs: [] as string[],
     resourceQuota: { pods: "20", requestsCpu: "5", requestsMemory: "20Gi", limitsCpu: "20", limitsMemory: "80Gi" },
   };
@@ -81,20 +77,6 @@ describe("ensureTenant", () => {
     expect((npCalls[0].body as { metadata: { name: string } }).metadata.name).toBe("paperclip-deny-all");
   });
 
-  it.each(["standard", "cilium"] as const)("passes the callback selector through tenant provisioning (%s)", async (egressMode) => {
-    const clients = makeMockClients();
-    await ensureTenant(clients as never, { ...baseInput, egressMode, paperclipServerPodSelector: { app: "paperclip" } });
-    if (egressMode === "standard") {
-      const policy = clients.calls.find((c) => c.kind === "NetworkPolicy" && (c.body as any).metadata.name === "paperclip-egress-allow");
-      expect((policy?.body as any).spec.egress[1].to[0].podSelector.matchLabels).toEqual({ app: "paperclip" });
-    } else {
-      const policy = clients.calls.find((c) => c.kind === "CiliumNetworkPolicy");
-      expect((policy?.body as any).spec.egress[2].toEndpoints[0].matchLabels).toEqual({
-        app: "paperclip", "k8s:io.kubernetes.pod.namespace": "paperclip",
-      });
-    }
-  });
-
   it("applies serviceAccountAnnotations to the ServiceAccount", async () => {
     const clients = makeMockClients();
     await ensureTenant(clients as never, {
@@ -120,215 +102,5 @@ describe("ensureTenant", () => {
     clients.core.createNamespace.mockRejectedValue({ statusCode: 409 });
     clients.core.createNamespacedServiceAccount.mockRejectedValue({ code: 409 });
     await expect(ensureTenant(clients as never, baseInput)).resolves.not.toThrow();
-  });
-
-  describe("network policy reconciliation", () => {
-    async function provisionedPolicies(egressMode: "standard" | "cilium") {
-      const fresh = makeMockClients();
-      await ensureTenant(fresh as never, { ...baseInput, egressMode });
-      return fresh.calls.filter((c) => c.kind === "NetworkPolicy" || c.kind === "CiliumNetworkPolicy");
-    }
-
-    function metadataOf(body: unknown) {
-      return (body as { metadata: { name: string; annotations?: Record<string, string> } }).metadata;
-    }
-
-    it("stamps every created policy with a spec hash", async () => {
-      for (const policy of await provisionedPolicies("cilium")) {
-        expect(metadataOf(policy.body).annotations?.["paperclip.io/spec-hash"]).toMatch(/^[0-9a-f]{32}$/);
-      }
-    });
-
-    it("leaves an up-to-date policy untouched", async () => {
-      const [denyAll, egress] = await provisionedPolicies("standard");
-      const clients = makeMockClients();
-      clients.networking.readNamespacedNetworkPolicy.mockImplementation(async ({ name }: { name: string }) =>
-        [denyAll, egress].find((p) => metadataOf(p.body).name === name)!.body,
-      );
-      await ensureTenant(clients as never, baseInput);
-      expect(clients.networking.replaceNamespacedNetworkPolicy).not.toHaveBeenCalled();
-      expect(clients.networking.createNamespacedNetworkPolicy).not.toHaveBeenCalled();
-    });
-
-    it("replaces a pre-existing egress policy provisioned before new adapter FQDNs (e.g. OAuth hosts)", async () => {
-      const clients = makeMockClients();
-      // Legacy policy: no hash annotation, older egress allow-list.
-      clients.custom.getNamespacedCustomObject.mockResolvedValue({
-        metadata: { name: "paperclip-egress-fqdn", resourceVersion: "42" },
-        spec: { egress: [] },
-      });
-      await ensureTenant(clients as never, {
-        ...baseInput,
-        egressMode: "cilium",
-        egressAllowFqdns: ["api.anthropic.com", "claude.com", "platform.claude.com"],
-      });
-      const replaced = clients.calls.find((c) => c.kind === "ReplaceCiliumNetworkPolicy");
-      expect(replaced).toBeDefined();
-      const body = replaced!.body as { metadata: { resourceVersion?: string }; spec: unknown };
-      expect(body.metadata.resourceVersion).toBe("42");
-      expect(JSON.stringify(body.spec)).toContain("platform.claude.com");
-    });
-
-    it("replaces an egress policy whose spec hash is stale", async () => {
-      const clients = makeMockClients();
-      clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({
-        metadata: { name: "x", resourceVersion: "7", annotations: { "paperclip.io/spec-hash": "stale" } },
-      });
-      await ensureTenant(clients as never, baseInput);
-      expect(clients.networking.replaceNamespacedNetworkPolicy).toHaveBeenCalledTimes(2);
-    });
-
-    it("keeps the old policy and warns when the operator did not grant update", async () => {
-      const clients = makeMockClients();
-      clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({ metadata: { name: "x" } });
-      clients.networking.replaceNamespacedNetworkPolicy.mockRejectedValue({ code: 403 });
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      try {
-        await expect(ensureTenant(clients as never, baseInput)).resolves.toBeUndefined();
-        expect(warn).toHaveBeenCalledWith(expect.stringMatching(/not allowed to update/));
-      } finally {
-        warn.mockRestore();
-      }
-    });
-
-    it("keeps FQDNs granted to another adapter's pods in the same tenant", async () => {
-      // A Claude lease provisioned the tenant; a Codex lease arrives while the
-      // Claude pod is still running.
-      const claude = makeMockClients();
-      await ensureTenant(claude as never, { ...baseInput, egressMode: "cilium", egressAllowFqdns: ["api.anthropic.com", "claude.com"] });
-      const claudePolicy = claude.calls.find((c) => c.kind === "CiliumNetworkPolicy")!.body as { metadata: Record<string, unknown> };
-
-      const codex = makeMockClients();
-      codex.custom.getNamespacedCustomObject.mockResolvedValue({
-        ...claudePolicy,
-        metadata: { ...claudePolicy.metadata, resourceVersion: "5" },
-      });
-      await ensureTenant(codex as never, { ...baseInput, egressMode: "cilium", egressAllowFqdns: ["api.openai.com"] });
-      const replaced = codex.calls.find((c) => c.kind === "ReplaceCiliumNetworkPolicy");
-      expect(replaced).toBeDefined();
-      const spec = JSON.stringify((replaced!.body as { spec: unknown }).spec);
-      for (const host of ["api.anthropic.com", "claude.com", "api.openai.com"]) expect(spec).toContain(host);
-
-      // Another Claude lease sees the merged policy as up to date: no flip-flop.
-      const again = makeMockClients();
-      again.custom.getNamespacedCustomObject.mockResolvedValue(replaced!.body);
-      await ensureTenant(again as never, { ...baseInput, egressMode: "cilium", egressAllowFqdns: ["claude.com", "api.anthropic.com"] });
-      expect(again.custom.replaceNamespacedCustomObject).not.toHaveBeenCalled();
-    });
-
-    it("keeps the standard-mode FQDN fallback for a later adapter without FQDNs", async () => {
-      const first = makeMockClients();
-      await ensureTenant(first as never, baseInput);
-      const [denyAll, egress] = first.calls.filter((c) => c.kind === "NetworkPolicy");
-
-      const second = makeMockClients();
-      second.networking.readNamespacedNetworkPolicy.mockImplementation(async ({ name }: { name: string }) =>
-        [denyAll, egress].find((p) => metadataOf(p.body).name === name)!.body,
-      );
-      await ensureTenant(second as never, { ...baseInput, egressAllowFqdns: [] });
-      expect(second.networking.replaceNamespacedNetworkPolicy).not.toHaveBeenCalled();
-    });
-
-    it("re-reads and merges when a concurrent lease replaced the policy first", async () => {
-      const clients = makeMockClients();
-      const stale = { metadata: { name: "paperclip-egress-fqdn", resourceVersion: "1" }, spec: { egress: [] } };
-      const winner = {
-        metadata: {
-          name: "paperclip-egress-fqdn",
-          resourceVersion: "2",
-          annotations: { "paperclip.io/allowed-fqdns": "api.openai.com" },
-        },
-        spec: { egress: [] },
-      };
-      clients.custom.getNamespacedCustomObject.mockResolvedValueOnce(stale).mockResolvedValueOnce(winner);
-      clients.custom.replaceNamespacedCustomObject
-        .mockRejectedValueOnce({ code: 409 })
-        .mockImplementationOnce(async (arg: { body: unknown }) => ({ body: arg.body }));
-      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium", retainableFqdns: ["api.openai.com"] });
-
-      expect(clients.custom.replaceNamespacedCustomObject).toHaveBeenCalledTimes(2);
-      const body = clients.custom.replaceNamespacedCustomObject.mock.calls[1][0].body as {
-        metadata: { resourceVersion: string };
-        spec: unknown;
-      };
-      expect(body.metadata.resourceVersion).toBe("2");
-      expect(JSON.stringify(body.spec)).toContain("api.openai.com");
-      expect(JSON.stringify(body.spec)).toContain("api.anthropic.com");
-    });
-
-    it("merges with a policy a concurrent lease created first", async () => {
-      const clients = makeMockClients();
-      clients.custom.getNamespacedCustomObject
-        .mockRejectedValueOnce({ code: 404 })
-        .mockResolvedValueOnce({
-          metadata: {
-            name: "paperclip-egress-fqdn",
-            resourceVersion: "1",
-            annotations: { "paperclip.io/allowed-fqdns": "api.openai.com" },
-          },
-          spec: { egress: [] },
-        });
-      clients.custom.createNamespacedCustomObject.mockRejectedValueOnce({ code: 409 });
-      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium", retainableFqdns: ["api.openai.com"] });
-      const body = clients.custom.replaceNamespacedCustomObject.mock.calls[0][0].body as { spec: unknown };
-      expect(JSON.stringify(body.spec)).toContain("api.openai.com");
-      expect(JSON.stringify(body.spec)).toContain("api.anthropic.com");
-    });
-
-    it("drops a granted host that is not an adapter default (operator revocation)", async () => {
-      const clients = makeMockClients();
-      clients.custom.getNamespacedCustomObject.mockResolvedValueOnce({
-        metadata: {
-          name: "paperclip-egress-fqdn",
-          resourceVersion: "1",
-          annotations: { "paperclip.io/allowed-fqdns": "api.openai.com,revoked.example.com" },
-        },
-        spec: { egress: [{ toFQDNs: [{ matchName: "revoked.example.com" }] }] },
-      });
-      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium", retainableFqdns: ["api.openai.com"] });
-      const body = clients.custom.replaceNamespacedCustomObject.mock.calls[0][0].body;
-      expect(JSON.stringify(body)).toContain("api.openai.com");
-      expect(JSON.stringify(body)).not.toContain("revoked.example.com");
-    });
-
-    it("keeps another environment's operator hosts and CIDRs, and revokes only its own", async () => {
-      const a = makeMockClients();
-      await ensureTenant(a as never, {
-        ...baseInput,
-        egressMode: "cilium",
-        egressAllowFqdns: ["git.internal.example"],
-        egressAllowCidrs: ["10.5.0.0/16"],
-      });
-      const aPolicy = a.calls.find((c) => c.kind === "CiliumNetworkPolicy")!.body;
-
-      const b = makeMockClients();
-      b.custom.getNamespacedCustomObject.mockResolvedValue(aPolicy);
-      await ensureTenant(b as never, { ...baseInput, environmentId: "env-b", egressMode: "cilium", egressAllowFqdns: ["api.openai.com"] });
-      const bPolicy = b.custom.replaceNamespacedCustomObject.mock.calls[0][0].body;
-      for (const v of ["git.internal.example", "10.5.0.0/16", "api.openai.com"]) expect(JSON.stringify(bPolicy.spec)).toContain(v);
-
-      // Environment A drops its operator host: revoked, B's host stays.
-      const a2 = makeMockClients();
-      a2.custom.getNamespacedCustomObject.mockResolvedValue(bPolicy);
-      await ensureTenant(a2 as never, { ...baseInput, egressMode: "cilium", egressAllowFqdns: [], egressAllowCidrs: [] });
-      const aSpec = JSON.stringify(a2.custom.replaceNamespacedCustomObject.mock.calls[0][0].body.spec);
-      expect(aSpec).not.toContain("git.internal.example");
-      expect(aSpec).not.toContain("10.5.0.0/16");
-      expect(aSpec).toContain("api.openai.com");
-    });
-
-    it("gives up after repeated conflicts", async () => {
-      const clients = makeMockClients();
-      clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({ metadata: { name: "x", resourceVersion: "1" } });
-      clients.networking.replaceNamespacedNetworkPolicy.mockRejectedValue({ code: 409 });
-      await expect(ensureTenant(clients as never, baseInput)).rejects.toEqual({ code: 409 });
-    });
-
-    it("surfaces non-permission replace failures", async () => {
-      const clients = makeMockClients();
-      clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({ metadata: { name: "x" } });
-      clients.networking.replaceNamespacedNetworkPolicy.mockRejectedValue({ code: 500 });
-      await expect(ensureTenant(clients as never, baseInput)).rejects.toEqual({ code: 500 });
-    });
   });
 });

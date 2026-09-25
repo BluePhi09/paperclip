@@ -51,9 +51,9 @@ describe("buildSandboxCrManifest", () => {
     ]);
   });
 
-  it("caps an unbounded lease's pod at the 24h ceiling", () => {
+  it("sets no pod deadline for an unbounded lease", () => {
     const cr = buildSandboxCrManifest(baseInput);
-    expect(cr.spec.podTemplate.spec.activeDeadlineSeconds).toBe(24 * 60 * 60);
+    expect(cr.spec.podTemplate.spec.activeDeadlineSeconds).toBeUndefined();
   });
 
   it("stops a bounded sandbox at the absolute deadline, not relative to pod start", () => {

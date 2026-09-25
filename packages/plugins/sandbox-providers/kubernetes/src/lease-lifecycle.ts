@@ -51,13 +51,6 @@ export interface ResumeCheckInput {
   /** Bounded wait for an existing Sandbox pod to report Ready. */
   readyTimeoutMs?: number;
   pollMs?: number;
-  /**
-   * Treat a sandbox pod whose `activeDeadlineSeconds` ends within this many
-   * seconds as not resumable, so a reused lease is not killed mid-run by the
-   * backstop deadline. Omit for bounded leases, whose expiry the server tracks.
-   */
-  minRemainingSec?: number;
-  nowMs?: number;
 }
 
 /**
@@ -109,11 +102,7 @@ export async function checkLeaseResumable(
 
     // Confirm the pod itself is Running and not being torn down — the CR
     // status can lag pod deletion.
-    let pod: {
-      metadata?: { deletionTimestamp?: unknown };
-      spec?: { activeDeadlineSeconds?: number };
-      status?: { phase?: string; startTime?: string | Date };
-    };
+    let pod: { metadata?: { deletionTimestamp?: unknown }; status?: { phase?: string } };
     try {
       pod = await clients.core.readNamespacedPod({
         namespace: input.namespace,
@@ -132,14 +121,6 @@ export async function checkLeaseResumable(
         resumable: false,
         reason: `Pod ${podName} is ${terminating ? "terminating" : podPhase ?? "in an unknown phase"}`,
       };
-    }
-    const deadlineSec = pod.spec?.activeDeadlineSeconds;
-    const startMs = pod.status?.startTime ? new Date(pod.status.startTime).getTime() : Number.NaN;
-    if (input.minRemainingSec != null && typeof deadlineSec === "number" && Number.isFinite(startMs)) {
-      const remainingSec = (startMs + deadlineSec * 1000 - (input.nowMs ?? Date.now())) / 1000;
-      if (remainingSec < input.minRemainingSec) {
-        return { resumable: false, reason: `Pod ${podName} reaches its activeDeadlineSeconds in ${Math.max(0, Math.floor(remainingSec))}s` };
-      }
     }
     return { resumable: true, podName, phase: "Running" };
   }
