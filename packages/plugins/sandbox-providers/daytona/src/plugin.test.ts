@@ -558,6 +558,23 @@ describe("Daytona sandbox provider plugin", () => {
       expect(JSON.stringify(environmentCreationCleanupErrorData(error))).not.toContain(createError.message);
     });
 
+    it("preserves ownership when the SDK adds labels to its mutable create input", async () => {
+      mockCreate.mockImplementation(async (input) => {
+        // Daytona 0.203.0 writes its default language into params.labels.
+        input.labels["code-toolbox-language"] = "python";
+        throw createError;
+      });
+      const { error, cleanup } = await unresolvedCreation();
+      expect(environmentCreationCleanupErrorData(error)).toBeDefined();
+      expect(cleanup.labels).not.toHaveProperty("code-toolbox-language");
+      const orphan = ownedSandbox();
+      mockGet.mockResolvedValue(orphan);
+      await expect(plugin.definition.onEnvironmentDestroyLease!({ ...params,
+        providerLeaseId: cleanup.providerLeaseId, leaseMetadata: { failedCreateCleanup: cleanup },
+      })).resolves.toEqual({ providerLeaseId: cleanup.providerLeaseId, state: "destroyed" });
+      expect(orphan.delete).toHaveBeenCalledWith(10, true);
+    });
+
     it("retries a late-visible failed creation using its persisted ownership envelope", async () => {
       const { cleanup } = await unresolvedCreation();
       const orphan = ownedSandbox(); mockGet.mockResolvedValue(orphan);
