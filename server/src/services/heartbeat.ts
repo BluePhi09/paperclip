@@ -17328,7 +17328,12 @@ export function heartbeatService(
           .from(environmentLeases).where(and(
             eq(environmentLeases.companyId, run.companyId),
             eq(environmentLeases.heartbeatRunId, owner.executionRunId),
-            or(isNull(environmentLeases.releasedAt),
+            or(and(isNull(environmentLeases.releasedAt),
+                // Warm release deliberately retains the sandbox. Its successful
+                // receipt settles the old run without destroying the resource.
+                sql`not coalesce(${environmentLeases.status} = 'retained'
+                  and ${environmentLeases.leasePolicy} = 'reuse_by_environment'
+                  and ${environmentLeases.cleanupStatus} = 'success', false)`),
               eq(environmentLeases.status, "pending_cleanup"),
               eq(environmentLeases.cleanupStatus, "failed")),
           )).limit(1);
