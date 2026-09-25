@@ -9,9 +9,10 @@ import type {
   Resources,
   Sandbox,
 } from "@daytonaio/sdk";
-import { decodeChannelBytes, definePlugin, NOOP_PLUGIN_TRACER } from "@paperclipai/plugin-sdk";
+import { decodeChannelBytes, definePlugin, NOOP_PLUGIN_TRACER, PluginEnvironmentCreationCleanupError, readEnvironmentCreationCleanupError } from "@paperclipai/plugin-sdk";
 import type {
   PluginContext,
+  PluginEnvironmentCreationCleanup,
   PluginTracer,
   PluginEnvironmentAcquireLeaseParams,
   PluginEnvironmentCancelInteractiveSetupParams,
@@ -964,19 +965,42 @@ async function createSandbox(
       // A not-found lookup after an uncertain create is not a deletion receipt:
       // the provider may still materialize the request. Keep the name in the
       // error so cleanup can be reconciled rather than declaring success.
-      const orphan = await withLivenessTimeout("sandbox.failedCreateLookup", 10_000, () => client.get(name));
-      if (orphan.name !== name || Object.entries(labels).some(([key, value]) => orphan.labels?.[key] !== value)) {
-        throw new Error("Failed-create sandbox ownership does not match");
-      }
-      // Wait for provider deletion, rather than treating a deletion request as
-      // a cleanup receipt. Never run tools or install credentials in this sandbox.
-      await withLivenessTimeout("sandbox.failedCreateDelete", 15_000, () => orphan.delete(10, true));
+      await destroyFailedCreation(config, {
+        providerLeaseId: name, companyId: params.companyId, environmentId: params.environmentId,
+        ...("runId" in params ? { runId: params.runId } : {}),
+        attemptId, labels, accountFingerprint: sandboxAccountDiscriminator(config),
+      });
     } catch (cleanupError) {
-      throw new AggregateError([createError, cleanupError],
-        `Daytona sandbox creation failed; cleanup could not be confirmed for ${name}`);
+      throw new PluginEnvironmentCreationCleanupError([createError, cleanupError],
+        `Daytona sandbox creation failed; cleanup could not be confirmed for ${name}`, {
+          providerLeaseId: name, companyId: params.companyId, environmentId: params.environmentId,
+          ...("runId" in params ? { runId: params.runId } : {}),
+          attemptId, labels, accountFingerprint: sandboxAccountDiscriminator(config),
+        });
     }
     throw createError;
   }
+}
+
+// Resolve by the immutable creation name, not through the admitted-lease cache:
+// the SDK's returned sandbox ID differs from this provisional name. A 404 is
+// still uncertain and must leave the host's pending-cleanup row eligible to retry.
+async function destroyFailedCreation(config: DaytonaDriverConfig, cleanup: PluginEnvironmentCreationCleanup): Promise<void> {
+  if (cleanup.providerLeaseId !== `paperclip-create-${cleanup.attemptId}` ||
+      cleanup.accountFingerprint !== sandboxAccountDiscriminator(config) ||
+      cleanup.labels["paperclip-provider"] !== "daytona" ||
+      cleanup.labels["paperclip-create-attempt"] !== cleanup.attemptId ||
+      cleanup.labels["paperclip-company-id"] !== cleanup.companyId ||
+      cleanup.labels["paperclip-environment-id"] !== cleanup.environmentId ||
+      (cleanup.runId !== undefined && cleanup.labels["paperclip-run-id"] !== cleanup.runId)) {
+    throw new Error("Failed-create sandbox ownership does not match");
+  }
+  const client = createDaytonaClient(config);
+  const orphan = await withLivenessTimeout("sandbox.failedCreateLookup", 10_000, () => client.get(cleanup.providerLeaseId));
+  if (orphan.name !== cleanup.providerLeaseId || Object.entries(cleanup.labels).some(([key, value]) => orphan.labels?.[key] !== value)) {
+    throw new Error("Failed-create sandbox ownership does not match");
+  }
+  await withLivenessTimeout("sandbox.failedCreateDelete", 15_000, () => orphan.delete(10, true));
 }
 
 // ─── Per-lease started-sandbox handle cache ──────────────────────────────────
@@ -2426,6 +2450,17 @@ const plugin = definePlugin({
   ): Promise<PluginEnvironmentTerminationReceipt | void> {
     if (!params.providerLeaseId) return;
     const config = parseDriverConfig(params.config);
+    if (params.leaseMetadata?.failedCreateCleanup !== undefined) {
+      const cleanup = readEnvironmentCreationCleanupError({ data: {
+        schema: "paperclip/environment-creation-cleanup/v1", cleanup: params.leaseMetadata.failedCreateCleanup,
+      } });
+      if (!cleanup || cleanup.companyId !== params.companyId || cleanup.environmentId !== params.environmentId ||
+          cleanup.providerLeaseId !== params.providerLeaseId) {
+        throw new Error("Failed-create sandbox cleanup scope does not match");
+      }
+      await destroyFailedCreation(config, cleanup);
+      return { providerLeaseId: params.providerLeaseId, state: "destroyed" };
+    }
     const scope: SandboxScope = {
       driverKey: params.driverKey,
       companyId: params.companyId,
