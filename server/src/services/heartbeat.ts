@@ -17296,6 +17296,46 @@ export function heartbeatService(
         responsibleUserId: null,
       },
     });
+    // All ordinary and comment claims use the same company-scoped issue
+    // lock. A batch may claim several runs before executeRun tracks any owner.
+    async function lockIssueExecutionClaim(tx: Db) {
+      const [owner] = issueId ? await tx.select({
+        assigneeAgentId: issues.assigneeAgentId,
+        executionRunId: issues.executionRunId,
+        checkoutRunId: issues.checkoutRunId,
+      }).from(issues).where(and(
+        eq(issues.id, issueId), eq(issues.companyId, run.companyId),
+      )).for("update") : [];
+      const ownsIssue = owner?.assigneeAgentId === run.agentId &&
+        context.wakeReason !== "source_scoped_recovery_action";
+      if (ownsIssue && run.scheduledRetryReason === "native_safe_replacement" &&
+          owner.checkoutRunId && owner.checkoutRunId !== run.id) {
+        return { ownsIssue, blocked: true };
+      }
+      if (ownsIssue && owner.executionRunId && owner.executionRunId !== run.id) {
+        const [previous] = await tx.select({ status: heartbeatRuns.status })
+          .from(heartbeatRuns).where(and(
+            eq(heartbeatRuns.id, owner.executionRunId),
+            eq(heartbeatRuns.companyId, run.companyId),
+          ));
+        // Success can precede native workspace/lease cleanup. Only transfer a
+        // terminal pointer once the in-process executor has fully settled.
+        if (!isHeartbeatRunTerminalStatus(previous?.status) ||
+            liveRunExecutions.has(owner.executionRunId)) {
+          return { ownsIssue, blocked: true };
+        }
+      }
+      return { ownsIssue, blocked: false };
+    }
+    async function bindClaimedIssueExecution(tx: Db, ownsIssue: boolean, claimedRun: typeof heartbeatRuns.$inferSelect | null | undefined) {
+      if (!claimedRun || !issueId || !ownsIssue) return;
+      await tx.update(issues).set({
+        executionRunId: claimedRun.id,
+        executionAgentNameKey: normalizeAgentNameKey(agent.name),
+        executionLockedAt: claimedAt,
+        updatedAt: claimedAt,
+      }).where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)));
+    }
     const nativeReviewContext = readNativeReviewAssignmentContext(context);
     const queuedCommentIds = queuedCommentIdsFromRunContext(context);
     if (
@@ -17316,16 +17356,8 @@ export function heartbeatService(
               // run becomes running, a concurrent discard must observe the
               // claimed wake and return an explicit conflict; if discard wins,
               // this claim observes the cancelled queue and does no work.
-              await tx
-                .select({ id: issues.id })
-                .from(issues)
-                .where(
-                  and(
-                    eq(issues.id, issueId),
-                    eq(issues.companyId, run.companyId),
-                  ),
-                )
-                .for("update");
+              const issueClaim = await lockIssueExecutionClaim(tx as unknown as Db);
+              if (issueClaim.blocked) return { kind: "stale" as const, run: null };
               const wake = await tx
                 .select()
                 .from(agentWakeupRequests)
@@ -17476,6 +17508,7 @@ export function heartbeatService(
                     ),
                   )
                   .returning();
+                await bindClaimedIssueExecution(tx as unknown as Db, issueClaim.ownsIssue, claimedRun);
                 return claimedRun
                   ? { kind: "claimed" as const, run: claimedRun }
                   : { kind: "stale" as const, run: null };
@@ -17578,6 +17611,7 @@ export function heartbeatService(
                   ),
                 )
                 .returning();
+              await bindClaimedIssueExecution(tx as unknown as Db, issueClaim.ownsIssue, claimedRun);
               return claimedRun
                 ? { kind: "claimed" as const, run: claimedRun }
                 : { kind: "stale" as const, run: null };
@@ -17640,35 +17674,12 @@ export function heartbeatService(
             });
           }
           return tx.transaction(async (claimTx) => {
-            // Several queued assignments can enter the same admission batch
-            // before executeRun registers an in-memory owner. Claim the issue
-            // and run together, so only its exact owner reaches provider setup.
-            const issueOwner = issueId && context.wakeReason !== "source_scoped_recovery_action"
-              ? await claimTx.select({
-                  assigneeAgentId: issues.assigneeAgentId,
-                  executionRunId: issues.executionRunId,
-                  checkoutRunId: issues.checkoutRunId,
-                }).from(issues).where(and(
-                  eq(issues.id, issueId), eq(issues.companyId, run.companyId),
-                )).for("update").then((rows) => rows[0] ?? null)
-              : null;
-            if (issueOwner?.assigneeAgentId === run.agentId &&
-                ((issueOwner.executionRunId && issueOwner.executionRunId !== run.id) ||
-                 (run.scheduledRetryReason === "native_safe_replacement" &&
-                  issueOwner.checkoutRunId && issueOwner.checkoutRunId !== run.id))) {
-              return null;
-            }
+            const issueClaim = await lockIssueExecutionClaim(claimTx as unknown as Db);
+            if (issueClaim.blocked) return null;
             const claimedRun = await claimTx.update(heartbeatRuns).set(claimValues).where(and(
               eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued"),
             )).returning().then((rows) => rows[0] ?? null);
-            if (claimedRun && issueId && issueOwner?.assigneeAgentId === run.agentId) {
-              await claimTx.update(issues).set({
-                executionRunId: claimedRun.id,
-                executionAgentNameKey: normalizeAgentNameKey(agent.name),
-                executionLockedAt: claimedAt,
-                updatedAt: claimedAt,
-              }).where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)));
-            }
+            await bindClaimedIssueExecution(claimTx as unknown as Db, issueClaim.ownsIssue, claimedRun);
             return claimedRun;
           });
         });

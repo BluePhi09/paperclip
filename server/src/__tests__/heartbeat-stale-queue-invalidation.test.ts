@@ -27,6 +27,7 @@ import {
 } from "../services/heartbeat.ts";
 import { runningProcesses } from "../adapters/index.ts";
 import { recoveryService } from "../services/recovery/service.ts";
+import { withQueuedCommentIdsInWakePayload } from "../services/issue-queued-comment-queue.ts";
 
 const mockAdapterExecute = vi.hoisted(() =>
   vi.fn(async () => ({
@@ -311,15 +312,35 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
     });
   }
 
-  it.each([true, false])("serializes assignment claims by issue without serializing unrelated work (same issue: %s)", async (sameIssue) => {
+  it.each([
+    { name: "assignments", sameIssue: true, first: "assignment", second: "assignment" },
+    { name: "unrelated tasks", sameIssue: false, first: "assignment", second: "assignment" },
+    { name: "assignment then direct comment", sameIssue: true, first: "assignment", second: "direct" },
+    { name: "direct comment then assignment", sameIssue: true, first: "direct", second: "assignment" },
+    { name: "assignment then queued comment", sameIssue: true, first: "assignment", second: "queued" },
+    { name: "queued comment then assignment", sameIssue: true, first: "queued", second: "assignment" },
+    { name: "queued comments", sameIssue: true, first: "queued", second: "queued" },
+  ])("serializes issue claims without serializing unrelated work: $name", async ({ sameIssue, first, second }) => {
     const { companyId, agentId } = await seedCompanyAndAgent({ maxConcurrentRuns: 2 });
     const firstIssueId = randomUUID();
     const secondIssueId = sameIssue ? firstIssueId : randomUUID();
     for (const id of new Set([firstIssueId, secondIssueId])) {
       await db.insert(issues).values({ id, companyId, title: "Concurrent assignment", status: "todo", assigneeAgentId: agentId });
     }
-    await seedQueuedRun({ companyId, agentId, issueId: firstIssueId, wakeReason: "issue_assigned", contextExtras: { source: "issue.create" } });
-    await seedQueuedRun({ companyId, agentId, issueId: secondIssueId, wakeReason: "issue_assigned", contextExtras: { source: "issue.assigned_todo_liveness_dispatch" } });
+    async function queue(issueId: string, kind: string) {
+      const commentId = kind === "assignment" ? null : randomUUID();
+      if (commentId) await db.insert(issueComments).values({ id: commentId, companyId, issueId, authorUserId: "local-board", body: "Continue this task." });
+      const queued = await seedQueuedRun({ companyId, agentId, issueId,
+        wakeReason: commentId ? "issue_commented" : "issue_assigned",
+        invocationSource: commentId ? "automation" : "assignment",
+        contextExtras: commentId ? { wakeCommentIds: [commentId], wakeCommentId: commentId } : {},
+      });
+      if (kind === "queued") await db.update(agentWakeupRequests).set({
+        payload: withQueuedCommentIdsInWakePayload({ issueId }, [commentId!]),
+      }).where(eq(agentWakeupRequests.id, queued.wakeupRequestId));
+    }
+    await queue(firstIssueId, first);
+    await queue(secondIssueId, second);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     mockAdapterExecute.mockImplementation(async () => {
