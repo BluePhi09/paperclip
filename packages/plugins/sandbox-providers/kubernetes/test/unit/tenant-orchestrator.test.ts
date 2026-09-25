@@ -49,6 +49,7 @@ describe("ensureTenant", () => {
     serviceAccountAnnotations: {},
     egressMode: "standard" as const,
     egressAllowFqdns: ["api.anthropic.com"],
+    retainableFqdns: ["api.anthropic.com", "claude.com", "api.openai.com"],
     egressAllowCidrs: [] as string[],
     resourceQuota: { pods: "20", requestsCpu: "5", requestsMemory: "20Gi", limitsCpu: "20", limitsMemory: "80Gi" },
   };
@@ -242,7 +243,7 @@ describe("ensureTenant", () => {
       clients.custom.replaceNamespacedCustomObject
         .mockRejectedValueOnce({ code: 409 })
         .mockImplementationOnce(async (arg: { body: unknown }) => ({ body: arg.body }));
-      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium" });
+      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium", retainableFqdns: ["api.openai.com"] });
 
       expect(clients.custom.replaceNamespacedCustomObject).toHaveBeenCalledTimes(2);
       const body = clients.custom.replaceNamespacedCustomObject.mock.calls[1][0].body as {
@@ -267,10 +268,26 @@ describe("ensureTenant", () => {
           spec: { egress: [] },
         });
       clients.custom.createNamespacedCustomObject.mockRejectedValueOnce({ code: 409 });
-      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium" });
+      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium", retainableFqdns: ["api.openai.com"] });
       const body = clients.custom.replaceNamespacedCustomObject.mock.calls[0][0].body as { spec: unknown };
       expect(JSON.stringify(body.spec)).toContain("api.openai.com");
       expect(JSON.stringify(body.spec)).toContain("api.anthropic.com");
+    });
+
+    it("drops a granted host that is not an adapter default (operator revocation)", async () => {
+      const clients = makeMockClients();
+      clients.custom.getNamespacedCustomObject.mockResolvedValueOnce({
+        metadata: {
+          name: "paperclip-egress-fqdn",
+          resourceVersion: "1",
+          annotations: { "paperclip.io/allowed-fqdns": "api.openai.com,revoked.example.com" },
+        },
+        spec: { egress: [{ toFQDNs: [{ matchName: "revoked.example.com" }] }] },
+      });
+      await ensureTenant(clients as never, { ...baseInput, egressMode: "cilium", retainableFqdns: ["api.openai.com"] });
+      const body = clients.custom.replaceNamespacedCustomObject.mock.calls[0][0].body;
+      expect(JSON.stringify(body)).toContain("api.openai.com");
+      expect(JSON.stringify(body)).not.toContain("revoked.example.com");
     });
 
     it("gives up after repeated conflicts", async () => {
