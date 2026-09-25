@@ -67,6 +67,7 @@ export async function observeCompletionUpdate(input: {
         expect(observation!.documents.some(d => d.id === accessibleOutput.id && d.body === accessibleOutput.body)).toBe(true);
       } finally {
         await input.page.goto(sourceUrl, { waitUntil: "domcontentloaded" });
+        await expect(reply).toBeVisible();
       }
     } else {
       await expect(reply).toContainText(input.marker);
