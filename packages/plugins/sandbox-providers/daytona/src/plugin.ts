@@ -942,18 +942,41 @@ async function createSandbox(
     throw new Error(resourceRequestError);
   }
   const client = createDaytonaClient(config);
-  const createParams = buildCreateParams(config, buildSandboxLabels({
+  // The SDK can create a sandbox and then throw while waiting for it to start.
+  // Keep an attempt-specific provider name so that failure cannot lose ownership.
+  const attemptId = randomUUID();
+  const name = `paperclip-create-${attemptId}`;
+  const labels = { ...buildSandboxLabels({
     companyId: params.companyId,
     environmentId: params.environmentId,
     runId: "runId" in params ? params.runId : undefined,
     setupSessionId: "sessionId" in params ? params.sessionId : undefined,
     purpose: options.purpose,
     reuseLease: config.reuseLease,
-  }));
-  const sandbox = await client.create(createParams, {
-    timeout: toTimeoutSeconds(config.timeoutMs),
-  });
-  return sandbox;
+  }), "paperclip-create-attempt": attemptId };
+  const createParams = { ...buildCreateParams(config, labels), name };
+  try {
+    return await client.create(createParams, {
+      timeout: toTimeoutSeconds(config.timeoutMs),
+    });
+  } catch (createError) {
+    try {
+      // A not-found lookup after an uncertain create is not a deletion receipt:
+      // the provider may still materialize the request. Keep the name in the
+      // error so cleanup can be reconciled rather than declaring success.
+      const orphan = await withLivenessTimeout("sandbox.failedCreateLookup", 10_000, () => client.get(name));
+      if (orphan.name !== name || Object.entries(labels).some(([key, value]) => orphan.labels?.[key] !== value)) {
+        throw new Error("Failed-create sandbox ownership does not match");
+      }
+      // Wait for provider deletion, rather than treating a deletion request as
+      // a cleanup receipt. Never run tools or install credentials in this sandbox.
+      await withLivenessTimeout("sandbox.failedCreateDelete", 15_000, () => orphan.delete(10, true));
+    } catch (cleanupError) {
+      throw new AggregateError([createError, cleanupError],
+        `Daytona sandbox creation failed; cleanup could not be confirmed for ${name}`);
+    }
+    throw createError;
+  }
 }
 
 // ─── Per-lease started-sandbox handle cache ──────────────────────────────────

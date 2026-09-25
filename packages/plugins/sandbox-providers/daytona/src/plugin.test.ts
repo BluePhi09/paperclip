@@ -523,6 +523,105 @@ describe("Daytona sandbox provider plugin", () => {
     });
   });
 
+  describe("failed sandbox creation cleanup", () => {
+    const params = {
+      driverKey: "daytona", companyId: "company-1", environmentId: "env-1", runId: "run-1",
+      config: { image: "node:20", timeoutMs: 300_000, reuseLease: false, livenessTimeoutMs: 100 },
+    };
+    const createError = new MockDaytonaTimeoutError("Failed to create and start sandbox within 300 seconds");
+
+    beforeEach(() => {
+      process.env.DAYTONA_API_KEY = "host-key";
+      mockCreate.mockRejectedValue(createError);
+    });
+
+    function ownedSandbox() {
+      const requested = mockCreate.mock.calls.at(-1)![0];
+      return { ...createMockSandbox(), name: requested.name, labels: { ...requested.labels } };
+    }
+
+    it("deletes the exact sandbox left behind when create times out, then preserves the create error", async () => {
+      let orphan: ReturnType<typeof ownedSandbox>;
+      mockGet.mockImplementation(async () => (orphan = ownedSandbox()));
+      await expect(plugin.definition.onEnvironmentAcquireLease?.(params)).rejects.toBe(createError);
+      expect(mockCreate.mock.calls[0][0].name).toMatch(/^paperclip-create-[0-9a-f-]{36}$/);
+      expect(mockGet).toHaveBeenCalledWith(mockCreate.mock.calls[0][0].name);
+      expect(orphan!.delete).toHaveBeenCalledWith(10, true);
+      expect(orphan!.process.executeCommand).not.toHaveBeenCalled();
+    });
+
+    it.each(["paperclip-company-id", "paperclip-environment-id", "paperclip-run-id", "paperclip-create-attempt", "paperclip-provider"])("never deletes a sandbox with a mismatched %s", async (label) => {
+      let orphan: ReturnType<typeof ownedSandbox>;
+      mockGet.mockImplementation(async () => {
+        orphan = ownedSandbox(); orphan.labels[label] = "different-owner"; return orphan;
+      });
+      await expect(plugin.definition.onEnvironmentAcquireLease?.(params)).rejects.toThrow("cleanup could not be confirmed");
+      expect(orphan!.delete).not.toHaveBeenCalled();
+    });
+
+    it("never deletes a sandbox returned for a different name", async () => {
+      const wrong = { ...createMockSandbox(), labels: {} };
+      mockGet.mockResolvedValue(wrong);
+      await expect(plugin.definition.onEnvironmentAcquireLease?.(params)).rejects.toThrow("cleanup could not be confirmed");
+      expect(wrong.delete).not.toHaveBeenCalled();
+    });
+
+    it("does not treat a not-found lookup after uncertain creation as confirmed cleanup", async () => {
+      mockGet.mockRejectedValue(new MockDaytonaNotFoundError("missing"));
+      await expect(plugin.definition.onEnvironmentAcquireLease?.(params)).rejects.toThrow("cleanup could not be confirmed");
+      expect(mockGet).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports unconfirmed cleanup when the provider lookup fails", async () => {
+      mockGet.mockRejectedValue(new Error("provider unavailable"));
+      await expect(plugin.definition.onEnvironmentAcquireLease?.(params)).rejects.toThrow("cleanup could not be confirmed");
+    });
+
+    it("reports unconfirmed cleanup when provider deletion fails", async () => {
+      mockGet.mockImplementation(async () => {
+        const orphan = ownedSandbox(); orphan.delete.mockRejectedValue(new Error("delete failed")); return orphan;
+      });
+      await expect(plugin.definition.onEnvironmentAcquireLease?.(params)).rejects.toThrow("cleanup could not be confirmed");
+    });
+
+    it("bounds a hung provider lookup and preserves both failure causes", async () => {
+      vi.useFakeTimers();
+      try {
+        mockGet.mockImplementation(() => new Promise(() => {}));
+        const result = plugin.definition.onEnvironmentAcquireLease!(params).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(10_001);
+        const error = await result;
+        expect(error).toBeInstanceOf(AggregateError);
+        expect((error as AggregateError).errors[0]).toBe(createError);
+        expect((error as Error).message).toContain(mockCreate.mock.calls[0][0].name);
+      } finally { vi.useRealTimers(); }
+    });
+
+    it("bounds a hung provider deletion without returning a lease", async () => {
+      vi.useFakeTimers();
+      try {
+        mockGet.mockImplementation(async () => {
+          const orphan = ownedSandbox(); orphan.delete.mockImplementation(() => new Promise(() => {})); return orphan;
+        });
+        const result = plugin.definition.onEnvironmentAcquireLease!(params).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(15_001);
+        expect(await result).toBeInstanceOf(AggregateError);
+      } finally { vi.useRealTimers(); }
+    });
+
+    it("uses distinct creation identities for concurrent attempts on the same run", async () => {
+      mockGet.mockRejectedValue(new MockDaytonaNotFoundError("missing"));
+      await Promise.allSettled([
+        plugin.definition.onEnvironmentAcquireLease?.(params),
+        plugin.definition.onEnvironmentAcquireLease?.(params),
+      ]);
+      const requests = mockCreate.mock.calls.map(([request]) => request);
+      expect(requests).toHaveLength(2);
+      expect(new Set(requests.map((r) => r.name)).size).toBe(2);
+      expect(new Set(requests.map((r) => r.labels["paperclip-create-attempt"])).size).toBe(2);
+    });
+  });
+
   it("rejects ambiguous or invalid config", async () => {
     await expect(plugin.definition.onEnvironmentValidateConfig?.({
       driverKey: "daytona",
