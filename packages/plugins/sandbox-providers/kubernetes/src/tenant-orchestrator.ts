@@ -10,11 +10,14 @@ export interface EnsureTenantInput {
   paperclipServerPodSelector?: Record<string, string>;
   serviceAccountAnnotations: Record<string, string>;
   egressMode: "standard" | "cilium";
+  /** The acquiring environment; it owns one grant in the shared egress policy. */
+  environmentId: string;
   egressAllowFqdns: string[];
   /**
-   * Hosts another adapter's lease may have granted (every adapter's default
-   * FQDNs). Only these survive a merge with the existing policy; any other
-   * host, e.g. one the operator removed from `egressAllowFqdns`, is dropped.
+   * Hosts another adapter's lease of this environment may have granted (every
+   * adapter's default FQDNs). Only these survive a merge with the environment's
+   * existing grant; any other host, e.g. one the operator removed from
+   * `egressAllowFqdns`, is dropped.
    */
   retainableFqdns?: string[];
   egressAllowCidrs: string[];
@@ -48,9 +51,9 @@ const LIMIT_RANGE_NAME = "paperclip-limits";
  * Exception: the plugin-owned network policies are reconciled. Each carries
  * a hash of its desired spec in an annotation; when the hash is missing or
  * stale (new adapter egress defaults such as OAuth hosts, a changed callback
- * selector), the policy is replaced. The egress allow-list is merged with the
- * adapter FQDNs already granted rather than replaced, because the policy is
- * shared by every adapter's pods in the tenant (see mergeFqdns). If the operator has not granted
+ * selector), the policy is replaced. The egress allow-list is the union of
+ * per-environment grants, because the policy is shared by every environment
+ * and adapter in the tenant (see mergeGrants). If the operator has not granted
  * `update` on the policy resource, the stale policy is kept and a warning is
  * logged instead of failing the lease.
  *
@@ -224,76 +227,100 @@ async function ensureLimitRange(clients: KubeClients, input: EnsureTenantInput):
 }
 
 async function ensureNetworkPolicies(clients: KubeClients, input: EnsureTenantInput): Promise<void> {
-  const buildStandard = (egressAllowFqdns: string[]) =>
+  const buildStandard = (egressAllowFqdns: string[], egressAllowCidrs: string[]) =>
     buildNetworkPolicyManifests({
       namespace: input.namespace,
       paperclipServerNamespace: input.paperclipServerNamespace,
       paperclipServerPodSelector: input.paperclipServerPodSelector,
-      egressAllowCidrs: input.egressAllowCidrs,
+      egressAllowCidrs,
       egressAllowFqdns,
     });
 
-  const retainable = new Set(input.retainableFqdns ?? []);
-  const merge = (existingFqdns: string[]) =>
-    mergeFqdns(input.egressAllowFqdns, existingFqdns.filter((fqdn) => retainable.has(fqdn)));
-
-  const [denyAll] = buildStandard(input.egressAllowFqdns);
+  const [denyAll] = buildStandard(input.egressAllowFqdns, input.egressAllowCidrs);
   await ensureNetworkPolicy(clients, input.namespace, () => denyAll);
 
+  const desiredFor = (existing: ExistingPolicy, build: (fqdns: string[], cidrs: string[]) => Record<string, unknown>) => {
+    const grants = mergeGrants(input, existing);
+    const union = (pick: (g: EgressGrant) => string[]) => sortedUnique(Object.values(grants).flatMap(pick));
+    return withGrants(build(union((g) => g.fqdns), union((g) => g.cidrs)), grants);
+  };
+
   if (input.egressMode === "cilium") {
-    await ensureCiliumNetworkPolicy(clients, input.namespace, (existingFqdns) => {
-      const fqdns = merge(existingFqdns);
-      return withAllowedFqdns(
+    await ensureCiliumNetworkPolicy(clients, input.namespace, (existing) =>
+      desiredFor(existing, (fqdns, cidrs) =>
         buildCiliumNetworkPolicyManifest({
           namespace: input.namespace,
           paperclipServerNamespace: input.paperclipServerNamespace,
           paperclipServerPodSelector: input.paperclipServerPodSelector,
           egressAllowFqdns: fqdns,
-          egressAllowCidrs: input.egressAllowCidrs,
+          egressAllowCidrs: cidrs,
         }),
-        fqdns,
-      );
-    });
+      ),
+    );
   } else {
-    await ensureNetworkPolicy(clients, input.namespace, (existingFqdns) => {
-      const fqdns = merge(existingFqdns);
-      return withAllowedFqdns(buildStandard(fqdns)[1], fqdns);
-    });
+    await ensureNetworkPolicy(clients, input.namespace, (existing) =>
+      desiredFor(existing, (fqdns, cidrs) => buildStandard(fqdns, cidrs)[1]),
+    );
   }
 }
 
 const SPEC_HASH_ANNOTATION = "paperclip.io/spec-hash";
-const ALLOWED_FQDNS_ANNOTATION = "paperclip.io/allowed-fqdns";
+const EGRESS_GRANTS_ANNOTATION = "paperclip.io/egress-grants";
+/** Written by earlier revisions of this change; read once for migration. */
+const LEGACY_ALLOWED_FQDNS_ANNOTATION = "paperclip.io/allowed-fqdns";
 
-/**
- * The egress policy is tenant-wide, but each lease only knows the FQDNs of its
- * own adapter. Reconciling with just those would strip the hosts of another
- * adapter whose pod is still running in the same tenant (e.g. a Codex lease
- * removing Claude's OAuth hosts), so the desired FQDNs are the union of this
- * lease's list and the already-granted hosts that belong to some adapter's
- * defaults (`retainableFqdns`). Operator-configured hosts are not retained, so
- * removing one from `egressAllowFqdns` revokes it on the next acquisition.
- * Sorted so every lease computes the same spec (and hash) for the same union.
- */
-function mergeFqdns(desired: string[], existing: string[]): string[] {
-  return [...new Set([...desired, ...existing])].sort();
+interface EgressGrant {
+  fqdns: string[];
+  cidrs: string[];
 }
 
-function withAllowedFqdns(manifest: Record<string, unknown>, fqdns: string[]): Record<string, unknown> {
+function sortedUnique(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+/**
+ * The egress policy is shared by every environment (the tenant namespace is
+ * per company) and every adapter in it, but a lease only knows its own
+ * environment's config. So each environment owns a grant in the policy and the
+ * policy allows the union of all grants; a lease rewrites only its own grant,
+ * never another environment's hosts or CIDRs.
+ *
+ * Within the own grant, hosts already granted are kept only if they are some
+ * adapter's defaults (`retainableFqdns`), so a Codex lease keeps a running
+ * Claude pod's OAuth hosts while a host the operator removed from
+ * `egressAllowFqdns` is revoked on the next acquisition. CIDRs come straight
+ * from the environment's config.
+ *
+ * ponytail: grants of deleted environments stay until the policy is deleted;
+ * add pruning if environments churn.
+ */
+function mergeGrants(input: EnsureTenantInput, existing: ExistingPolicy): Record<string, EgressGrant> {
+  const retainable = new Set(input.retainableFqdns ?? []);
+  const previous = existing.grants ? (existing.grants[input.environmentId]?.fqdns ?? []) : existing.legacyFqdns;
+  const own: EgressGrant = {
+    fqdns: sortedUnique([...input.egressAllowFqdns, ...previous.filter((f) => retainable.has(f))]),
+    cidrs: sortedUnique(input.egressAllowCidrs),
+  };
+  const grants = { ...(existing.grants ?? {}), [input.environmentId]: own };
+  // Sorted keys so every lease computes the same annotation (and hash).
+  return Object.fromEntries(Object.entries(grants).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function withGrants(manifest: Record<string, unknown>, grants: Record<string, EgressGrant>): Record<string, unknown> {
   const metadata = (manifest.metadata ?? {}) as { annotations?: Record<string, string> };
   return {
     ...manifest,
-    metadata: { ...metadata, annotations: { ...(metadata.annotations ?? {}), [ALLOWED_FQDNS_ANNOTATION]: fqdns.join(",") } },
+    metadata: { ...metadata, annotations: { ...(metadata.annotations ?? {}), [EGRESS_GRANTS_ANNOTATION]: JSON.stringify(grants) } },
   };
 }
 
 function withSpecHash(manifest: Record<string, unknown>): { manifest: Record<string, unknown>; hash: string } {
   const metadata = (manifest.metadata ?? {}) as { annotations?: Record<string, string> };
-  // The allowed-FQDNs annotation is hashed with the spec: a standard
-  // NetworkPolicy only encodes whether any FQDN exists, so without it a grown
-  // union would never be written back and later leases would not see it.
+  // The grants annotation is hashed with the spec: a standard NetworkPolicy
+  // only encodes whether any FQDN exists, so without it a changed grant would
+  // never be written back and later leases would not see it.
   const hash = createHash("sha256")
-    .update(JSON.stringify([manifest.spec ?? null, metadata.annotations?.[ALLOWED_FQDNS_ANNOTATION] ?? null]))
+    .update(JSON.stringify([manifest.spec ?? null, metadata.annotations?.[EGRESS_GRANTS_ANNOTATION] ?? null]))
     .digest("hex")
     .slice(0, 32);
   return {
@@ -308,7 +335,26 @@ function withSpecHash(manifest: Record<string, unknown>): { manifest: Record<str
 interface ExistingPolicy {
   hash?: string;
   resourceVersion?: string;
-  fqdns: string[];
+  /** Per-environment grants; undefined for policies written before grants existed. */
+  grants?: Record<string, EgressGrant>;
+  /** Hosts of a pre-grants policy, attributed to the acquiring environment. */
+  legacyFqdns: string[];
+}
+
+const NO_EXISTING_POLICY: ExistingPolicy = { legacyFqdns: [] };
+
+function parseGrants(raw: string | undefined): Record<string, EgressGrant> | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, Partial<EgressGrant>>;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+    const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : []);
+    return Object.fromEntries(
+      Object.entries(parsed).map(([env, g]) => [env, { fqdns: strings(g?.fqdns), cidrs: strings(g?.cidrs) }]),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 function describeExisting(existing: unknown): ExistingPolicy {
@@ -320,16 +366,18 @@ function describeExisting(existing: unknown): ExistingPolicy {
       }
     | null
     | undefined;
-  const annotated = (obj?.metadata?.annotations?.[ALLOWED_FQDNS_ANNOTATION] ?? "").split(",");
-  // Cilium policies provisioned before the annotation existed carry their
-  // hosts only in the spec.
+  const annotations = obj?.metadata?.annotations ?? {};
+  const legacyAnnotated = (annotations[LEGACY_ALLOWED_FQDNS_ANNOTATION] ?? "").split(",");
+  // Cilium policies provisioned before any annotation carry their hosts only
+  // in the spec.
   const inSpec = (obj?.spec?.egress ?? []).flatMap((rule) =>
     (Array.isArray(rule?.toFQDNs) ? rule.toFQDNs : []).map((f) => f?.matchName),
   );
   return {
-    hash: obj?.metadata?.annotations?.[SPEC_HASH_ANNOTATION],
+    hash: annotations[SPEC_HASH_ANNOTATION],
     resourceVersion: obj?.metadata?.resourceVersion,
-    fqdns: [...annotated, ...inSpec].filter((f): f is string => typeof f === "string" && f.length > 0),
+    grants: parseGrants(annotations[EGRESS_GRANTS_ANNOTATION]),
+    legacyFqdns: [...legacyAnnotated, ...inSpec].filter((f): f is string => typeof f === "string" && f.length > 0),
   };
 }
 
@@ -351,7 +399,7 @@ interface PolicyOps {
  * view is stale, not that the lease should fail. Re-read and merge again, so
  * neither lease's FQDNs are lost, until the stored policy matches.
  */
-async function reconcilePolicy(ops: PolicyOps, desiredFor: (existingFqdns: string[]) => Record<string, unknown>): Promise<void> {
+async function reconcilePolicy(ops: PolicyOps, desiredFor: (existing: ExistingPolicy) => Record<string, unknown>): Promise<void> {
   let lastConflict: unknown;
   for (let attempt = 0; attempt < POLICY_RECONCILE_ATTEMPTS; attempt++) {
     let existing: unknown;
@@ -360,7 +408,7 @@ async function reconcilePolicy(ops: PolicyOps, desiredFor: (existingFqdns: strin
     } catch (err) {
       if (!isNotFound(err)) throw err;
       try {
-        await ops.create(withSpecHash(desiredFor([])).manifest);
+        await ops.create(withSpecHash(desiredFor(NO_EXISTING_POLICY)).manifest);
         return;
       } catch (createErr) {
         if (!isConflict(createErr)) throw createErr;
@@ -369,7 +417,7 @@ async function reconcilePolicy(ops: PolicyOps, desiredFor: (existingFqdns: strin
       }
     }
     const current = describeExisting(existing);
-    const { manifest, hash } = withSpecHash(desiredFor(current.fqdns));
+    const { manifest, hash } = withSpecHash(desiredFor(current));
     if (current.hash === hash) return;
     // Replace requires the current resourceVersion (optimistic concurrency).
     const body = {
@@ -398,9 +446,9 @@ async function reconcilePolicy(ops: PolicyOps, desiredFor: (existingFqdns: strin
 async function ensureNetworkPolicy(
   clients: KubeClients,
   namespace: string,
-  desiredFor: (existingFqdns: string[]) => Record<string, unknown>,
+  desiredFor: (existing: ExistingPolicy) => Record<string, unknown>,
 ): Promise<void> {
-  const name = (desiredFor([]).metadata as { name: string }).name;
+  const name = (desiredFor(NO_EXISTING_POLICY).metadata as { name: string }).name;
   await reconcilePolicy(
     {
       kind: "NetworkPolicy",
@@ -417,9 +465,9 @@ async function ensureNetworkPolicy(
 async function ensureCiliumNetworkPolicy(
   clients: KubeClients,
   namespace: string,
-  desiredFor: (existingFqdns: string[]) => Record<string, unknown>,
+  desiredFor: (existing: ExistingPolicy) => Record<string, unknown>,
 ): Promise<void> {
-  const name = (desiredFor([]).metadata as { name: string }).name;
+  const name = (desiredFor(NO_EXISTING_POLICY).metadata as { name: string }).name;
   const target = { group: "cilium.io", version: "v2", namespace, plural: "ciliumnetworkpolicies" };
   await reconcilePolicy(
     {
