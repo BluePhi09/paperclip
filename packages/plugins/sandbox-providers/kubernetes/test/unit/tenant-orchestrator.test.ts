@@ -49,6 +49,7 @@ describe("ensureTenant", () => {
     serviceAccountAnnotations: {},
     egressMode: "standard" as const,
     egressAllowFqdns: ["api.anthropic.com"],
+    environmentId: "env-a",
     retainableFqdns: ["api.anthropic.com", "claude.com", "api.openai.com"],
     egressAllowCidrs: [] as string[],
     resourceQuota: { pods: "20", requestsCpu: "5", requestsMemory: "20Gi", limitsCpu: "20", limitsMemory: "80Gi" },
@@ -288,6 +289,32 @@ describe("ensureTenant", () => {
       const body = clients.custom.replaceNamespacedCustomObject.mock.calls[0][0].body;
       expect(JSON.stringify(body)).toContain("api.openai.com");
       expect(JSON.stringify(body)).not.toContain("revoked.example.com");
+    });
+
+    it("keeps another environment's operator hosts and CIDRs, and revokes only its own", async () => {
+      const a = makeMockClients();
+      await ensureTenant(a as never, {
+        ...baseInput,
+        egressMode: "cilium",
+        egressAllowFqdns: ["git.internal.example"],
+        egressAllowCidrs: ["10.5.0.0/16"],
+      });
+      const aPolicy = a.calls.find((c) => c.kind === "CiliumNetworkPolicy")!.body;
+
+      const b = makeMockClients();
+      b.custom.getNamespacedCustomObject.mockResolvedValue(aPolicy);
+      await ensureTenant(b as never, { ...baseInput, environmentId: "env-b", egressMode: "cilium", egressAllowFqdns: ["api.openai.com"] });
+      const bPolicy = b.custom.replaceNamespacedCustomObject.mock.calls[0][0].body;
+      for (const v of ["git.internal.example", "10.5.0.0/16", "api.openai.com"]) expect(JSON.stringify(bPolicy.spec)).toContain(v);
+
+      // Environment A drops its operator host: revoked, B's host stays.
+      const a2 = makeMockClients();
+      a2.custom.getNamespacedCustomObject.mockResolvedValue(bPolicy);
+      await ensureTenant(a2 as never, { ...baseInput, egressMode: "cilium", egressAllowFqdns: [], egressAllowCidrs: [] });
+      const aSpec = JSON.stringify(a2.custom.replaceNamespacedCustomObject.mock.calls[0][0].body.spec);
+      expect(aSpec).not.toContain("git.internal.example");
+      expect(aSpec).not.toContain("10.5.0.0/16");
+      expect(aSpec).toContain("api.openai.com");
     });
 
     it("gives up after repeated conflicts", async () => {

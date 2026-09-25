@@ -62,6 +62,24 @@ describe("checkLeaseResumable (sandbox-cr backend)", () => {
     });
   });
 
+  it("is not resumable when the backstop deadline is too close", async () => {
+    const pod = {
+      metadata: {},
+      spec: { activeDeadlineSeconds: 86_400 },
+      status: { phase: "Running", startTime: "2026-01-01T00:00:00Z" },
+    };
+    const clients = {
+      custom: { getNamespacedCustomObject: vi.fn().mockResolvedValue(readySandboxCr("pc-abc-pod")) },
+      core: { readNamespacedPod: vi.fn().mockResolvedValue(pod) },
+    };
+    const input = { namespace: "paperclip-acme", name: "pc-abc", backend: "sandbox-cr" as const, readyTimeoutMs: 1_000, pollMs: 10, minRemainingSec: 3600 };
+    const at = (iso: string) => checkLeaseResumable(clients as never, { ...input, nowMs: Date.parse(iso) });
+    expect((await at("2026-01-01T22:00:00Z")).resumable).toBe(true);
+    expect((await at("2026-01-01T23:30:00Z")).resumable).toBe(false);
+    // Bounded leases omit minRemainingSec and are not retired early.
+    expect((await checkLeaseResumable(clients as never, { ...input, minRemainingSec: undefined, nowMs: Date.parse("2026-01-01T23:30:00Z") })).resumable).toBe(true);
+  });
+
   it("is not resumable when the Sandbox CR is gone (404)", async () => {
     const clients = {
       custom: { getNamespacedCustomObject: vi.fn().mockRejectedValue(notFound()) },
