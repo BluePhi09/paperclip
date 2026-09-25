@@ -27,9 +27,8 @@ describe("computeBoundedLeaseDeadline", () => {
     expect(result.activeDeadlineSec).toBe(900);
   });
 
-  it("falls back to the configured default when requestedExpiresAt is not a valid date", () => {
-    const result = computeBoundedLeaseDeadline("not-a-date", 600, NOW_MS);
-    expect(result.activeDeadlineSec).toBe(600);
+  it("fails closed on an invalid requestedExpiresAt instead of silently falling back to the default", () => {
+    expect(() => computeBoundedLeaseDeadline("not-a-date", 600, NOW_MS)).toThrow(/valid/i);
   });
 
   it("fails closed (throws) when the requested deadline is already in the past", () => {
@@ -73,8 +72,14 @@ describe("computeBoundedLeaseDeadline", () => {
     expect(result.activeDeadlineSec).toBe(MAX_ACTIVE_DEADLINE_SEC);
   });
 
-  it("clamps the configured default to MAX_ACTIVE_DEADLINE_SEC when it exceeds int32", () => {
+  it("clamps the configured default to MAX_ACTIVE_DEADLINE_SEC when it exceeds the 24h ceiling", () => {
     const result = computeBoundedLeaseDeadline(null, MAX_ACTIVE_DEADLINE_SEC + 1000, NOW_MS);
     expect(result.activeDeadlineSec).toBe(MAX_ACTIVE_DEADLINE_SEC);
+  });
+
+  it("fails closed when the configured default itself is invalid (NaN, negative, or too small)", () => {
+    expect(() => computeBoundedLeaseDeadline(null, Number.NaN, NOW_MS)).toThrow(/default/i);
+    expect(() => computeBoundedLeaseDeadline(null, -1, NOW_MS)).toThrow(/default/i);
+    expect(() => computeBoundedLeaseDeadline(null, MIN_ACTIVE_DEADLINE_SEC - 1, NOW_MS)).toThrow(/default/i);
   });
 });
