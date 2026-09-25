@@ -40,6 +40,16 @@ describe("Kubernetes login PTY", () => {
     expect(h.connections).toHaveLength(0);
   });
 
+  it("refuses to open a login on a bounded lease past its attested expiry", async () => {
+    const h = harness();
+    const scope = { companyId: "co", environmentId: "env", namespace: "ns", podName: "pod", config: { inCluster: true } };
+    h.manager.remember("lease", { ...scope, expiresAt: new Date(Date.now() - 1_000).toISOString() });
+    await expect(h.manager.open(h.request)).rejects.toThrow(/expired/i);
+    h.manager.remember("lease", { ...scope, expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    await expect(h.manager.open(h.request)).resolves.toHaveProperty("workerSessionId");
+    expect(h.connections).toHaveLength(1);
+  });
+
   it("uses fixed Codex and Grok commands with session-scoped homes", async () => {
     for (const [key, line] of [["codex", `exec env CODEX_HOME='${HOME}' codex login --device-auth`], ["grok", `exec env GROK_HOME='${HOME}' grok login --device-auth`]] as const) {
       const h = harness();

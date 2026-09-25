@@ -348,6 +348,21 @@ const plugin = definePlugin({
       }
     }
 
+    // A caller-requested deadline (e.g. a setup-token login) must be bounded by
+    // the provider. Compute it before any cluster side effect so an invalid or
+    // too-close deadline fails closed without provisioning anything. Leases
+    // without a requested deadline keep a long-lived pod and no expiresAt.
+    // See lease-expiry.ts for the bounding rules.
+    const boundedDeadline = computeBoundedLeaseDeadline(params.requestedExpiresAt);
+    if (boundedDeadline && config.backend !== "sandbox-cr") {
+      // A Job's activeDeadlineSeconds is relative to its start, and the job
+      // backend has no exec channel for the login PTY that requests deadlines.
+      // Refuse rather than attest an expiry the Job would outlive.
+      throw new Error(
+        "The Kubernetes job backend cannot honor a requested lease deadline; use the sandbox-cr backend.",
+      );
+    }
+
     const kc = createKubeConfig({
       inCluster: config.inCluster,
       kubeconfig: config.kubeconfig,
@@ -372,14 +387,6 @@ const plugin = definePlugin({
 
     const jobName = `pc-${newRunUlidDns()}`;
     const secretName = `${jobName}-env`;
-
-    // Bound the pod's provider-side hard stop to the caller-requested deadline,
-    // so a crash or an outage on paperclip-server does not leave the pod
-    // running forever. See lease-expiry.ts for the bounding rules (fails
-    // closed instead of granting a near-expired lease, matching `daytona`'s
-    // `configureSandboxExpiry`).
-    const { activeDeadlineSec: boundedActiveDeadlineSec, expiresAt: attestedExpiresAt } =
-      computeBoundedLeaseDeadline(params.requestedExpiresAt, config.podActivityDeadlineSec);
 
     // TODO: use params.runId as stand-in for agentId in labels; future
     // versions will have a dedicated agentId on AcquireLeaseParams.
@@ -412,7 +419,9 @@ const plugin = definePlugin({
           resources: config.defaultResources ?? {},
           runtimeClassName: config.runtimeClassName,
           imagePullSecrets: config.imagePullSecrets,
-          activeDeadlineSeconds: boundedActiveDeadlineSec,
+          hardStop: boundedDeadline
+            ? { atEpochSec: boundedDeadline.hardStopAtEpochSec, activeDeadlineSeconds: boundedDeadline.activeDeadlineSec }
+            : undefined,
         })
       : buildJobManifest({
           namespace,
@@ -492,21 +501,25 @@ const plugin = definePlugin({
       // exposes one. Flag the job backend so the server keeps the base64 fallback
       // rather than routing its sync to a hook that would reject immediately.
       nativeFileSyncUnsupported: config.backend !== "sandbox-cr",
+      ...(boundedDeadline ? { expiresAt: boundedDeadline.expiresAt } : {}),
     };
 
     if (config.backend === "sandbox-cr") {
-      loginPty.remember(jobName, { companyId: params.companyId, environmentId: params.environmentId, namespace, podName, config });
+      loginPty.remember(jobName, {
+        companyId: params.companyId,
+        environmentId: params.environmentId,
+        namespace,
+        podName,
+        expiresAt: boundedDeadline?.expiresAt ?? null,
+        config,
+      });
     }
     return {
       providerLeaseId: jobName,
       metadata: leaseMetadata as unknown as Record<string, unknown>,
-      // TEMPORARY FIX (see README.md "Known limitation: lease expiry"): the
-      // Job backend already bounds itself via activeDeadlineSeconds, but only
-      // the sandbox-cr backend's pod actually honors this attested expiry
-      // end-to-end today. Attesting it for both backends keeps the server's
-      // fail-closed lease-bounding check satisfied; a stale/incorrect config
-      // still self-heals via podActivityDeadlineSec's own bound.
-      expiresAt: attestedExpiresAt,
+      // Attested only for a requested deadline, which only the sandbox-cr
+      // backend accepts; its entrypoint enforces the same absolute instant.
+      ...(boundedDeadline ? { expiresAt: boundedDeadline.expiresAt } : {}),
     };
   },
 
@@ -565,6 +578,9 @@ const plugin = definePlugin({
       readySandboxesByLease.add(params.providerLeaseId);
     }
 
+    // A bounded lease keeps its original attested expiry across resumes.
+    const resumedExpiresAt =
+      typeof params.leaseMetadata?.expiresAt === "string" ? params.leaseMetadata.expiresAt : null;
     const leaseMetadata: KubernetesLeaseMetadata = {
       namespace,
       jobName: params.providerLeaseId,
@@ -582,10 +598,18 @@ const plugin = definePlugin({
       // See acquireLease: only the sandbox-cr backend has a pod-exec channel for
       // native sync, so a resumed job lease must keep the base64 fallback.
       nativeFileSyncUnsupported: leaseBackend !== "sandbox-cr",
+      ...(resumedExpiresAt ? { expiresAt: resumedExpiresAt } : {}),
     };
 
     if (leaseBackend === "sandbox-cr" && check.podName) {
-      loginPty.remember(params.providerLeaseId, { companyId: params.companyId, environmentId: params.environmentId, namespace, podName: check.podName, config });
+      loginPty.remember(params.providerLeaseId, {
+        companyId: params.companyId,
+        environmentId: params.environmentId,
+        namespace,
+        podName: check.podName,
+        expiresAt: resumedExpiresAt,
+        config,
+      });
     }
     return {
       providerLeaseId: params.providerLeaseId,

@@ -48,23 +48,30 @@ The driver advertises `supportsLoginPty` and implements the worker open/input/st
 
 This requires a running sandbox-cr pod, an image with `/bin/sh` and the relevant CLI installed, cluster credentials authorized for `pods/exec`, and network egress to the provider's authentication endpoints (which may differ from inference API domains). Built-in `claude_local` egress includes `api.anthropic.com`, `claude.com`, and `platform.claude.com`. Local Claude Code CLI 2.1.278's `setup-token` command invokes `ConsoleOAuthFlow` with `mode: "setup-token"`; its OAuth constants specify `https://claude.com/cai/oauth/authorize` (`CLAUDE_AI_AUTHORIZE_URL`) and `https://platform.claude.com/v1/oauth/token` (`TOKEN_URL`). This is static CLI evidence, not a live login trace; redirects or version changes may require additional operator-supplied FQDNs. Custom adapter registries replace built-in FQDNs, so include the needed auth hosts there too. The `job` backend cannot host an interactive login and is rejected by environment config validation. Sessions are in-memory and do not survive a plugin-worker restart; an existing lease must be resumed on that worker before login can open. This package's tests use a scripted Exec socket, not a live apiserver or real Claude authentication.
 
-Set `paperclipServerPodSelector` (for example `{ "app": "paperclip" }`) if the API pod accepting callbacks on TCP 3100 does not carry the default `app: paperclip-server` label. This only changes the callback target, not the agent pod selector. Tenant network policies are created once and are not reconciled on config changes; existing tenants require an operator-managed policy update before a new selector takes effect. No cluster policy is changed by configuration validation alone.
+Set `paperclipServerPodSelector` (for example `{ "app": "paperclip" }`) if the API pod accepting callbacks on TCP 3100 does not carry the default `app: paperclip-server` label. This only changes the callback target, not the agent pod selector. Selector keys and values must be valid Kubernetes label syntax; configuration validation rejects anything else. The plugin-owned tenant network policies (`paperclip-deny-all`, `paperclip-egress-allow` / `paperclip-egress-fqdn`) carry a `paperclip.io/spec-hash` annotation and are replaced on the next lease acquisition when their desired spec changes (a new selector, new adapter egress defaults such as OAuth hosts). This needs `update` on `networkpolicies` (and `ciliumnetworkpolicies.cilium.io` in cilium mode) in tenant namespaces; without it the plugin logs a warning and keeps the old policy. No cluster policy is changed by configuration validation alone.
 
 #### Known limitation: lease expiry attestation is a stopgap, not an upstream fix
 
-`onEnvironmentAcquireLease` returns `expiresAt` computed from the caller's
-`requestedExpiresAt` (rounded down to whole seconds, falling back to
-`podActivityDeadlineSec` when no deadline is requested) and forwards the
-same bound to the `sandbox-cr` pod as `activeDeadlineSeconds`. This exists
+When the caller sends `requestedExpiresAt`, `onEnvironmentAcquireLease`
+returns `expiresAt` computed from it (rounded down to whole seconds, capped at
+24h) and bounds the `sandbox-cr` pod to the same absolute instant: the
+sandbox entrypoint sleeps until that Unix time and then exits, which kills
+every exec'd process, and a restart after it exits immediately. The pod also
+gets `activeDeadlineSeconds` as a backstop; Kubernetes counts that from pod
+start, so on its own it would let a late-starting pod outlive `expiresAt`.
+Leases without a requested deadline (normal agent runs) keep a long-lived pod
+and return no `expiresAt`, as before. The legacy `job` backend refuses a
+requested deadline instead of attesting an expiry its Job would outlive. The
+hard stop uses the node clock, so large skew between the plugin worker and
+the nodes shifts it. This exists
 solely because Paperclip's setup-token login route fails closed
 (`the acquired lease expiry does not bound the session deadline`) whenever a
 sandbox-provider plugin's acquire response carries no `expiresAt` at all —
 which is what this plugin did before this patch. The fix satisfies that
 server-side contract; it has **not** been validated against the full range of
 edge cases an official implementation would need to cover (e.g. clock skew
-between plugin worker and Kubernetes apiserver, sub-second precision loss,
-interaction with `reuseLease`/resumed leases, or a caller deadline that
-arrives after the pod is already past its `activeDeadlineSeconds`). It was
+between plugin worker and Kubernetes nodes, or the agent-sandbox controller's
+handling of a sandbox pod whose container has stopped for good). It was
 written by an external operator (not the Paperclip team) as the minimum
 change to unblock a self-hosted login-PTY deployment, and it has only been
 exercised against a single real cluster, not Paperclip's own CI or fleet of

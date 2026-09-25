@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { KubeClients } from "./kube-client.js";
 import { buildNetworkPolicyManifests } from "./network-policy.js";
 import { buildCiliumNetworkPolicyManifest } from "./cilium-network-policy.js";
@@ -33,10 +34,17 @@ const LIMIT_RANGE_NAME = "paperclip-limits";
  * policies, egress allow-list) are FROZEN at first provisioning time.
  *
  * V1 limitation: changing KubernetesProviderConfig after a tenant namespace
- * is provisioned does NOT update the in-cluster resources. To apply config
+ * is provisioned does NOT update most in-cluster resources. To apply config
  * changes, an operator must delete the per-tenant resources manually (or
  * the namespace itself). A future iteration should add strategic-merge
  * reconciliation here.
+ *
+ * Exception: the plugin-owned network policies are reconciled. Each carries
+ * a hash of its desired spec in an annotation; when the hash is missing or
+ * stale (new adapter egress defaults such as OAuth hosts, a changed callback
+ * selector), the policy is replaced. If the operator has not granted
+ * `update` on the policy resource, the stale policy is kept and a warning is
+ * logged instead of failing the lease.
  *
  * Particular gotcha: switching egressMode "standard" → "cilium" leaves the
  * old paperclip-egress-allow NetworkPolicy in place alongside the new
@@ -232,49 +240,99 @@ async function ensureNetworkPolicies(clients: KubeClients, input: EnsureTenantIn
   }
 }
 
+const SPEC_HASH_ANNOTATION = "paperclip.io/spec-hash";
+
+function withSpecHash(manifest: Record<string, unknown>): { manifest: Record<string, unknown>; hash: string } {
+  const hash = createHash("sha256").update(JSON.stringify(manifest.spec ?? null)).digest("hex").slice(0, 32);
+  const metadata = (manifest.metadata ?? {}) as { annotations?: Record<string, string> };
+  return {
+    hash,
+    manifest: {
+      ...manifest,
+      metadata: { ...metadata, annotations: { ...(metadata.annotations ?? {}), [SPEC_HASH_ANNOTATION]: hash } },
+    },
+  };
+}
+
+function existingSpecHash(existing: unknown): { hash?: string; resourceVersion?: string } {
+  // client-node v1 returns the object directly; older mocks wrap it in `body`.
+  const obj = ((existing as { body?: unknown } | null)?.body ?? existing) as
+    | { metadata?: { annotations?: Record<string, string>; resourceVersion?: string } }
+    | null
+    | undefined;
+  return {
+    hash: obj?.metadata?.annotations?.[SPEC_HASH_ANNOTATION],
+    resourceVersion: obj?.metadata?.resourceVersion,
+  };
+}
+
+async function replaceStalePolicy(kind: string, namespace: string, name: string, replace: () => Promise<unknown>): Promise<void> {
+  try {
+    await replace();
+  } catch (err) {
+    if (!isForbidden(err)) throw err;
+    console.warn(
+      `[plugin-kubernetes] ${kind} ${namespace}/${name} is out of date with the provider config, but the plugin is not allowed to update it. ` +
+        `Grant "update" on this resource or delete the policy so it is recreated; until then agent egress uses the old policy.`,
+    );
+  }
+}
+
 async function ensureNetworkPolicy(
   clients: KubeClients,
   namespace: string,
-  manifest: Record<string, unknown>,
+  desired: Record<string, unknown>,
 ): Promise<void> {
+  const { manifest, hash } = withSpecHash(desired);
   const name = (manifest.metadata as { name: string }).name;
+  let existing: unknown;
   try {
-    await clients.networking.readNamespacedNetworkPolicy({ name, namespace });
-    return;
+    existing = await clients.networking.readNamespacedNetworkPolicy({ name, namespace });
   } catch (err) {
     if (!isNotFound(err)) throw err;
+    await createIgnoringAlreadyExists(
+      clients.networking.createNamespacedNetworkPolicy({ namespace, body: manifest as never }),
+    );
+    return;
   }
-  await createIgnoringAlreadyExists(
-    clients.networking.createNamespacedNetworkPolicy({ namespace, body: manifest as never }),
+  const current = existingSpecHash(existing);
+  if (current.hash === hash) return;
+  const body = {
+    ...manifest,
+    metadata: { ...(manifest.metadata as object), ...(current.resourceVersion ? { resourceVersion: current.resourceVersion } : {}) },
+  };
+  await replaceStalePolicy("NetworkPolicy", namespace, name, () =>
+    clients.networking.replaceNamespacedNetworkPolicy({ name, namespace, body: body as never }),
   );
 }
 
 async function ensureCiliumNetworkPolicy(
   clients: KubeClients,
   namespace: string,
-  manifest: Record<string, unknown>,
+  desired: Record<string, unknown>,
 ): Promise<void> {
+  const { manifest, hash } = withSpecHash(desired);
   const name = (manifest.metadata as { name: string }).name;
+  const target = { group: "cilium.io", version: "v2", namespace, plural: "ciliumnetworkpolicies" };
+  let existing: unknown;
   try {
-    await clients.custom.getNamespacedCustomObject({
-      group: "cilium.io",
-      version: "v2",
-      namespace,
-      plural: "ciliumnetworkpolicies",
-      name,
-    });
-    return;
+    existing = await clients.custom.getNamespacedCustomObject({ ...target, name });
   } catch (err) {
     if (!isNotFound(err)) throw err;
+    await createIgnoringAlreadyExists(
+      clients.custom.createNamespacedCustomObject({ ...target, body: manifest }),
+    );
+    return;
   }
-  await createIgnoringAlreadyExists(
-    clients.custom.createNamespacedCustomObject({
-        group: "cilium.io",
-        version: "v2",
-        namespace,
-        plural: "ciliumnetworkpolicies",
-        body: manifest,
-      }),
+  const current = existingSpecHash(existing);
+  if (current.hash === hash) return;
+  // Custom objects require the current resourceVersion on replace.
+  const body = {
+    ...manifest,
+    metadata: { ...(manifest.metadata as object), ...(current.resourceVersion ? { resourceVersion: current.resourceVersion } : {}) },
+  };
+  await replaceStalePolicy("CiliumNetworkPolicy", namespace, name, () =>
+    clients.custom.replaceNamespacedCustomObject({ ...target, name, body }),
   );
 }
 
@@ -282,6 +340,12 @@ function isNotFound(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
   const e = err as { code?: number; statusCode?: number };
   return e.code === 404 || e.statusCode === 404;
+}
+
+function isForbidden(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { code?: number; statusCode?: number };
+  return e.code === 403 || e.statusCode === 403;
 }
 
 function isAlreadyExists(err: unknown): boolean {

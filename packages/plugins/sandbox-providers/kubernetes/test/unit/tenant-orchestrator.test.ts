@@ -31,10 +31,12 @@ function makeMockClients() {
     networking: {
       readNamespacedNetworkPolicy: vi.fn().mockRejectedValue({ code: 404 }),
       createNamespacedNetworkPolicy: track("NetworkPolicy"),
+      replaceNamespacedNetworkPolicy: track("ReplaceNetworkPolicy"),
     },
     custom: {
       getNamespacedCustomObject: vi.fn().mockRejectedValue({ code: 404 }),
       createNamespacedCustomObject: track("CiliumNetworkPolicy"),
+      replaceNamespacedCustomObject: track("ReplaceCiliumNetworkPolicy"),
     },
   };
 }
@@ -116,5 +118,82 @@ describe("ensureTenant", () => {
     clients.core.createNamespace.mockRejectedValue({ statusCode: 409 });
     clients.core.createNamespacedServiceAccount.mockRejectedValue({ code: 409 });
     await expect(ensureTenant(clients as never, baseInput)).resolves.not.toThrow();
+  });
+
+  describe("network policy reconciliation", () => {
+    async function provisionedPolicies(egressMode: "standard" | "cilium") {
+      const fresh = makeMockClients();
+      await ensureTenant(fresh as never, { ...baseInput, egressMode });
+      return fresh.calls.filter((c) => c.kind === "NetworkPolicy" || c.kind === "CiliumNetworkPolicy");
+    }
+
+    function metadataOf(body: unknown) {
+      return (body as { metadata: { name: string; annotations?: Record<string, string> } }).metadata;
+    }
+
+    it("stamps every created policy with a spec hash", async () => {
+      for (const policy of await provisionedPolicies("cilium")) {
+        expect(metadataOf(policy.body).annotations?.["paperclip.io/spec-hash"]).toMatch(/^[0-9a-f]{32}$/);
+      }
+    });
+
+    it("leaves an up-to-date policy untouched", async () => {
+      const [denyAll, egress] = await provisionedPolicies("standard");
+      const clients = makeMockClients();
+      clients.networking.readNamespacedNetworkPolicy.mockImplementation(async ({ name }: { name: string }) =>
+        [denyAll, egress].find((p) => metadataOf(p.body).name === name)!.body,
+      );
+      await ensureTenant(clients as never, baseInput);
+      expect(clients.networking.replaceNamespacedNetworkPolicy).not.toHaveBeenCalled();
+      expect(clients.networking.createNamespacedNetworkPolicy).not.toHaveBeenCalled();
+    });
+
+    it("replaces a pre-existing egress policy provisioned before new adapter FQDNs (e.g. OAuth hosts)", async () => {
+      const clients = makeMockClients();
+      // Legacy policy: no hash annotation, older egress allow-list.
+      clients.custom.getNamespacedCustomObject.mockResolvedValue({
+        metadata: { name: "paperclip-egress-fqdn", resourceVersion: "42" },
+        spec: { egress: [] },
+      });
+      await ensureTenant(clients as never, {
+        ...baseInput,
+        egressMode: "cilium",
+        egressAllowFqdns: ["api.anthropic.com", "claude.com", "platform.claude.com"],
+      });
+      const replaced = clients.calls.find((c) => c.kind === "ReplaceCiliumNetworkPolicy");
+      expect(replaced).toBeDefined();
+      const body = replaced!.body as { metadata: { resourceVersion?: string }; spec: unknown };
+      expect(body.metadata.resourceVersion).toBe("42");
+      expect(JSON.stringify(body.spec)).toContain("platform.claude.com");
+    });
+
+    it("replaces an egress policy whose spec hash is stale", async () => {
+      const clients = makeMockClients();
+      clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({
+        metadata: { name: "x", resourceVersion: "7", annotations: { "paperclip.io/spec-hash": "stale" } },
+      });
+      await ensureTenant(clients as never, baseInput);
+      expect(clients.networking.replaceNamespacedNetworkPolicy).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the old policy and warns when the operator did not grant update", async () => {
+      const clients = makeMockClients();
+      clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({ metadata: { name: "x" } });
+      clients.networking.replaceNamespacedNetworkPolicy.mockRejectedValue({ code: 403 });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await expect(ensureTenant(clients as never, baseInput)).resolves.toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(expect.stringMatching(/not allowed to update/));
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("surfaces non-permission replace failures", async () => {
+      const clients = makeMockClients();
+      clients.networking.readNamespacedNetworkPolicy.mockResolvedValue({ metadata: { name: "x" } });
+      clients.networking.replaceNamespacedNetworkPolicy.mockRejectedValue({ code: 500 });
+      await expect(ensureTenant(clients as never, baseInput)).rejects.toEqual({ code: 500 });
+    });
   });
 });

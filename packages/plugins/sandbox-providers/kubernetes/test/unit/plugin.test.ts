@@ -82,6 +82,27 @@ describe("plugin", () => {
     expect(result.errors?.join(" ")).toMatch(/job.*login PTY|login PTY.*job/i);
   });
 
+  it("validateConfig rejects a selector key that is not a Kubernetes label key", async () => {
+    const result = await plugin.definition.onEnvironmentValidateConfig!({
+      driverKey: "kubernetes",
+      config: { inCluster: true, paperclipServerPodSelector: { "bad key": "paperclip" } },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("acquire fails closed for a legacy job lease with a requested deadline, before touching the cluster", async () => {
+    await expect(
+      plugin.definition.onEnvironmentAcquireLease!({
+        driverKey: "kubernetes",
+        companyId: "11111111-1111-1111-1111-111111111111",
+        environmentId: "env-1",
+        runId: "run-1",
+        config: { inCluster: true, backend: "job" },
+        requestedExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      } as never),
+    ).rejects.toThrow(/job backend cannot honor a requested lease deadline/);
+  });
+
   it("validateConfig rejects unknown backend value", async () => {
     const result = await plugin.definition.onEnvironmentValidateConfig!({
       driverKey: "kubernetes",
