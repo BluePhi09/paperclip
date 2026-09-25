@@ -25,7 +25,7 @@ import {
   type KubernetesLeaseMetadata,
 } from "./types.js";
 import { createKubeConfig, makeKubeClients } from "./kube-client.js";
-import { getAdapterDefaults, allAdapterAllowFqdns, buildAdapterEnv, resolveRunAdapterType } from "./adapter-defaults.js";
+import { getAdapterDefaults, buildAdapterEnv, resolveRunAdapterType } from "./adapter-defaults.js";
 import { resolveImage } from "./image-allowlist.js";
 import { buildJobManifest } from "./pod-spec-builder.js";
 import { buildSandboxCrManifest } from "./sandbox-cr-builder.js";
@@ -380,10 +380,12 @@ const plugin = definePlugin({
       paperclipServerPodSelector: config.paperclipServerPodSelector,
       serviceAccountAnnotations: config.serviceAccountAnnotations,
       egressMode: config.egressMode,
-      environmentId: params.environmentId,
-      egressAllowFqdns: [...adapterDefaults.allowFqdns, ...config.egressAllowFqdns],
-      retainableFqdns: allAdapterAllowFqdns(config.adapters),
-      egressAllowCidrs: config.egressAllowCidrs,
+      // The tenant-wide egress policy is shared by every environment and
+      // adapter of the company, so it only carries the base rules (DNS and the
+      // Paperclip callback). This lease's adapter and config destinations go in
+      // a per-lease policy below, owned by the workload.
+      egressAllowFqdns: [],
+      egressAllowCidrs: [],
       resourceQuota: DEFAULT_RESOURCE_QUOTA,
     });
 
@@ -441,25 +443,45 @@ const plugin = definePlugin({
         });
 
     const { uid: ownerUid } = await orchestrator.claim(clients, namespace, manifest);
+    const leasePolicyBase = {
+      clients,
+      namespace,
+      mode: config.egressMode,
+      runId: params.runId,
+      workloadName: jobName,
+      ownerReference: {
+        apiVersion: isSandboxCrBackend ? "agents.x-k8s.io/v1alpha1" : "batch/v1",
+        kind: isSandboxCrBackend ? "Sandbox" : "Job",
+        name: jobName,
+        uid: ownerUid,
+        controller: false,
+        blockOwnerDeletion: false,
+      },
+    };
+    const releaseWorkload = () => orchestrator.release(clients, namespace, jobName);
+    // Adapter defaults (API + login hosts) and the environment's configured
+    // destinations, scoped to this lease's pod and garbage-collected with it,
+    // so environments and adapters sharing the tenant never affect each other
+    // and a config change applies to every new lease.
+    await createScopedNetworkEgressPolicyOrReleaseWorkload(
+      {
+        ...leasePolicyBase,
+        suffix: "-adapter-egress",
+        grant: {
+          allowFqdns: [...new Set([...adapterDefaults.allowFqdns, ...config.egressAllowFqdns])],
+          allowCidrs: config.egressAllowCidrs,
+        },
+        baseRules: {
+          paperclipServerNamespace: PAPERCLIP_SERVER_NAMESPACE,
+          paperclipServerPodSelector: config.paperclipServerPodSelector,
+        },
+      },
+      releaseWorkload,
+    );
     const scopedNetworkEgress = parseScopedNetworkEgressGrant(params.executionWorkspaceSettings);
     const scopedNetworkPolicyName = await createScopedNetworkEgressPolicyOrReleaseWorkload(
-      {
-        clients,
-        namespace,
-        mode: config.egressMode,
-        runId: params.runId,
-        workloadName: jobName,
-        ownerReference: {
-          apiVersion: isSandboxCrBackend ? "agents.x-k8s.io/v1alpha1" : "batch/v1",
-          kind: isSandboxCrBackend ? "Sandbox" : "Job",
-          name: jobName,
-          uid: ownerUid,
-          controller: false,
-          blockOwnerDeletion: false,
-        },
-        grant: scopedNetworkEgress,
-      },
-      () => orchestrator.release(clients, namespace, jobName),
+      { ...leasePolicyBase, grant: scopedNetworkEgress },
+      releaseWorkload,
     );
 
     // defaultEnv (non-secret base, e.g. the inference base URL) is layered first;
@@ -556,10 +578,6 @@ const plugin = definePlugin({
       backend: leaseBackend,
       readyTimeoutMs: RESUME_READY_TIMEOUT_MS,
       pollMs: RESUME_READY_POLL_MS,
-      // Unbounded leases only carry the 24h backstop deadline, which the server
-      // does not know about; retire the pod before it can kill a new run.
-      // ponytail: fixed 1h margin, make it configurable if runs are longer.
-      ...(typeof params.leaseMetadata?.expiresAt === "string" ? {} : { minRemainingSec: 60 * 60 }),
     });
 
     if (!check.resumable) {

@@ -44,11 +44,11 @@ The plugin supports two backend modes, selected via the `backend` config field:
 
 ### Managed login PTY (sandbox-cr only)
 
-The driver advertises `supportsLoginPty` and implements the worker open/input/stop/close hooks using a persistent Kubernetes `pods/exec` WebSocket with `tty=true`. The worker accepts only a lease acquired or resumed by this worker for the same company and environment, and maps the fixed `claude`, `codex`, and `grok` keys to `claude setup-token`, `codex login --device-auth`, and `grok login --device-auth`; caller-supplied shell commands are not executed. Each login gets a UUID-shaped session directory, and the browser code enters over PTY stdin rather than a command argument. The worker caps individual output/input chunks at 64 KiB, each session's output at 4 MiB, queued stdin at 256 KiB, and concurrent routes at 16; excess output or queued input stops the terminal. Route IDs are reserved during asynchronous opens, and lease release/destroy and worker shutdown close their associated terminals.
+The driver advertises `supportsLoginPty` and implements the worker open/input/stop/close hooks using a persistent Kubernetes `pods/exec` WebSocket with `tty=true`. The worker accepts only a lease acquired or resumed by this worker for the same company and environment, and maps the fixed `claude`, `codex`, and `grok` keys to `claude setup-token`, `codex login --device-auth`, and `grok login --device-auth`; caller-supplied shell commands are not executed. Each login gets a UUID-shaped session directory, and the browser code enters over PTY stdin rather than a command argument. The worker caps individual output/input chunks at 64 KiB, each session's output at 4 MiB, queued stdin at 256 KiB, and concurrent routes at 16 per worker and 4 per company; excess output or queued input stops the terminal. Route IDs are reserved during asynchronous opens, and lease release/destroy and worker shutdown close their associated terminals.
 
 This requires a running sandbox-cr pod, an image with `/bin/sh` and the relevant CLI installed, cluster credentials authorized for `pods/exec`, and network egress to the provider's authentication endpoints (which may differ from inference API domains). Built-in `claude_local` egress includes `api.anthropic.com`, `claude.com`, and `platform.claude.com`. Local Claude Code CLI 2.1.278's `setup-token` command invokes `ConsoleOAuthFlow` with `mode: "setup-token"`; its OAuth constants specify `https://claude.com/cai/oauth/authorize` (`CLAUDE_AI_AUTHORIZE_URL`) and `https://platform.claude.com/v1/oauth/token` (`TOKEN_URL`). This is static CLI evidence, not a live login trace; redirects or version changes may require additional operator-supplied FQDNs. Custom adapter registries replace built-in FQDNs, so include the needed auth hosts there too. The `job` backend cannot host an interactive login and is rejected by environment config validation. Sessions are in-memory and do not survive a plugin-worker restart; an existing lease must be resumed on that worker before login can open. This package's tests use a scripted Exec socket, not a live apiserver or real Claude authentication.
 
-Set `paperclipServerPodSelector` (for example `{ "app": "paperclip" }`) if the API pod accepting callbacks on TCP 3100 does not carry the default `app: paperclip-server` label. This only changes the callback target, not the agent pod selector. Selector keys and values must be valid Kubernetes label syntax; configuration validation rejects anything else. The plugin-owned tenant network policies (`paperclip-deny-all`, `paperclip-egress-allow` / `paperclip-egress-fqdn`) carry a `paperclip.io/spec-hash` annotation and are replaced on the next lease acquisition when their desired spec changes (a new selector, new adapter egress defaults such as OAuth hosts). The tenant namespace is per company, so the egress policy is shared by every environment and adapter in it. Each environment owns a grant (FQDNs and CIDRs, recorded in a `paperclip.io/egress-grants` annotation) and the policy allows the union of all grants; a lease rewrites only its own environment's grant, so it never strips another environment's hosts or CIDRs. Within that grant, hosts from some adapter's defaults are carried over (a Codex lease never strips a running Claude pod's hosts), while a host or CIDR removed from the environment's config is revoked on the next lease acquisition. Grants of deleted environments stay until the policy is deleted. When a policy from before grants existed is first reconciled, its non-adapter hosts are dropped until each environment's next lease re-adds them. Concurrent acquisitions that race on the same policy re-read and merge on a 409 instead of failing the lease. This needs `update` on `networkpolicies` (and `ciliumnetworkpolicies.cilium.io` in cilium mode) in tenant namespaces; without it the plugin logs a warning and keeps the old policy. No cluster policy is changed by configuration validation alone.
+Set `paperclipServerPodSelector` (for example `{ "app": "paperclip" }`) if the API pod accepting callbacks on TCP 3100 does not carry the default `app: paperclip-server` label. This only changes the callback target, not the agent pod selector. Selector keys and values must be valid Kubernetes label syntax; configuration validation rejects anything else. The tenant namespace is per company, so its shared `paperclip-egress-allow` / `paperclip-egress-fqdn` policy only carries the base rules (DNS and the callback) for new tenants. Each lease instead gets its own `<lease>-adapter-egress` policy, selected by the lease's `paperclip.io/run-id` label and owned by its Sandbox/Job (garbage-collected with it), holding the base rules, the adapter's default hosts (including login hosts), and the environment's `egressAllowFqdns`/`egressAllowCidrs`. Environments and adapters sharing a tenant therefore never change each other's egress, and a config change applies to every new lease; a running or resumed lease keeps the destinations it was acquired with. Existing tenants keep their previously provisioned shared egress policy unchanged (as before); delete it once no sandbox from before this change is running if its hosts should no longer apply. No cluster policy is changed by configuration validation alone.
 
 #### Known limitation: lease expiry attestation is a stopgap, not an upstream fix
 
@@ -60,10 +60,7 @@ every exec'd process, and a restart after it exits immediately. The pod also
 gets `activeDeadlineSeconds` as a backstop; Kubernetes counts that from pod
 start, so on its own it would let a late-starting pod outlive `expiresAt`.
 Leases without a requested deadline (normal agent runs) keep a long-lived pod
-and return no `expiresAt`; their pod only gets the 24h ceiling as
-`activeDeadlineSeconds`, so it cannot run forever if cleanup is unavailable.
-Resuming such a lease fails (and the server acquires a fresh one) once less
-than 1h of that ceiling remains, so a reused sandbox is not killed mid-run. The legacy `job` backend refuses a
+and return no `expiresAt`, unchanged from before this feature. The legacy `job` backend refuses a
 requested deadline instead of attesting an expiry its Job would outlive. The
 hard stop uses the node clock, so large skew between the plugin worker and
 the nodes shifts it. This exists
@@ -156,7 +153,7 @@ RoleBinding        paperclip-tenant-rb
 ResourceQuota      paperclip-quota                (pods, requests/limits cpu+memory)
 LimitRange         paperclip-limits               (container max/min/default/defaultRequest)
 NetworkPolicy      paperclip-deny-all             (deny ingress + egress baseline)
-NetworkPolicy      paperclip-egress-allow         (DNS + paperclip-server callback + user CIDRs)
+NetworkPolicy      paperclip-egress-allow         (DNS + paperclip-server callback)
                    OR CiliumNetworkPolicy paperclip-egress-fqdn if egressMode=cilium
 ```
 
@@ -166,6 +163,8 @@ For each agent run (sandbox-cr backend):
 Sandbox CR         pc-{ulid}                       (agents.x-k8s.io/v1alpha1; explicit delete on release)
 Pod                pc-{ulid}-{podSuffix}           (managed by Sandbox controller; torn down on CR delete)
 Secret             pc-{ulid}-env                   (owned by Sandbox CR; cascade-deleted)
+NetworkPolicy      pc-{ulid}-adapter-egress        (DNS + callback + adapter/config hosts and CIDRs; owned by Sandbox CR;
+                   OR CiliumNetworkPolicy           selects the run's pod)
 ```
 
 For each agent run (job backend):
@@ -174,6 +173,7 @@ For each agent run (job backend):
 Job                pc-{ulid}                       (backoffLimit: 0, ttlSecondsAfterFinished from config)
 Pod                pc-{ulid}-{podSuffix}           (owned by Job; cascade-deleted)
 Secret             pc-{ulid}-env                   (owned by Job; cascade-deleted)
+NetworkPolicy      pc-{ulid}-adapter-egress        (as above; owned by Job)
 ```
 
 ## Security baseline
