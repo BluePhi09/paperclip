@@ -25,7 +25,7 @@ import {
   type KubernetesLeaseMetadata,
 } from "./types.js";
 import { createKubeConfig, makeKubeClients } from "./kube-client.js";
-import { getAdapterDefaults, buildAdapterEnv, resolveRunAdapterType } from "./adapter-defaults.js";
+import { getAdapterDefaults, allAdapterAllowFqdns, buildAdapterEnv, resolveRunAdapterType } from "./adapter-defaults.js";
 import { resolveImage } from "./image-allowlist.js";
 import { buildJobManifest } from "./pod-spec-builder.js";
 import { buildSandboxCrManifest } from "./sandbox-cr-builder.js";
@@ -381,6 +381,7 @@ const plugin = definePlugin({
       serviceAccountAnnotations: config.serviceAccountAnnotations,
       egressMode: config.egressMode,
       egressAllowFqdns: [...adapterDefaults.allowFqdns, ...config.egressAllowFqdns],
+      retainableFqdns: allAdapterAllowFqdns(config.adapters),
       egressAllowCidrs: config.egressAllowCidrs,
       resourceQuota: DEFAULT_RESOURCE_QUOTA,
     });
