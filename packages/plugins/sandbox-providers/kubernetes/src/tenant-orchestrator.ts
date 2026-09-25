@@ -11,6 +11,12 @@ export interface EnsureTenantInput {
   serviceAccountAnnotations: Record<string, string>;
   egressMode: "standard" | "cilium";
   egressAllowFqdns: string[];
+  /**
+   * Hosts another adapter's lease may have granted (every adapter's default
+   * FQDNs). Only these survive a merge with the existing policy; any other
+   * host, e.g. one the operator removed from `egressAllowFqdns`, is dropped.
+   */
+  retainableFqdns?: string[];
   egressAllowCidrs: string[];
   resourceQuota: {
     pods: string;
@@ -43,8 +49,8 @@ const LIMIT_RANGE_NAME = "paperclip-limits";
  * a hash of its desired spec in an annotation; when the hash is missing or
  * stale (new adapter egress defaults such as OAuth hosts, a changed callback
  * selector), the policy is replaced. The egress allow-list is merged with the
- * FQDNs already granted rather than replaced, because the policy is shared by
- * every adapter's pods in the tenant (see mergeFqdns). If the operator has not granted
+ * adapter FQDNs already granted rather than replaced, because the policy is
+ * shared by every adapter's pods in the tenant (see mergeFqdns). If the operator has not granted
  * `update` on the policy resource, the stale policy is kept and a warning is
  * logged instead of failing the lease.
  *
@@ -227,12 +233,16 @@ async function ensureNetworkPolicies(clients: KubeClients, input: EnsureTenantIn
       egressAllowFqdns,
     });
 
+  const retainable = new Set(input.retainableFqdns ?? []);
+  const merge = (existingFqdns: string[]) =>
+    mergeFqdns(input.egressAllowFqdns, existingFqdns.filter((fqdn) => retainable.has(fqdn)));
+
   const [denyAll] = buildStandard(input.egressAllowFqdns);
   await ensureNetworkPolicy(clients, input.namespace, () => denyAll);
 
   if (input.egressMode === "cilium") {
     await ensureCiliumNetworkPolicy(clients, input.namespace, (existingFqdns) => {
-      const fqdns = mergeFqdns(input.egressAllowFqdns, existingFqdns);
+      const fqdns = merge(existingFqdns);
       return withAllowedFqdns(
         buildCiliumNetworkPolicyManifest({
           namespace: input.namespace,
@@ -246,7 +256,7 @@ async function ensureNetworkPolicies(clients: KubeClients, input: EnsureTenantIn
     });
   } else {
     await ensureNetworkPolicy(clients, input.namespace, (existingFqdns) => {
-      const fqdns = mergeFqdns(input.egressAllowFqdns, existingFqdns);
+      const fqdns = merge(existingFqdns);
       return withAllowedFqdns(buildStandard(fqdns)[1], fqdns);
     });
   }
@@ -259,10 +269,11 @@ const ALLOWED_FQDNS_ANNOTATION = "paperclip.io/allowed-fqdns";
  * The egress policy is tenant-wide, but each lease only knows the FQDNs of its
  * own adapter. Reconciling with just those would strip the hosts of another
  * adapter whose pod is still running in the same tenant (e.g. a Codex lease
- * removing Claude's OAuth hosts), so the policy only ever grows: the desired
- * FQDNs are the union of this lease's list and the ones already granted.
+ * removing Claude's OAuth hosts), so the desired FQDNs are the union of this
+ * lease's list and the already-granted hosts that belong to some adapter's
+ * defaults (`retainableFqdns`). Operator-configured hosts are not retained, so
+ * removing one from `egressAllowFqdns` revokes it on the next acquisition.
  * Sorted so every lease computes the same spec (and hash) for the same union.
- * Hosts are never removed automatically; delete the policy to shrink it.
  */
 function mergeFqdns(desired: string[], existing: string[]): string[] {
   return [...new Set([...desired, ...existing])].sort();

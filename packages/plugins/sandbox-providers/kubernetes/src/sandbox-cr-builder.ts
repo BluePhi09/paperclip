@@ -1,3 +1,5 @@
+import { MAX_ACTIVE_DEADLINE_SEC } from "./lease-expiry.js";
+
 /**
  * Builds a kubernetes-sigs/agent-sandbox Sandbox CR manifest.
  *
@@ -35,7 +37,7 @@ export interface BuildSandboxCrManifestInput {
    * crash or an outage on paperclip-server must not leave the pod running
    * past the attested expiry, so this bounds it independently of any
    * in-process cleanup. Omitted for leases without a requested deadline,
-   * which keep a long-lived pod.
+   * which keep a long-lived pod bounded only by MAX_ACTIVE_DEADLINE_SEC.
    */
   hardStop?: {
     /**
@@ -81,9 +83,9 @@ export function buildSandboxCrManifest(
           // Sandbox controller requires restartPolicy: Always so the pod
           // stays running between exec calls.
           restartPolicy: "Always",
-          ...(input.hardStop
-            ? { activeDeadlineSeconds: input.hardStop.activeDeadlineSeconds }
-            : {}),
+          // Unbounded leases still get the 24h ceiling as a backstop, so a pod
+          // cannot run forever if server/worker cleanup is unavailable.
+          activeDeadlineSeconds: input.hardStop?.activeDeadlineSeconds ?? MAX_ACTIVE_DEADLINE_SEC,
           ...(input.runtimeClassName
             ? { runtimeClassName: input.runtimeClassName }
             : {}),
