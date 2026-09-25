@@ -69,54 +69,44 @@ jobs:
             [opencode]="opencode-ai"
             [pi]="@mariozechner/pi-coding-agent"
           )
-          # The binary each harness's Dockerfile puts on PATH and its
-          # `--version` flag, matching packages/plugins/sandbox-providers/
-          # kubernetes/src/adapter-defaults.ts's probeCommand for each
-          # adapter. Used to read the CLI version actually baked into the
-          # currently *deployed* image (the ":latest" tag the Kubernetes
-          # sandbox provider's built-in adapter defaults pull), not just
-          # what npm currently publishes -- so this can tell staleness of
-          # deployed tags apart from staleness of upstream npm.
-          declare -A PROBE_BINS=(
-            [claude]="claude-code"
-            [codex]="codex"
-            [gemini]="gemini"
-            [opencode]="opencode"
-            [pi]="pi"
-          )
           echo "table<<EOF" >> "$GITHUB_OUTPUT"
           for harness in "${!PACKAGES[@]}"; do
             pkg="${PACKAGES[$harness]}"
-            bin="${PROBE_BINS[$harness]}"
             # Sanity-check the Dockerfile still installs this exact package,
             # so this table can't silently drift from what actually ships.
             if ! grep -q "npm install -g ${pkg}@latest" "docker/agent-runtime/Dockerfile.${harness}"; then
               echo "::warning::docker/agent-runtime/Dockerfile.${harness} no longer installs ${pkg}@latest -- update the PACKAGES map in this workflow"
             fi
-            latest=$(curl -fsSL --retry 3 "https://registry.npmjs.org/${pkg}/latest" | jq -r '.version // "unknown"')
+            latest=$(curl -fsSL --retry 3 "https://registry.npmjs.org/${pkg}/latest" | jq -r '.version // empty') || true
+            latest="${latest:-unknown}"
 
-            # Read the version actually baked into the currently published
-            # ":latest" image by pulling it (public GHCR image, no build, no
-            # code from this run gets built or signed) and running the
-            # harness's own --version probe inside it. This is the same
-            # already-signed, already-published image the Kubernetes sandbox
-            # provider's default runtimeImage points at -- we are not
-            # executing anything untrusted that this workflow produced.
+            # Read the CLI version baked into the currently published ":latest"
+            # image (the tag the Kubernetes sandbox provider's built-in adapter
+            # defaults pull) straight from the installed package's
+            # package.json. The image is pulled and `docker create`d but never
+            # started: nothing from the image is executed on this runner, so a
+            # compromised upstream release baked into a published image can't
+            # run code here. The npm-registry value above is likewise only
+            # ever treated as a string.
             image="ghcr.io/paperclipai/agent-runtime-${harness}:latest"
-            deployed="unknown (image not found)"
-            if docker pull --quiet "${image}" >/dev/null 2>&1; then
-              probe_output=$(docker run --rm --entrypoint "${bin}" "${image}" --version 2>/dev/null || true)
-              # Keep only the first line and strip anything but a plausible
-              # version token, so unexpected/garbled CLI output can never
-              # reach the tracking-issue table as anything other than a
-              # plain "unknown" -- it is never interpolated as code either
-              # way, since it only ever reaches github-script via env below.
-              deployed=$(printf '%s' "${probe_output}" | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*' | head -n1 || true)
-              deployed="${deployed:-unknown (unparseable --version output)}"
+            deployed=""
+            if docker pull --quiet "${image}" >/dev/null 2>&1 \
+              && cid=$(docker create "${image}" 2>/dev/null); then
+              deployed=$(docker cp "${cid}:/usr/lib/node_modules/${pkg}/package.json" - 2>/dev/null \
+                | tar -xO 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
+              docker rm "${cid}" >/dev/null 2>&1 || true
             fi
 
-            status="up to date"
-            if [ "${deployed}" != "${latest}" ]; then
+            # Only call an image STALE when both versions were actually
+            # established. A failed registry/GHCR lookup (outage, image not
+            # published yet, package moved) is reported as UNKNOWN so it
+            # doesn't prompt an unnecessary rebuild.
+            if [ -z "${deployed}" ] || [ "${latest}" = "unknown" ]; then
+              deployed="${deployed:-unknown}"
+              status="UNKNOWN (check failed)"
+            elif [ "${deployed}" = "${latest}" ]; then
+              status="up to date"
+            else
               status="STALE"
             fi
 
