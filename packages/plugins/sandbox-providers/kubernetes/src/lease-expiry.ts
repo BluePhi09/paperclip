@@ -25,8 +25,15 @@
  */
 export const MIN_ACTIVE_DEADLINE_SEC = 30;
 
-/** Kubernetes `activeDeadlineSeconds` is an int32 field; clamp defensively. */
-export const MAX_ACTIVE_DEADLINE_SEC = 2_147_483_647;
+/**
+ * Upper bound on any granted lease, in seconds (24h). This is a sane-duration
+ * ceiling, not just an int32-overflow guard: without it, a caller-requested
+ * deadline (or a misconfigured `podActivityDeadlineSec` default) could grant
+ * an effectively unbounded pod lifetime. 24h comfortably covers any real
+ * login-PTY or adapter-install session while still being far short of the
+ * int32 `activeDeadlineSeconds` limit (2,147,483,647s, ~68 years).
+ */
+export const MAX_ACTIVE_DEADLINE_SEC = 24 * 60 * 60;
 
 export interface BoundedLeaseDeadline {
   /** Seconds to set as the Sandbox pod's `activeDeadlineSeconds`. */
@@ -54,10 +61,16 @@ export function computeBoundedLeaseDeadline(
   defaultActiveDeadlineSec: number,
   nowMs: number = Date.now(),
 ): BoundedLeaseDeadline {
-  const requestedExpiresAtMs = requestedExpiresAt ? Date.parse(requestedExpiresAt) : Number.NaN;
-
   let activeDeadlineSec: number;
-  if (Number.isFinite(requestedExpiresAtMs)) {
+  if (requestedExpiresAt != null) {
+    const requestedExpiresAtMs = Date.parse(requestedExpiresAt);
+    if (!Number.isFinite(requestedExpiresAtMs)) {
+      throw new Error(
+        `Requested lease deadline (${JSON.stringify(requestedExpiresAt)}) is not a valid ` +
+          `ISO 8601 timestamp. Failing closed instead of silently substituting a default ` +
+          `deadline the caller did not ask for.`,
+      );
+    }
     const requestedDeadlineSec = Math.floor((requestedExpiresAtMs - nowMs) / 1000);
     if (requestedDeadlineSec < MIN_ACTIVE_DEADLINE_SEC) {
       throw new Error(
@@ -68,6 +81,13 @@ export function computeBoundedLeaseDeadline(
     }
     activeDeadlineSec = Math.min(requestedDeadlineSec, MAX_ACTIVE_DEADLINE_SEC);
   } else {
+    if (!Number.isFinite(defaultActiveDeadlineSec) || defaultActiveDeadlineSec < MIN_ACTIVE_DEADLINE_SEC) {
+      throw new Error(
+        `Environment's configured default active deadline (${defaultActiveDeadlineSec}) is not ` +
+          `a finite number of seconds of at least ${MIN_ACTIVE_DEADLINE_SEC}. Failing closed ` +
+          `instead of computing an invalid lease expiry.`,
+      );
+    }
     activeDeadlineSec = Math.min(defaultActiveDeadlineSec, MAX_ACTIVE_DEADLINE_SEC);
   }
 
