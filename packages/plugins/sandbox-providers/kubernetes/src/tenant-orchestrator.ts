@@ -42,7 +42,9 @@ const LIMIT_RANGE_NAME = "paperclip-limits";
  * Exception: the plugin-owned network policies are reconciled. Each carries
  * a hash of its desired spec in an annotation; when the hash is missing or
  * stale (new adapter egress defaults such as OAuth hosts, a changed callback
- * selector), the policy is replaced. If the operator has not granted
+ * selector), the policy is replaced. The egress allow-list is merged with the
+ * FQDNs already granted rather than replaced, because the policy is shared by
+ * every adapter's pods in the tenant (see mergeFqdns). If the operator has not granted
  * `update` on the policy resource, the stale policy is kept and a warning is
  * logged instead of failing the lease.
  *
@@ -216,35 +218,73 @@ async function ensureLimitRange(clients: KubeClients, input: EnsureTenantInput):
 }
 
 async function ensureNetworkPolicies(clients: KubeClients, input: EnsureTenantInput): Promise<void> {
-  const [denyAll, egressStd] = buildNetworkPolicyManifests({
-    namespace: input.namespace,
-    paperclipServerNamespace: input.paperclipServerNamespace,
-    paperclipServerPodSelector: input.paperclipServerPodSelector,
-    egressAllowCidrs: input.egressAllowCidrs,
-    egressAllowFqdns: input.egressAllowFqdns,
-  });
-
-  await ensureNetworkPolicy(clients, input.namespace, denyAll);
-
-  if (input.egressMode === "cilium") {
-    const cnp = buildCiliumNetworkPolicyManifest({
+  const buildStandard = (egressAllowFqdns: string[]) =>
+    buildNetworkPolicyManifests({
       namespace: input.namespace,
       paperclipServerNamespace: input.paperclipServerNamespace,
       paperclipServerPodSelector: input.paperclipServerPodSelector,
-      egressAllowFqdns: input.egressAllowFqdns,
       egressAllowCidrs: input.egressAllowCidrs,
+      egressAllowFqdns,
     });
-    await ensureCiliumNetworkPolicy(clients, input.namespace, cnp);
+
+  const [denyAll] = buildStandard(input.egressAllowFqdns);
+  await ensureNetworkPolicy(clients, input.namespace, () => denyAll);
+
+  if (input.egressMode === "cilium") {
+    await ensureCiliumNetworkPolicy(clients, input.namespace, (existingFqdns) => {
+      const fqdns = mergeFqdns(input.egressAllowFqdns, existingFqdns);
+      return withAllowedFqdns(
+        buildCiliumNetworkPolicyManifest({
+          namespace: input.namespace,
+          paperclipServerNamespace: input.paperclipServerNamespace,
+          paperclipServerPodSelector: input.paperclipServerPodSelector,
+          egressAllowFqdns: fqdns,
+          egressAllowCidrs: input.egressAllowCidrs,
+        }),
+        fqdns,
+      );
+    });
   } else {
-    await ensureNetworkPolicy(clients, input.namespace, egressStd);
+    await ensureNetworkPolicy(clients, input.namespace, (existingFqdns) => {
+      const fqdns = mergeFqdns(input.egressAllowFqdns, existingFqdns);
+      return withAllowedFqdns(buildStandard(fqdns)[1], fqdns);
+    });
   }
 }
 
 const SPEC_HASH_ANNOTATION = "paperclip.io/spec-hash";
+const ALLOWED_FQDNS_ANNOTATION = "paperclip.io/allowed-fqdns";
+
+/**
+ * The egress policy is tenant-wide, but each lease only knows the FQDNs of its
+ * own adapter. Reconciling with just those would strip the hosts of another
+ * adapter whose pod is still running in the same tenant (e.g. a Codex lease
+ * removing Claude's OAuth hosts), so the policy only ever grows: the desired
+ * FQDNs are the union of this lease's list and the ones already granted.
+ * Sorted so every lease computes the same spec (and hash) for the same union.
+ * Hosts are never removed automatically; delete the policy to shrink it.
+ */
+function mergeFqdns(desired: string[], existing: string[]): string[] {
+  return [...new Set([...desired, ...existing])].sort();
+}
+
+function withAllowedFqdns(manifest: Record<string, unknown>, fqdns: string[]): Record<string, unknown> {
+  const metadata = (manifest.metadata ?? {}) as { annotations?: Record<string, string> };
+  return {
+    ...manifest,
+    metadata: { ...metadata, annotations: { ...(metadata.annotations ?? {}), [ALLOWED_FQDNS_ANNOTATION]: fqdns.join(",") } },
+  };
+}
 
 function withSpecHash(manifest: Record<string, unknown>): { manifest: Record<string, unknown>; hash: string } {
-  const hash = createHash("sha256").update(JSON.stringify(manifest.spec ?? null)).digest("hex").slice(0, 32);
   const metadata = (manifest.metadata ?? {}) as { annotations?: Record<string, string> };
+  // The allowed-FQDNs annotation is hashed with the spec: a standard
+  // NetworkPolicy only encodes whether any FQDN exists, so without it a grown
+  // union would never be written back and later leases would not see it.
+  const hash = createHash("sha256")
+    .update(JSON.stringify([manifest.spec ?? null, metadata.annotations?.[ALLOWED_FQDNS_ANNOTATION] ?? null]))
+    .digest("hex")
+    .slice(0, 32);
   return {
     hash,
     manifest: {
@@ -254,85 +294,132 @@ function withSpecHash(manifest: Record<string, unknown>): { manifest: Record<str
   };
 }
 
-function existingSpecHash(existing: unknown): { hash?: string; resourceVersion?: string } {
+interface ExistingPolicy {
+  hash?: string;
+  resourceVersion?: string;
+  fqdns: string[];
+}
+
+function describeExisting(existing: unknown): ExistingPolicy {
   // client-node v1 returns the object directly; older mocks wrap it in `body`.
   const obj = ((existing as { body?: unknown } | null)?.body ?? existing) as
-    | { metadata?: { annotations?: Record<string, string>; resourceVersion?: string } }
+    | {
+        metadata?: { annotations?: Record<string, string>; resourceVersion?: string };
+        spec?: { egress?: { toFQDNs?: { matchName?: unknown }[] }[] };
+      }
     | null
     | undefined;
+  const annotated = (obj?.metadata?.annotations?.[ALLOWED_FQDNS_ANNOTATION] ?? "").split(",");
+  // Cilium policies provisioned before the annotation existed carry their
+  // hosts only in the spec.
+  const inSpec = (obj?.spec?.egress ?? []).flatMap((rule) =>
+    (Array.isArray(rule?.toFQDNs) ? rule.toFQDNs : []).map((f) => f?.matchName),
+  );
   return {
     hash: obj?.metadata?.annotations?.[SPEC_HASH_ANNOTATION],
     resourceVersion: obj?.metadata?.resourceVersion,
+    fqdns: [...annotated, ...inSpec].filter((f): f is string => typeof f === "string" && f.length > 0),
   };
 }
 
-async function replaceStalePolicy(kind: string, namespace: string, name: string, replace: () => Promise<unknown>): Promise<void> {
-  try {
-    await replace();
-  } catch (err) {
-    if (!isForbidden(err)) throw err;
-    console.warn(
-      `[plugin-kubernetes] ${kind} ${namespace}/${name} is out of date with the provider config, but the plugin is not allowed to update it. ` +
-        `Grant "update" on this resource or delete the policy so it is recreated; until then agent egress uses the old policy.`,
-    );
+const POLICY_RECONCILE_ATTEMPTS = 5;
+
+interface PolicyOps {
+  kind: string;
+  namespace: string;
+  name: string;
+  read: () => Promise<unknown>;
+  create: (body: Record<string, unknown>) => Promise<unknown>;
+  replace: (body: Record<string, unknown>) => Promise<unknown>;
+}
+
+/**
+ * Read-merge-write loop for a plugin-owned policy. Concurrent lease
+ * acquisitions in one tenant race here: a 409 on create (another lease created
+ * it first) or on replace (another lease replaced it since our read) means our
+ * view is stale, not that the lease should fail. Re-read and merge again, so
+ * neither lease's FQDNs are lost, until the stored policy matches.
+ */
+async function reconcilePolicy(ops: PolicyOps, desiredFor: (existingFqdns: string[]) => Record<string, unknown>): Promise<void> {
+  let lastConflict: unknown;
+  for (let attempt = 0; attempt < POLICY_RECONCILE_ATTEMPTS; attempt++) {
+    let existing: unknown;
+    try {
+      existing = await ops.read();
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+      try {
+        await ops.create(withSpecHash(desiredFor([])).manifest);
+        return;
+      } catch (createErr) {
+        if (!isConflict(createErr)) throw createErr;
+        lastConflict = createErr;
+        continue;
+      }
+    }
+    const current = describeExisting(existing);
+    const { manifest, hash } = withSpecHash(desiredFor(current.fqdns));
+    if (current.hash === hash) return;
+    // Replace requires the current resourceVersion (optimistic concurrency).
+    const body = {
+      ...manifest,
+      metadata: { ...(manifest.metadata as object), ...(current.resourceVersion ? { resourceVersion: current.resourceVersion } : {}) },
+    };
+    try {
+      await ops.replace(body);
+      return;
+    } catch (err) {
+      if (isConflict(err)) {
+        lastConflict = err;
+        continue;
+      }
+      if (!isForbidden(err)) throw err;
+      console.warn(
+        `[plugin-kubernetes] ${ops.kind} ${ops.namespace}/${ops.name} is out of date with the provider config, but the plugin is not allowed to update it. ` +
+          `Grant "update" on this resource or delete the policy so it is recreated; until then agent egress uses the old policy.`,
+      );
+      return;
+    }
   }
+  throw lastConflict;
 }
 
 async function ensureNetworkPolicy(
   clients: KubeClients,
   namespace: string,
-  desired: Record<string, unknown>,
+  desiredFor: (existingFqdns: string[]) => Record<string, unknown>,
 ): Promise<void> {
-  const { manifest, hash } = withSpecHash(desired);
-  const name = (manifest.metadata as { name: string }).name;
-  let existing: unknown;
-  try {
-    existing = await clients.networking.readNamespacedNetworkPolicy({ name, namespace });
-  } catch (err) {
-    if (!isNotFound(err)) throw err;
-    await createIgnoringAlreadyExists(
-      clients.networking.createNamespacedNetworkPolicy({ namespace, body: manifest as never }),
-    );
-    return;
-  }
-  const current = existingSpecHash(existing);
-  if (current.hash === hash) return;
-  const body = {
-    ...manifest,
-    metadata: { ...(manifest.metadata as object), ...(current.resourceVersion ? { resourceVersion: current.resourceVersion } : {}) },
-  };
-  await replaceStalePolicy("NetworkPolicy", namespace, name, () =>
-    clients.networking.replaceNamespacedNetworkPolicy({ name, namespace, body: body as never }),
+  const name = (desiredFor([]).metadata as { name: string }).name;
+  await reconcilePolicy(
+    {
+      kind: "NetworkPolicy",
+      namespace,
+      name,
+      read: () => clients.networking.readNamespacedNetworkPolicy({ name, namespace }),
+      create: (body) => clients.networking.createNamespacedNetworkPolicy({ namespace, body: body as never }),
+      replace: (body) => clients.networking.replaceNamespacedNetworkPolicy({ name, namespace, body: body as never }),
+    },
+    desiredFor,
   );
 }
 
 async function ensureCiliumNetworkPolicy(
   clients: KubeClients,
   namespace: string,
-  desired: Record<string, unknown>,
+  desiredFor: (existingFqdns: string[]) => Record<string, unknown>,
 ): Promise<void> {
-  const { manifest, hash } = withSpecHash(desired);
-  const name = (manifest.metadata as { name: string }).name;
+  const name = (desiredFor([]).metadata as { name: string }).name;
   const target = { group: "cilium.io", version: "v2", namespace, plural: "ciliumnetworkpolicies" };
-  let existing: unknown;
-  try {
-    existing = await clients.custom.getNamespacedCustomObject({ ...target, name });
-  } catch (err) {
-    if (!isNotFound(err)) throw err;
-    await createIgnoringAlreadyExists(
-      clients.custom.createNamespacedCustomObject({ ...target, body: manifest }),
-    );
-    return;
-  }
-  const current = existingSpecHash(existing);
-  if (current.hash === hash) return;
-  // Custom objects require the current resourceVersion on replace.
-  const body = {
-    ...manifest,
-    metadata: { ...(manifest.metadata as object), ...(current.resourceVersion ? { resourceVersion: current.resourceVersion } : {}) },
-  };
-  await replaceStalePolicy("CiliumNetworkPolicy", namespace, name, () =>
-    clients.custom.replaceNamespacedCustomObject({ ...target, name, body }),
+  await reconcilePolicy(
+    {
+      kind: "CiliumNetworkPolicy",
+      namespace,
+      name,
+      read: () => clients.custom.getNamespacedCustomObject({ ...target, name }),
+      create: (body) => clients.custom.createNamespacedCustomObject({ ...target, body }),
+      replace: (body) => clients.custom.replaceNamespacedCustomObject({ ...target, name, body }),
+    },
+    desiredFor,
   );
 }
 
@@ -348,7 +435,9 @@ function isForbidden(err: unknown): boolean {
   return e.code === 403 || e.statusCode === 403;
 }
 
-function isAlreadyExists(err: unknown): boolean {
+// 409 is both AlreadyExists (create) and Conflict (stale resourceVersion on
+// replace).
+function isConflict(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
   const e = err as { code?: number; statusCode?: number };
   return e.code === 409 || e.statusCode === 409;
@@ -361,6 +450,6 @@ async function createIgnoringAlreadyExists(create: Promise<unknown>): Promise<vo
   try {
     await create;
   } catch (err) {
-    if (!isAlreadyExists(err)) throw err;
+    if (!isConflict(err)) throw err;
   }
 }
