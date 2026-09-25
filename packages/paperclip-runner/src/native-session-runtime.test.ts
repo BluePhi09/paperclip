@@ -6184,14 +6184,56 @@ describe("executeNativeSession recovery", () => {
     expect(openRun).not.toHaveBeenCalled();
   });
 
-  it("replaces a provider session that already ended with a failed terminal", async () => {
+  it.each([false, true])("replaces a provider session that already ended with a failed terminal (prepared: %s)", async (preparedMode) => {
     const digest = "0".repeat(64);
+    const skill = {
+      key: "company/recovery-skill",
+      runtimeName: "recovery-skill",
+      versionId: "recovery-skill-v1",
+      bundle: {
+        schema: NATIVE_RUNTIME_ASSET_SCHEMA,
+        digest,
+        manifestDigest: digest,
+        rootPath: "/runtime/skills/recovery-skill",
+        fileCount: 1,
+        totalBytes: 1,
+      },
+    } as const;
     const context = {
       prompt: { revision: PAPERCLIP_EXECUTION_PROMPT_REVISION, text: PAPERCLIP_EXECUTION_PROMPT, digest: nativeRuntimePromptDigest() },
       instructions: { entryPath: "AGENTS.md", bundle: { schema: NATIVE_RUNTIME_ASSET_SCHEMA, digest, manifestDigest: digest, rootPath: "/runtime/instructions", fileCount: 1, totalBytes: 1 } },
-      skills: [],
+      skills: [skill],
       mcp: { assignmentSetId: "none", digest, bindingId: null },
     } as const;
+    const legacyContext = { ...context, skills: [] as const };
+    const prepared = preparedInput();
+    const executionInput = preparedMode
+      ? {
+          ...prepared,
+          task: {
+            ...prepared.task,
+            description: "Complete after recovery with $recovery-skill.",
+            prompt: "FULL_ASSIGNMENT_CONTEXT\nCURRENT_EVENT_CONTEXT",
+          },
+          runtimeContext: {
+            ...context,
+            aggregateDigest: canonicalNativeRuntimeContextDigest(context),
+          },
+          continuationPrompt: "ONLY_NEW_COMMENT",
+        } as const
+      : {
+          ...input,
+          task: { ...input.task, prompt: "FULL_ASSIGNMENT_CONTEXT\nCURRENT_EVENT_CONTEXT" },
+          schema: "paperclip.native-execution-input.v4" as const,
+          executionMode: "default" as const,
+          planningContext: null,
+          provider: { kind: "codex" as const, model: null, approvalPolicy: "never" as const },
+          runtimeContext: {
+            ...legacyContext,
+            aggregateDigest: canonicalNativeRuntimeContextDigest(legacyContext),
+          },
+          continuationPrompt: "ONLY_NEW_COMMENT",
+        } as const;
     const checkpoint: PersistedNativeSession = {
       backendKind: "mock",
       sessionId: "driver-failed",
@@ -6293,10 +6335,7 @@ describe("executeNativeSession recovery", () => {
 
     await expect(
       executeNativeSession({
-        input: { ...input, schema: "paperclip.native-execution-input.v4", executionMode: "default", planningContext: null,
-          provider: { kind: "codex", model: null, approvalPolicy: "never" },
-          runtimeContext: { ...context, aggregateDigest: canonicalNativeRuntimeContextDigest(context) },
-          continuationPrompt: "ONLY_NEW_COMMENT" },
+        input: executionInput,
         backend,
         controlPlane: port,
         runnerInstanceId: "runner-replacement",
@@ -6309,8 +6348,21 @@ describe("executeNativeSession recovery", () => {
     expect(openReplacementSession).toHaveBeenCalledOnce();
     const replacementEnvelope = JSON.parse(
       startTurn.mock.calls[0]![0].message.text,
-    ) as { task: { prompt: string } };
-    expect(replacementEnvelope.task.prompt).toBe(input.task.prompt);
+    ) as {
+      schema: string;
+      requestedSkills?: string[];
+      task: { prompt: string };
+      completionContract: unknown;
+    };
+    expect(replacementEnvelope).toMatchObject({
+      task: { prompt: "FULL_ASSIGNMENT_CONTEXT\nCURRENT_EVENT_CONTEXT" },
+      completionContract: executionInput.completionContract.contract,
+    });
+    expect(replacementEnvelope.schema).toBe(
+      preparedMode ? "paperclip.native-model-envelope.v3" : "paperclip.native-model-envelope.v2",
+    );
+    if (preparedMode) expect(replacementEnvelope.requestedSkills).toEqual(["recovery-skill"]);
+    else expect(replacementEnvelope).not.toHaveProperty("requestedSkills");
     expect(JSON.stringify(replacementEnvelope)).not.toContain("ONLY_NEW_COMMENT");
     expect(startTurn.mock.calls[0]![0]).not.toHaveProperty("continuation");
     expect(onContinuityBreak).toHaveBeenCalledWith({

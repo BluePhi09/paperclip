@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createPromptContextFixture } from "@paperclipai/adapter-utils/test-fixtures/prompt-context";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionContext, AdapterInvocationMeta } from "@paperclipai/adapter-utils";
 import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
@@ -194,6 +195,22 @@ class FakeRuntime {
 
   async close(input: { handle: FakeRuntimeHandle; reason: string; discardPersistentState?: boolean }) {
     this.closeInputs.push(input);
+  }
+}
+
+class MissingResumeRuntime extends FakeRuntime {
+  override async ensureSession(input: {
+    sessionKey: string;
+    agent: string;
+    mode: "persistent" | "oneshot";
+    cwd?: string;
+    resumeSessionId?: string;
+  }): Promise<FakeRuntimeHandle> {
+    if (input.resumeSessionId) {
+      this.ensureInputs.push(input);
+      throw new Error("resume session not found");
+    }
+    return super.ensureSession(input);
   }
 }
 
@@ -1285,6 +1302,106 @@ describe("claude_local ACP lane", () => {
     expect(prompt.split("Same event body.")).toHaveLength(3);
     expect(prompt.indexOf("comment comment-a")).toBeLessThan(prompt.indexOf("comment comment-b"));
     expect(prompt).toContain("Repeat phrase Repeat phrase");
+  });
+
+  it("delivers owned assignment and current events through fresh and healthy resumed ACP turns", async () => {
+    const root = await makeTempRoot("paperclip-claude-acp-owned-context-");
+    const runtimes: FakeRuntime[] = [];
+    const fixture = createPromptContextFixture();
+    const context = {
+      ...fixture,
+      issueId: "issue-1",
+      paperclipWorkspace: { cwd: root, source: "project_workspace", workspaceId: "workspace-1" },
+    };
+    const execute = createClaudeAcpExecutor({
+      createRuntime: (options: FakeRuntimeOptions) => {
+        const runtime = new FakeRuntime(options);
+        runtimes.push(runtime);
+        return runtime as never;
+      },
+    });
+
+    const fresh = await execute(buildContext(root, { context }));
+    const freshPrompt = String(runtimes[0]?.startInputs[0]?.text ?? "");
+    expect(fresh.exitCode).toBe(0);
+    expect(freshPrompt).toContain(context.paperclipTaskMarkdownAssignment);
+    expect(freshPrompt.split(context.paperclipTaskMarkdownAssignment).length).toBe(2);
+    expect(freshPrompt).toContain(context.paperclipTaskCommunicationGuidance);
+    expect(freshPrompt).not.toContain(context.paperclipTaskMarkdownAssignmentCompact);
+    expect(freshPrompt).toContain("\"id\":\"comment-first\"");
+    expect(freshPrompt).toContain("\"id\":\"comment-second\"");
+    expect(freshPrompt).toContain("\"id\":\"comment-scope\"");
+    expect(freshPrompt.indexOf("\"id\":\"comment-first\"")).toBeLessThan(freshPrompt.indexOf("\"id\":\"comment-second\""));
+    expect(freshPrompt.indexOf("\"id\":\"comment-second\"")).toBeLessThan(freshPrompt.indexOf("\"id\":\"comment-scope\""));
+    expect(freshPrompt.split("Append the same ledger entry.")).toHaveLength(3);
+    expect(freshPrompt.split(fixture.paperclipWake.issue.description)).toHaveLength(2);
+    expect(freshPrompt).not.toContain('"objective":"');
+    expect(freshPrompt).toContain("Untrusted continuation evidence");
+    expect(freshPrompt).toContain("receipt-1");
+
+    const resumed = await execute(buildContext(root, {
+      runtime: {
+        sessionId: fresh.sessionId ?? null,
+        sessionParams: fresh.sessionParams ?? null,
+        sessionDisplayId: fresh.sessionDisplayId ?? null,
+        taskKey: "PAP-1",
+      },
+      context,
+    }));
+    const resumedPrompt = String(runtimes[1]?.startInputs[0]?.text ?? "");
+    expect(resumed.exitCode).toBe(0);
+    expect(runtimes[1]?.ensureInputs[0]?.resumeSessionId).toBe("acp-1");
+    expect(resumedPrompt).toContain(context.paperclipTaskMarkdownAssignmentCompact);
+    expect(resumedPrompt).not.toContain(context.paperclipTaskCommunicationGuidance);
+    expect(resumedPrompt).not.toContain("\"id\":\"comment-first\"");
+    expect(resumedPrompt).toContain("\"id\":\"comment-second\"");
+    expect(resumedPrompt).toContain("\"id\":\"comment-scope\"");
+    expect(resumedPrompt.indexOf("\"id\":\"comment-second\"")).toBeLessThan(resumedPrompt.indexOf("\"id\":\"comment-scope\""));
+  });
+
+  it("restores the full assignment and current event history when a resume session is missing", async () => {
+    const root = await makeTempRoot("paperclip-claude-acp-missing-resume-context-");
+    const runtimes: MissingResumeRuntime[] = [];
+    const assignment = "## Owned assignment\n\nRebuild the launch card. Rebuild the launch card.";
+    const compact = "## Compact assignment";
+    const context = {
+      issueId: "issue-1",
+      paperclipTaskMarkdownAssignment: assignment,
+      paperclipTaskMarkdownAssignmentCompact: compact,
+      paperclipTaskCommunicationGuidance: "Explain the next step before starting work.",
+      paperclipWake: {
+        reason: "issue_commented",
+        issue: { id: "issue-1", identifier: "PAP-1", title: "Launch card", description: "Rebuild the launch card.", status: "in_progress" },
+        comments: [{ id: "comment-retry", body: "Preserve this retry request." }],
+        commentWindow: { requestedCount: 1, includedCount: 1, missingCount: 0 },
+        fallbackFetchNeeded: false,
+      },
+      paperclipWorkspace: { cwd: root, source: "project_workspace", workspaceId: "workspace-1" },
+    };
+    const execute = createClaudeAcpExecutor({
+      createRuntime: (options: FakeRuntimeOptions) => {
+        const runtime = new MissingResumeRuntime(options);
+        runtimes.push(runtime);
+        return runtime as never;
+      },
+    });
+
+    const first = await execute(buildContext(root, { context }));
+    const retry = await execute(buildContext(root, {
+      runtime: {
+        sessionId: first.sessionId ?? null,
+        sessionParams: first.sessionParams ?? null,
+        sessionDisplayId: first.sessionDisplayId ?? null,
+        taskKey: "PAP-1",
+      },
+      context,
+    }));
+    const retryPrompt = String(runtimes[1]?.startInputs[0]?.text ?? "");
+    expect(retry.exitCode).toBe(0);
+    expect(runtimes[1]?.ensureInputs.map(({ resumeSessionId }) => resumeSessionId)).toEqual(["acp-1", undefined]);
+    expect(retryPrompt).toContain(assignment);
+    expect(retryPrompt).not.toContain(compact);
+    expect(retryPrompt).toContain("Preserve this retry request.");
   });
 
   it("delivers the issue description exactly once per prompt and compacts non-assignment resume deltas", async () => {
