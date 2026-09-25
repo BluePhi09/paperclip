@@ -682,8 +682,15 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     });
     const worker = { isRunning: () => true, getWorker: () => ({ supportedMethods: ["environmentDestroyLease"] }), call } as unknown as PluginWorkerManager;
     const candidate = environmentRuntimeService(db, { pluginWorkerManager: worker });
-    await expect(candidate.acquireRunLease({ companyId: seeded.companyId, environment: seeded.environment,
-      issueId: null, heartbeatRunId: seeded.runId, persistedExecutionWorkspace: null })).rejects.toBe(failure);
+    const acquisition = candidate.acquireRunLease({ companyId: seeded.companyId, environment: seeded.environment,
+      issueId: null, heartbeatRunId: seeded.runId, persistedExecutionWorkspace: null });
+    if (mode === "inline") {
+      await expect(acquisition).rejects.toMatchObject({
+        message: "Sandbox creation failed; allocated sandbox cleanup was confirmed.", cause: failure,
+      });
+    } else {
+      await expect(acquisition).rejects.toBe(failure);
+    }
     const rows = await db.select().from(environmentLeases).where(eq(environmentLeases.providerLeaseId, providerLeaseId));
     if (["foreign scope", "foreign environment", "foreign run", "malformed"].includes(mode)) {
       expect(rows).toHaveLength(0);
