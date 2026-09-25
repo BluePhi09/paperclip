@@ -28,71 +28,74 @@ export const MIN_ACTIVE_DEADLINE_SEC = 30;
 /**
  * Upper bound on any granted lease, in seconds (24h). This is a sane-duration
  * ceiling, not just an int32-overflow guard: without it, a caller-requested
- * deadline (or a misconfigured `podActivityDeadlineSec` default) could grant
- * an effectively unbounded pod lifetime. 24h comfortably covers any real
- * login-PTY or adapter-install session while still being far short of the
- * int32 `activeDeadlineSeconds` limit (2,147,483,647s, ~68 years).
+ * deadline could grant an effectively unbounded pod lifetime. 24h comfortably
+ * covers any real login-PTY session while still being far short of the int32
+ * `activeDeadlineSeconds` limit (2,147,483,647s, ~68 years).
  */
 export const MAX_ACTIVE_DEADLINE_SEC = 24 * 60 * 60;
 
 export interface BoundedLeaseDeadline {
-  /** Seconds to set as the Sandbox pod's `activeDeadlineSeconds`. */
+  /**
+   * Seconds to set as the Sandbox pod's `activeDeadlineSeconds`. Kubernetes
+   * counts this from the pod's start, which is later than acquisition, so it
+   * is only a backstop; `hardStopAtEpochSec` is the real bound.
+   */
   activeDeadlineSec: number;
+  /**
+   * Absolute wall-clock hard stop (Unix seconds). The sandbox entrypoint exits
+   * at this instant, which tears down every exec'd process in the container,
+   * so the pod never runs past the attested `expiresAt` however late it
+   * started.
+   */
+  hardStopAtEpochSec: number;
   /** ISO 8601 timestamp to return to the server as the lease's `expiresAt`. */
   expiresAt: string;
 }
 
 /**
  * Computes a provider-attested lease deadline bounded by the caller's
- * requested expiry (when supplied) or the environment's configured default.
+ * requested expiry.
+ *
+ * Returns null when the caller requests no deadline: such leases keep the
+ * pre-existing behavior (no `expiresAt`, no pod deadline), matching the
+ * `daytona` provider and the server's `providerAttestedLeaseExpiry`, which
+ * only requires a provider expiry when a deadline was requested.
  *
  * @param requestedExpiresAt - ISO 8601 timestamp from the caller, or
  *   null/undefined when the caller requests no specific deadline.
- * @param defaultActiveDeadlineSec - The environment's configured
- *   `podActivityDeadlineSec`, used when no caller deadline is requested.
  * @param nowMs - Injectable clock for deterministic tests; defaults to
  *   `Date.now()`.
- * @throws Error when `requestedExpiresAt` is already at, before, or within
- *   `MIN_ACTIVE_DEADLINE_SEC` of `nowMs` — fails closed instead of granting
- *   a minimum-viable lease the caller likely cannot use.
+ * @throws Error when `requestedExpiresAt` is unparseable, or already at,
+ *   before, or within `MIN_ACTIVE_DEADLINE_SEC` of `nowMs` — fails closed
+ *   instead of granting a lease the caller did not ask for.
  */
 export function computeBoundedLeaseDeadline(
   requestedExpiresAt: string | null | undefined,
-  defaultActiveDeadlineSec: number,
   nowMs: number = Date.now(),
-): BoundedLeaseDeadline {
-  let activeDeadlineSec: number;
-  if (requestedExpiresAt != null) {
-    const requestedExpiresAtMs = Date.parse(requestedExpiresAt);
-    if (!Number.isFinite(requestedExpiresAtMs)) {
-      throw new Error(
-        `Requested lease deadline (${JSON.stringify(requestedExpiresAt)}) is not a valid ` +
-          `ISO 8601 timestamp. Failing closed instead of silently substituting a default ` +
-          `deadline the caller did not ask for.`,
-      );
-    }
-    const requestedDeadlineSec = Math.floor((requestedExpiresAtMs - nowMs) / 1000);
-    if (requestedDeadlineSec < MIN_ACTIVE_DEADLINE_SEC) {
-      throw new Error(
-        `Requested lease deadline (${requestedExpiresAt}) is already past or too close ` +
-          `(< ${MIN_ACTIVE_DEADLINE_SEC}s) to acquire a bounded lease. Failing closed instead ` +
-          `of granting a near-expired lease.`,
-      );
-    }
-    activeDeadlineSec = Math.min(requestedDeadlineSec, MAX_ACTIVE_DEADLINE_SEC);
-  } else {
-    if (!Number.isFinite(defaultActiveDeadlineSec) || defaultActiveDeadlineSec < MIN_ACTIVE_DEADLINE_SEC) {
-      throw new Error(
-        `Environment's configured default active deadline (${defaultActiveDeadlineSec}) is not ` +
-          `a finite number of seconds of at least ${MIN_ACTIVE_DEADLINE_SEC}. Failing closed ` +
-          `instead of computing an invalid lease expiry.`,
-      );
-    }
-    activeDeadlineSec = Math.min(defaultActiveDeadlineSec, MAX_ACTIVE_DEADLINE_SEC);
+): BoundedLeaseDeadline | null {
+  if (requestedExpiresAt == null) return null;
+  const requestedExpiresAtMs = Date.parse(requestedExpiresAt);
+  if (!Number.isFinite(requestedExpiresAtMs)) {
+    throw new Error(
+      `Requested lease deadline (${JSON.stringify(requestedExpiresAt)}) is not a valid ` +
+        `ISO 8601 timestamp. Failing closed instead of silently substituting a default ` +
+        `deadline the caller did not ask for.`,
+    );
   }
-
+  const requestedDeadlineSec = Math.floor((requestedExpiresAtMs - nowMs) / 1000);
+  if (requestedDeadlineSec < MIN_ACTIVE_DEADLINE_SEC) {
+    throw new Error(
+      `Requested lease deadline (${requestedExpiresAt}) is already past or too close ` +
+        `(< ${MIN_ACTIVE_DEADLINE_SEC}s) to acquire a bounded lease. Failing closed instead ` +
+        `of granting a near-expired lease.`,
+    );
+  }
+  const activeDeadlineSec = Math.min(requestedDeadlineSec, MAX_ACTIVE_DEADLINE_SEC);
+  // Whole seconds, rounded down, so the hard stop never lands after expiresAt.
+  const hardStopAtEpochSec = Math.floor(nowMs / 1000) + activeDeadlineSec;
   return {
     activeDeadlineSec,
-    expiresAt: new Date(nowMs + activeDeadlineSec * 1000).toISOString(),
+    hardStopAtEpochSec,
+    expiresAt: new Date(hardStopAtEpochSec * 1000).toISOString(),
   };
 }

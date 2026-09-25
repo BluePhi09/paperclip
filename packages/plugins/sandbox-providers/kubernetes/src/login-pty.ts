@@ -16,6 +16,8 @@ export interface LoginLeaseScope {
    * in this same change). Kept for diagnostics/future callers only.
    */
   podName: string | null;
+  /** Attested lease expiry (ISO 8601); the sandbox pod stops at this instant. */
+  expiresAt?: string | null;
   config: { inCluster?: boolean; kubeconfig?: string };
 }
 export interface LoginPtyConnection { write(data: string): void; close(): void }
@@ -82,6 +84,9 @@ export function createLoginPtyManager(connect: LoginPtyConnector, events: Events
       const scope = leases.get(params.providerLeaseId);
       if (!scope || scope.companyId !== params.companyId || scope.environmentId !== params.environmentId) {
         throw new Error("Kubernetes login PTY: lease ownership mismatch or unknown lease");
+      }
+      if (scope.expiresAt && !(Date.parse(scope.expiresAt) > Date.now())) {
+        throw new Error("Kubernetes login PTY: lease has expired");
       }
       if (routes.has(params.hostRouteId)) throw new Error("Kubernetes login PTY: route already open");
       if (routes.size >= GLOBAL_MAX_SESSIONS) throw new Error("Kubernetes login PTY concurrent session limit reached");
