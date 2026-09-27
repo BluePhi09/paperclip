@@ -247,15 +247,22 @@ export function mcpConnectorService(db: Db, options: McpConnectorServiceOptions 
       await db.update(toolMcpConnectors).set({ lastSeenAt: now() }).where(eq(toolMcpConnectors.id, connectorId));
     },
 
-    /** Per-request re-validation used by the hub: existence, company binding and revocation. */
-    verify: async (input: { connectorId: string; companyId: string }): Promise<"active" | "revoked" | "not_found"> => {
+    /** Per-request re-validation used by the hub: existence, company binding, active status, and credential matching. */
+    verify: async (input: { connectorId: string; companyId: string; credential?: string }): Promise<"active" | "revoked" | "not_found"> => {
       const [row] = await db
-        .select({ status: toolMcpConnectors.status, revokedAt: toolMcpConnectors.revokedAt })
+        .select({
+          status: toolMcpConnectors.status,
+          revokedAt: toolMcpConnectors.revokedAt,
+          credentialHash: toolMcpConnectors.credentialHash,
+        })
         .from(toolMcpConnectors)
         .where(and(eq(toolMcpConnectors.id, input.connectorId), eq(toolMcpConnectors.companyId, input.companyId)))
         .limit(1);
       if (!row) return "not_found";
-      if (row.status === "revoked" || row.revokedAt) return "revoked";
+      if (row.status !== "active" || row.revokedAt) return "revoked";
+      if (input.credential && (!row.credentialHash || !hashesEqual(row.credentialHash, hashSecret(input.credential)))) {
+        return "revoked";
+      }
       return "active";
     },
 

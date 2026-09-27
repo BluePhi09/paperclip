@@ -100,18 +100,27 @@ function AddConnectorConnectionDialog({
 
   const create = useMutation({
     mutationFn: async () => {
-      const connection = await toolsApi.createConnection(companyId, {
-        applicationName: name.trim(),
-        name: name.trim(),
-        transport: "connector",
-        status: "draft",
-        enabled: false,
-        config: { connectorId: connector.id, upstream },
-      });
-      await toolsApi.checkConnectionHealth(connection.id);
-      const refreshed = await toolsApi.refreshCatalog(connection.id);
-      await toolsApi.updateConnection(connection.id, { status: "active", enabled: true });
-      return refreshed;
+      let createdConnectionId: string | null = null;
+      try {
+        const connection = await toolsApi.createConnection(companyId, {
+          applicationName: name.trim(),
+          name: name.trim(),
+          transport: "connector",
+          status: "draft",
+          enabled: false,
+          config: { connectorId: connector.id, upstream },
+        });
+        createdConnectionId = connection.id;
+        await toolsApi.checkConnectionHealth(connection.id);
+        await toolsApi.updateConnection(connection.id, { status: "active", enabled: true });
+        const refreshed = await toolsApi.refreshCatalog(connection.id);
+        return refreshed;
+      } catch (error) {
+        if (createdConnectionId) {
+          await toolsApi.archiveConnection(createdConnectionId).catch(() => undefined);
+        }
+        throw error;
+      }
     },
     onSuccess: (refreshed) => {
       qc.invalidateQueries({ queryKey: queryKeys.tools.connections(companyId) });
@@ -123,7 +132,11 @@ function AddConnectorConnectionDialog({
       });
       onClose();
     },
-    onError: (error) => pushToast({ title: "Could not add connection", body: errorMessage(error), tone: "error" }),
+    onError: (error) => {
+      qc.invalidateQueries({ queryKey: queryKeys.tools.connections(companyId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tools.applications(companyId) });
+      pushToast({ title: "Could not add connection", body: errorMessage(error), tone: "error" });
+    },
   });
 
   const canCreate = Boolean(upstream) && name.trim().length > 0 && !create.isPending;

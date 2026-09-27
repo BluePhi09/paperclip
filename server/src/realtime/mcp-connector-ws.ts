@@ -186,12 +186,19 @@ export function setupMcpConnectorWebSocketServer(
           }
           await connectors.recordConnected(auth.connectorId, { version: frame.version, upstreams: frame.upstreams });
           if (closed) return;
+          // Re-verify that the connector is still active and the credential has not been cleared during the write
+          const stillValid = await connectors.authenticate(auth.credential);
+          if (closed || !stillValid || stillValid.companyId !== auth.companyId) {
+            ws.close(MCP_CONNECTOR_CLOSE_CODES.revoked, "revoked");
+            return;
+          }
           session = hub.attach({
             connectorId: auth.connectorId,
             companyId: auth.companyId,
             socket: ws,
             version: frame.version,
             upstreams: new Set(frame.upstreams),
+            credential: auth.credential,
           });
           ws.send(JSON.stringify({
             type: "welcome",

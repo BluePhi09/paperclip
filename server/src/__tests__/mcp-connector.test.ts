@@ -41,6 +41,7 @@ import { isSecretSensitiveHttpRequest } from "../middleware/http-log-policy.js";
 import { setupMcpConnectorWebSocketServer } from "../realtime/mcp-connector-ws.js";
 import { mcpConnectorRoutes } from "../routes/mcp-connectors.js";
 import { McpConnectorHub } from "../services/mcp-connector-hub.js";
+import { mcpConnectorService } from "../services/mcp-connectors.js";
 import { toolAccessService } from "../services/tool-access.js";
 import { createToolGatewayService } from "../services/tool-gateway.js";
 import {
@@ -559,6 +560,44 @@ describeEmbeddedPostgres("outbound MCP connector", () => {
       logger: () => undefined,
     });
     await expect(credentialsClient.run()).rejects.toBeInstanceOf(ConnectorFatalError);
+  });
+
+  it("re-enrolling invalidates the old session immediately and blocks further requests", async () => {
+    const company = await createCompany();
+    const created = await createConnector(company.id);
+    const running = await startConnector(created.enrollmentToken);
+    const service = publicService();
+    const connection = await createConnectorConnection(service, company.id, created.connector.id);
+    await service.checkHealth(connection.id);
+
+    expect(hub.isOnline(created.connector.id)).toBe(true);
+
+    const reenrollRes = await request(paperclip)
+      .post(`/api/companies/${company.id}/tools/mcp-connectors/${created.connector.id}/reenroll`)
+      .expect(200);
+    expect(reenrollRes.body.enrollmentToken).toBeDefined();
+
+    // Session is disconnected immediately
+    expect(hub.isOnline(created.connector.id)).toBe(false);
+
+    // Any relayed request is rejected because the connector status is pending, not active
+    await expect(hub.request({
+      companyId: company.id,
+      connectorId: created.connector.id,
+      upstream: "unifi",
+      init: { method: "POST", body: "{}" },
+    })).rejects.toMatchObject({ code: "connector_revoked" });
+
+    // Verifier refuses pending status and non-matching credentials
+    const connectors = mcpConnectorService(db);
+    const verification = await connectors.verify({
+      connectorId: created.connector.id,
+      companyId: company.id,
+      credential: "pcmcc_dummy_credential",
+    });
+    expect(verification).toBe("revoked");
+
+    running.client.stop();
   });
 
   it("never serves another company's connections", async () => {

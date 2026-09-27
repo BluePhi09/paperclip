@@ -89,18 +89,20 @@ export interface McpConnectorSession {
   readonly socket: McpConnectorSocket;
   readonly version: string;
   readonly upstreams: ReadonlySet<string>;
+  readonly credential?: string;
   readonly connectedAt: Date;
   readonly pending: Map<string, PendingRequest>;
 }
 
 /**
  * Re-validates a connector against the database before every relayed request:
- * it must still exist, belong to `companyId`, and not be revoked. The WS layer
- * installs the database-backed implementation.
+ * it must still exist, belong to `companyId`, be active, and match the session credential.
+ * The WS layer installs the database-backed implementation.
  */
 export type McpConnectorVerifier = (input: {
   connectorId: string;
   companyId: string;
+  credential?: string;
 }) => Promise<"active" | "revoked" | "not_found">;
 
 export interface McpConnectorRelayInput {
@@ -254,15 +256,20 @@ export class McpConnectorHub {
     if (!isValidMcpConnectorUpstreamName(input.upstream)) {
       throw new McpConnectorRelayError("connector_upstream_unknown");
     }
+    const session = this.sessions.get(input.connectorId);
+
     if (this.verifier) {
-      const state = await this.verifier({ connectorId: input.connectorId, companyId: input.companyId });
+      const state = await this.verifier({
+        connectorId: input.connectorId,
+        companyId: input.companyId,
+        credential: session?.credential,
+      });
       if (state === "not_found") throw new McpConnectorRelayError("connector_not_found");
       if (state === "revoked") {
         this.disconnect(input.connectorId);
         throw new McpConnectorRelayError("connector_revoked");
       }
     }
-    const session = this.sessions.get(input.connectorId);
     if (!session) throw new McpConnectorRelayError("connector_offline");
     // Company boundary, checked per request against the authenticated session.
     if (session.companyId !== input.companyId) throw new McpConnectorRelayError("connector_not_found");

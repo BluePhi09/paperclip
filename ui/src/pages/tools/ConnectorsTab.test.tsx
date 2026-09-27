@@ -9,6 +9,11 @@ import { ConnectorsTab } from "./ConnectorsTab";
 
 const listMock = vi.hoisted(() => vi.fn());
 const createMock = vi.hoisted(() => vi.fn());
+const createConnectionMock = vi.hoisted(() => vi.fn());
+const checkConnectionHealthMock = vi.hoisted(() => vi.fn());
+const updateConnectionMock = vi.hoisted(() => vi.fn());
+const refreshCatalogMock = vi.hoisted(() => vi.fn());
+const archiveConnectionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/mcp-connectors", () => ({
   mcpConnectorsApi: {
@@ -20,7 +25,13 @@ vi.mock("@/api/mcp-connectors", () => ({
 }));
 
 vi.mock("@/api/tools", () => ({
-  toolsApi: { createConnection: vi.fn(), checkConnectionHealth: vi.fn(), refreshCatalog: vi.fn(), updateConnection: vi.fn() },
+  toolsApi: {
+    createConnection: (...args: unknown[]) => createConnectionMock(...args),
+    checkConnectionHealth: (...args: unknown[]) => checkConnectionHealthMock(...args),
+    refreshCatalog: (...args: unknown[]) => refreshCatalogMock(...args),
+    updateConnection: (...args: unknown[]) => updateConnectionMock(...args),
+    archiveConnection: (...args: unknown[]) => archiveConnectionMock(...args),
+  },
 }));
 
 vi.mock("@/context/ToastContext", () => ({
@@ -136,5 +147,63 @@ describe("ConnectorsTab", () => {
     await act(() => done.click());
     await flushReact();
     expect(container.textContent).not.toContain("pcmce_");
+  });
+
+  it("activates connection before refreshing catalog so action access is created", async () => {
+    const callOrder: string[] = [];
+    listMock.mockResolvedValue({ connectors: [connector({ upstreams: ["unifi"] })] });
+    createConnectionMock.mockImplementation(async () => {
+      callOrder.push("createConnection");
+      return { id: "conn-123" };
+    });
+    checkConnectionHealthMock.mockImplementation(async () => {
+      callOrder.push("checkConnectionHealth");
+      return { status: "ok" };
+    });
+    updateConnectionMock.mockImplementation(async () => {
+      callOrder.push("updateConnection");
+      return { id: "conn-123", status: "active" };
+    });
+    refreshCatalogMock.mockImplementation(async () => {
+      callOrder.push("refreshCatalog");
+      return { discoveredCount: 5, quarantinedCount: 0 };
+    });
+
+    await render();
+    const addBtn = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Add connection"))!;
+    await act(() => addBtn.click());
+    await flushReact();
+
+    const submitBtn = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Connect and discover actions"))!;
+    expect(submitBtn).toBeDefined();
+    await act(() => submitBtn.click());
+    await flushReact();
+
+    expect(callOrder).toEqual([
+      "createConnection",
+      "checkConnectionHealth",
+      "updateConnection",
+      "refreshCatalog",
+    ]);
+  });
+
+  it("archives connection if health check or catalog refresh fails to avoid duplicate drafts", async () => {
+    listMock.mockResolvedValue({ connectors: [connector({ upstreams: ["unifi"] })] });
+    createConnectionMock.mockResolvedValue({ id: "conn-456" });
+    checkConnectionHealthMock.mockRejectedValue(new Error("Upstream unreachable"));
+    archiveConnectionMock.mockResolvedValue({ id: "conn-456", status: "archived" });
+
+    await render();
+    const addBtn = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Add connection"))!;
+    await act(() => addBtn.click());
+    await flushReact();
+
+    const submitBtn = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Connect and discover actions"))!;
+    await act(() => submitBtn.click());
+    await flushReact();
+
+    expect(createConnectionMock).toHaveBeenCalled();
+    expect(checkConnectionHealthMock).toHaveBeenCalledWith("conn-456");
+    expect(archiveConnectionMock).toHaveBeenCalledWith("conn-456");
   });
 });
