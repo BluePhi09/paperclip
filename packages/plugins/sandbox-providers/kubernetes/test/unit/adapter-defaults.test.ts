@@ -44,6 +44,17 @@ describe("adapter-defaults (built-in)", () => {
     expect(d.probeCommand).toEqual(["gemini", "--version"]);
   });
 
+  it("returns defaults for cursor_local", () => {
+    const d = getAdapterDefaults("cursor_local");
+    expect(d.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-cursor:v1");
+    expect(d.envKeys).toEqual(["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]);
+    expect(d.allowFqdns).toContain("api.anthropic.com");
+    expect(d.allowFqdns).toContain("api.openai.com");
+    expect(d.allowFqdns).toContain("cursor.com");
+    expect(d.allowFqdns).toContain("api2.cursor.sh");
+    expect(d.probeCommand).toEqual(["cursor-agent", "--version"]);
+  });
+
   it("throws on unknown adapter type", () => {
     expect(() => getAdapterDefaults("nonexistent_local")).toThrow(/unknown adapter type/i);
   });
