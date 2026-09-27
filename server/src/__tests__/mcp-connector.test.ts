@@ -7,7 +7,7 @@ import { join } from "node:path";
 import express from "express";
 import request from "supertest";
 import { and, eq } from "drizzle-orm";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   activityLog,
   agents,
@@ -645,6 +645,42 @@ describeEmbeddedPostgres("outbound MCP connector", () => {
       .post(`/api/companies/${other.id}/tools/mcp-connectors/${created.connector.id}/revoke`)
       .expect(404);
     expect(hub.isOnline(created.connector.id)).toBe(true);
+  });
+
+  it("does not disconnect a newer replaced session if an older session verification is rejected", async () => {
+    const company = await createCompany();
+    const fakeSocket1 = { close: vi.fn(), send: vi.fn() } as unknown as WebSocket;
+    const fakeSocket2 = { close: vi.fn(), send: vi.fn() } as unknown as WebSocket;
+
+    const s1 = hub.attach({
+      connectorId: "connector-test",
+      companyId: company.id,
+      socket: fakeSocket1,
+      version: "0.1.0",
+      upstreams: new Set(["unifi"]),
+      credential: "cred-old",
+    });
+
+    const s2 = hub.attach({
+      connectorId: "connector-test",
+      companyId: company.id,
+      socket: fakeSocket2,
+      version: "0.1.0",
+      upstreams: new Set(["unifi"]),
+      credential: "cred-new",
+    });
+
+    expect(hub.isOnline("connector-test")).toBe(true);
+    expect(hub.session("connector-test")).toBe(s2);
+
+    // Revoking the old session s1 should NOT disconnect s2
+    hub.disconnect("connector-test", "revoked", s1);
+    expect(hub.isOnline("connector-test")).toBe(true);
+    expect(hub.session("connector-test")).toBe(s2);
+
+    // Targetless revocation disconnects whatever is currently active
+    hub.disconnect("connector-test", "revoked");
+    expect(hub.isOnline("connector-test")).toBe(false);
   });
 });
 

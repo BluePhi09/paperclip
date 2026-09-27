@@ -187,7 +187,37 @@ describe("ConnectorsTab", () => {
     ]);
   });
 
-  it("archives connection if health check or catalog refresh fails to avoid duplicate drafts", async () => {
+  it("reuses draft connection on retry after health check failure without duplicate creation", async () => {
+    listMock.mockResolvedValue({ connectors: [connector({ upstreams: ["unifi"] })] });
+    createConnectionMock.mockResolvedValue({ id: "conn-456" });
+    checkConnectionHealthMock
+      .mockRejectedValueOnce(new Error("Upstream unreachable"))
+      .mockResolvedValueOnce({ status: "ok" });
+    updateConnectionMock.mockResolvedValue({ id: "conn-456", status: "active" });
+    refreshCatalogMock.mockResolvedValue({ discoveredCount: 2, quarantinedCount: 0 });
+
+    await render();
+    const addBtn = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Add connection"))!;
+    await act(() => addBtn.click());
+    await flushReact();
+
+    const submitBtn = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Connect and discover actions"))!;
+    await act(() => submitBtn.click());
+    await flushReact();
+
+    expect(createConnectionMock).toHaveBeenCalledTimes(1);
+    expect(checkConnectionHealthMock).toHaveBeenCalledTimes(1);
+
+    // Retry should update the existing draft connection instead of calling createConnection again
+    await act(() => submitBtn.click());
+    await flushReact();
+
+    expect(createConnectionMock).toHaveBeenCalledTimes(1);
+    expect(updateConnectionMock).toHaveBeenCalled();
+    expect(refreshCatalogMock).toHaveBeenCalledWith("conn-456");
+  });
+
+  it("archives draft connection when dialog is closed after failure", async () => {
     listMock.mockResolvedValue({ connectors: [connector({ upstreams: ["unifi"] })] });
     createConnectionMock.mockResolvedValue({ id: "conn-456" });
     checkConnectionHealthMock.mockRejectedValue(new Error("Upstream unreachable"));
@@ -202,8 +232,10 @@ describe("ConnectorsTab", () => {
     await act(() => submitBtn.click());
     await flushReact();
 
-    expect(createConnectionMock).toHaveBeenCalled();
-    expect(checkConnectionHealthMock).toHaveBeenCalledWith("conn-456");
+    const cancelBtn = [...document.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!;
+    await act(() => cancelBtn.click());
+    await flushReact();
+
     expect(archiveConnectionMock).toHaveBeenCalledWith("conn-456");
   });
 });

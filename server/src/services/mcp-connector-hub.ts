@@ -172,11 +172,18 @@ export class McpConnectorHub {
   }
 
   /** Revocation or credential reset: close the socket now and fail in-flight calls cleanly. */
-  disconnect(connectorId: string, reason: "revoked" | "reenrolled" = "revoked") {
-    const session = this.sessions.get(connectorId);
-    if (!session) return;
-    this.sessions.delete(connectorId);
-    this.closeSession(session, MCP_CONNECTOR_CLOSE_CODES.revoked, reason, "connector_revoked");
+  disconnect(
+    connectorId: string,
+    reason: "revoked" | "reenrolled" = "revoked",
+    targetSession?: McpConnectorSession,
+  ) {
+    const current = this.sessions.get(connectorId);
+    const sessionToClose = targetSession ?? current;
+    if (!sessionToClose) return;
+    if (current === sessionToClose) {
+      this.sessions.delete(connectorId);
+    }
+    this.closeSession(sessionToClose, MCP_CONNECTOR_CLOSE_CODES.revoked, reason, "connector_revoked");
   }
 
   /** Close every session (server shutdown, tests). */
@@ -256,25 +263,35 @@ export class McpConnectorHub {
     if (!isValidMcpConnectorUpstreamName(input.upstream)) {
       throw new McpConnectorRelayError("connector_upstream_unknown");
     }
-    const session = this.sessions.get(input.connectorId);
 
-    if (this.verifier) {
-      const state = await this.verifier({
-        connectorId: input.connectorId,
-        companyId: input.companyId,
-        credential: session?.credential,
-      });
-      if (state === "not_found") throw new McpConnectorRelayError("connector_not_found");
-      if (state === "revoked") {
-        this.disconnect(input.connectorId);
-        throw new McpConnectorRelayError("connector_revoked");
+    let activeSession: McpConnectorSession | undefined;
+    while (true) {
+      const session = this.sessions.get(input.connectorId);
+
+      if (this.verifier) {
+        const state = await this.verifier({
+          connectorId: input.connectorId,
+          companyId: input.companyId,
+          credential: session?.credential,
+        });
+        if (state === "not_found") throw new McpConnectorRelayError("connector_not_found");
+        if (state === "revoked") {
+          if (session) this.disconnect(input.connectorId, "revoked", session);
+          throw new McpConnectorRelayError("connector_revoked");
+        }
       }
+      activeSession = this.sessions.get(input.connectorId);
+      if (!activeSession) throw new McpConnectorRelayError("connector_offline");
+      if (this.verifier && activeSession.credential !== session?.credential) {
+        continue;
+      }
+      break;
     }
-    if (!session) throw new McpConnectorRelayError("connector_offline");
+
     // Company boundary, checked per request against the authenticated session.
-    if (session.companyId !== input.companyId) throw new McpConnectorRelayError("connector_not_found");
-    if (!session.upstreams.has(input.upstream)) throw new McpConnectorRelayError("connector_upstream_unknown");
-    if (session.pending.size >= MCP_CONNECTOR_MAX_IN_FLIGHT_REQUESTS) throw new McpConnectorRelayError("connector_busy");
+    if (activeSession.companyId !== input.companyId) throw new McpConnectorRelayError("connector_not_found");
+    if (!activeSession.upstreams.has(input.upstream)) throw new McpConnectorRelayError("connector_upstream_unknown");
+    if (activeSession.pending.size >= MCP_CONNECTOR_MAX_IN_FLIGHT_REQUESTS) throw new McpConnectorRelayError("connector_busy");
 
     const method = (input.init.method ?? "POST").toUpperCase();
     if (method !== "POST" && method !== "DELETE") throw new McpConnectorRelayError("connector_protocol_error");
@@ -305,19 +322,19 @@ export class McpConnectorHub {
     return new Promise<Response>((resolve, reject) => {
       const cancel = () => {
         try {
-          session.socket.send(JSON.stringify({ type: "cancel", id: frame.id }));
+          activeSession.socket.send(JSON.stringify({ type: "cancel", id: frame.id }));
         } catch {
           // Best effort: the connector also enforces the request timeout.
         }
       };
       const onAbort = () => {
-        if (!session.pending.delete(frame.id)) return;
+        if (!activeSession.pending.delete(frame.id)) return;
         pendingEntry.cleanup();
         cancel();
         reject(abortError());
       };
       const timer = setTimeout(() => {
-        if (!session.pending.delete(frame.id)) return;
+        if (!activeSession.pending.delete(frame.id)) return;
         pendingEntry.cleanup();
         cancel();
         reject(new McpConnectorRelayError("connector_timeout"));
@@ -333,11 +350,11 @@ export class McpConnectorHub {
         },
       };
       signal?.addEventListener("abort", onAbort, { once: true });
-      session.pending.set(frame.id, pendingEntry);
+      activeSession.pending.set(frame.id, pendingEntry);
       try {
-        session.socket.send(JSON.stringify(frame));
+        activeSession.socket.send(JSON.stringify(frame));
       } catch {
-        session.pending.delete(frame.id);
+        activeSession.pending.delete(frame.id);
         pendingEntry.cleanup();
         reject(new McpConnectorRelayError("connector_offline"));
       }

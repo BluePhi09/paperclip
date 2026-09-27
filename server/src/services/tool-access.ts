@@ -17543,18 +17543,44 @@ export function toolAccessService(
           );
         }
       } else {
-        const [app] = await db
-          .insert(toolApplications)
-          .values({
-            companyId,
-            applicationKey: normalizeKey(input.applicationName ?? input.name),
-            name: input.applicationName ?? input.name,
-            type: isRemoteMcpTransport(transport) ? "mcp_http" : "mcp_stdio",
-            status: "active",
-            metadata: {},
-          })
-          .returning();
-        applicationId = app.id;
+        const appName = input.applicationName ?? input.name;
+        const appKey = normalizeKey(appName);
+        const [existing] = await db
+          .select()
+          .from(toolApplications)
+          .where(
+            and(
+              eq(toolApplications.companyId, companyId),
+              or(
+                eq(toolApplications.name, appName),
+                eq(toolApplications.applicationKey, appKey),
+              ),
+            ),
+          )
+          .limit(1);
+        if (existing) {
+          applicationId = existing.id;
+          applicationNamespace = existing.applicationKey ?? existing.name;
+          if (existing.status === "archived") {
+            await db
+              .update(toolApplications)
+              .set({ status: "active", archivedAt: null, updatedAt: new Date() })
+              .where(eq(toolApplications.id, existing.id));
+          }
+        } else {
+          const [app] = await db
+            .insert(toolApplications)
+            .values({
+              companyId,
+              applicationKey: appKey,
+              name: appName,
+              type: isRemoteMcpTransport(transport) ? "mcp_http" : "mcp_stdio",
+              status: "active",
+              metadata: {},
+            })
+            .returning();
+          applicationId = app.id;
+        }
       }
       const connectionId = randomUUID();
       const binding = actorBinding(actor);
