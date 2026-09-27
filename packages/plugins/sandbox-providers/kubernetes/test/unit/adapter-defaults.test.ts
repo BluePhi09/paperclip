@@ -44,39 +44,16 @@ describe("adapter-defaults (built-in)", () => {
     expect(d.probeCommand).toEqual(["gemini", "--version"]);
   });
 
-  it("returns defaults for grok_local", () => {
-    const d = getAdapterDefaults("grok_local");
-    expect(d.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-grok:v1");
-    expect(d.envKeys).toContain("XAI_API_KEY");
-    expect(d.allowFqdns).toContain("api.x.ai");
-    expect(d.allowFqdns).toContain("accounts.x.ai");
-    expect(d.allowFqdns).toContain("auth.x.ai");
-    expect(d.probeCommand).toEqual(["grok", "--version"]);
-  });
-
-  it("returns defaults for cursor and cursor_local", () => {
-    const d1 = getAdapterDefaults("cursor");
-    const d2 = getAdapterDefaults("cursor_local");
-    expect(d1).toEqual(d2);
-    expect(d1.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-cursor:v1");
-    expect(d1.envKeys).toEqual(["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]);
-    expect(d1.allowFqdns).toContain("cursor.com");
-    expect(d1.allowFqdns).toContain("api2.cursor.sh");
-    expect(d1.probeCommand).toEqual(["cursor-agent", "--version"]);
-  });
-
   it("throws on unknown adapter type", () => {
     expect(() => getAdapterDefaults("nonexistent_local")).toThrow(/unknown adapter type/i);
   });
 
-  it("KNOWN_ADAPTER_TYPES contains all supported adapters", () => {
+  it("KNOWN_ADAPTER_TYPES contains all 6 supported adapters", () => {
     expect(KNOWN_ADAPTER_TYPES).toEqual(
       new Set([
         "claude_local",
         "codex_local",
         "gemini_local",
-        "grok_local",
-        "cursor",
         "cursor_local",
         "opencode_local",
         "pi_local",
