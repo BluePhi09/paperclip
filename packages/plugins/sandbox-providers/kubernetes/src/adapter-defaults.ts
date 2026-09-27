@@ -51,35 +51,10 @@ const REGISTRY: Record<string, AdapterDefaults> = {
     ],
     probeCommand: ["gemini", "--version"],
   },
-  grok_local: {
-    runtimeImage: "ghcr.io/paperclipai/agent-runtime-grok:v1",
-    envKeys: ["XAI_API_KEY"],
-    // Grok device-login and API endpoints:
-    // accounts.x.ai for device login (https://accounts.x.ai/oauth2/device),
-    // api.x.ai for REST API, auth.x.ai for token/identity exchanges.
-    allowFqdns: ["api.x.ai", "accounts.x.ai", "auth.x.ai"],
-    probeCommand: ["grok", "--version"],
-  },
-  cursor: {
-    runtimeImage: "ghcr.io/paperclipai/agent-runtime-cursor:v1",
-    envKeys: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
-    allowFqdns: [
-      "api.anthropic.com",
-      "api.openai.com",
-      "cursor.com",
-      "api2.cursor.sh",
-    ],
-    probeCommand: ["cursor-agent", "--version"],
-  },
   cursor_local: {
     runtimeImage: "ghcr.io/paperclipai/agent-runtime-cursor:v1",
     envKeys: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
-    allowFqdns: [
-      "api.anthropic.com",
-      "api.openai.com",
-      "cursor.com",
-      "api2.cursor.sh",
-    ],
+    allowFqdns: ["api.anthropic.com", "api.openai.com"],
     probeCommand: ["cursor-agent", "--version"],
   },
   opencode_local: {
