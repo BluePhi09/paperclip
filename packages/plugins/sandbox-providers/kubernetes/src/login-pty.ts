@@ -31,7 +31,7 @@ type Entry = { route: string; id: string; lease: string; connection?: LoginPtyCo
 const HOME = /^\/tmp\/paperclip-adapter-login\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const COMMANDS = {
   claude: "exec claude setup-token",
-  codex: "exec env CODEX_HOME=HOME codex login --device-auth",
+  codex: "exec env CODEX_HOME=HOME codex -c 'cli_auth_credentials_store=\"file\"' login --device-auth",
   grok: "exec env GROK_HOME=HOME grok login --device-auth",
 } as const;
 const MAX_CHUNK = 64 * 1024;
