@@ -21,7 +21,16 @@ const REGISTRY: Record<string, AdapterDefaults> = {
   codex_local: {
     runtimeImage: "ghcr.io/paperclipai/agent-runtime-codex:latest",
     envKeys: ["OPENAI_API_KEY"],
-    allowFqdns: ["api.openai.com", "auth.openai.com"],
+    // Codex device-login and subscription authentication endpoints:
+    // auth.openai.com for device auth token exchange, api.openai.com for REST API/models,
+    // chatgpt.com for subscriber auth/quota backend (backend-api/wham/usage).
+    allowFqdns: [
+      "api.openai.com",
+      "auth.openai.com",
+      "chatgpt.com",
+      "platform.openai.com",
+      "oaistatic.com",
+    ],
     probeCommand: ["codex", "--version"],
   },
   gemini_local: {

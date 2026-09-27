@@ -51,7 +51,7 @@ describe("Kubernetes login PTY", () => {
   });
 
   it("uses fixed Codex and Grok commands with session-scoped homes", async () => {
-    for (const [key, line] of [["codex", `exec env CODEX_HOME='${HOME}' codex login --device-auth`], ["grok", `exec env GROK_HOME='${HOME}' grok login --device-auth`]] as const) {
+    for (const [key, line] of [["codex", `exec env CODEX_HOME='${HOME}' codex -c 'cli_auth_credentials_store="file"' login --device-auth`], ["grok", `exec env GROK_HOME='${HOME}' grok login --device-auth`]] as const) {
       const h = harness();
       await h.manager.open({ ...h.request, loginCommandKey: key });
       expect(h.connections[0].command[2]).toBe(`mkdir -p '${HOME}' && ${line}`);
