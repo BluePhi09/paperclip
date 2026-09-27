@@ -108,7 +108,7 @@ Common optional fields:
 |---|---|---|
 | `backend` | `"sandbox-cr"` | Only `sandbox-cr` is accepted for new validated environments; legacy `job` leases remain supported. |
 | `paperclipServerPodSelector` | `{ "app": "paperclip-server" }` | Pod labels on the Paperclip API callback target in the server namespace (e.g. `{ "app": "paperclip" }`). |
-| `adapterType` | `"claude_local"` | One of the supported adapter types (claude_local, codex_local, gemini_local, grok_local, cursor, cursor_local, opencode_local, pi_local). Determines runtime image + env keys + egress allow-list. |
+| `adapterType` | `"claude_local"` | One of the supported adapter types (claude_local, codex_local, gemini_local, cursor_local, opencode_local, pi_local). Determines runtime image + env keys + egress allow-list. |
 | `namespacePrefix` | `"paperclip-"` | Prefix for the per-company tenant namespace. |
 | `companySlug` | derived from companyId | Override the auto-derived company slug. |
 | `imageRegistry` | (none) | Override the default registry for agent runtime images. |
