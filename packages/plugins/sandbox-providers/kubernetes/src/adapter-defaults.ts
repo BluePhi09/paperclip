@@ -13,9 +13,15 @@ const REGISTRY: Record<string, AdapterDefaults> = {
   claude_local: {
     runtimeImage: "ghcr.io/paperclipai/agent-runtime-claude:latest",
     envKeys: ["ANTHROPIC_API_KEY"],
-    // Claude Code 2.1.278 setup-token invokes ConsoleOAuthFlow(mode=setup-token);
-    // its OAuth constants name claude.com/cai/oauth/authorize and platform.claude.com/v1/oauth/token.
-    allowFqdns: ["api.anthropic.com", "claude.com", "platform.claude.com"],
+    // Claude Code setup-token invokes ConsoleOAuthFlow; its OAuth constants name
+    // claude.com/cai/oauth/authorize, claude.ai/oauth/authorize, and platform.claude.com/v1/oauth/token.
+    allowFqdns: [
+      "api.anthropic.com",
+      "claude.com",
+      "platform.claude.com",
+      "claude.ai",
+      "console.anthropic.com",
+    ],
     probeCommand: ["claude", "--version"],
   },
   codex_local: {
@@ -36,13 +42,44 @@ const REGISTRY: Record<string, AdapterDefaults> = {
   gemini_local: {
     runtimeImage: "ghcr.io/paperclipai/agent-runtime-gemini:latest",
     envKeys: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
-    allowFqdns: ["generativelanguage.googleapis.com"],
+    // generativelanguage.googleapis.com for Gemini API;
+    // oauth2.googleapis.com and sts.googleapis.com for Google Auth Library token refresh/federation.
+    allowFqdns: [
+      "generativelanguage.googleapis.com",
+      "oauth2.googleapis.com",
+      "sts.googleapis.com",
+    ],
     probeCommand: ["gemini", "--version"],
+  },
+  grok_local: {
+    runtimeImage: "ghcr.io/paperclipai/agent-runtime-grok:v1",
+    envKeys: ["XAI_API_KEY"],
+    // Grok device-login and API endpoints:
+    // accounts.x.ai for device login (https://accounts.x.ai/oauth2/device),
+    // api.x.ai for REST API, auth.x.ai for token/identity exchanges.
+    allowFqdns: ["api.x.ai", "accounts.x.ai", "auth.x.ai"],
+    probeCommand: ["grok", "--version"],
+  },
+  cursor: {
+    runtimeImage: "ghcr.io/paperclipai/agent-runtime-cursor:v1",
+    envKeys: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
+    allowFqdns: [
+      "api.anthropic.com",
+      "api.openai.com",
+      "cursor.com",
+      "api2.cursor.sh",
+    ],
+    probeCommand: ["cursor-agent", "--version"],
   },
   cursor_local: {
     runtimeImage: "ghcr.io/paperclipai/agent-runtime-cursor:v1",
     envKeys: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
-    allowFqdns: ["api.anthropic.com", "api.openai.com"],
+    allowFqdns: [
+      "api.anthropic.com",
+      "api.openai.com",
+      "cursor.com",
+      "api2.cursor.sh",
+    ],
     probeCommand: ["cursor-agent", "--version"],
   },
   opencode_local: {
