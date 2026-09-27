@@ -25,7 +25,11 @@ describe("adapter-defaults (built-in)", () => {
     const d = getAdapterDefaults("codex_local");
     expect(d.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-codex:v1");
     expect(d.envKeys).toContain("OPENAI_API_KEY");
+    expect(d.allowFqdns).toContain("api.openai.com");
     expect(d.allowFqdns).toContain("auth.openai.com");
+    expect(d.allowFqdns).toContain("chatgpt.com");
+    expect(d.allowFqdns).toContain("platform.openai.com");
+    expect(d.allowFqdns).toContain("oaistatic.com");
     expect(d.probeCommand).toEqual(["codex", "--version"]);
   });
 
