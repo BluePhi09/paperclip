@@ -54,7 +54,14 @@ const REGISTRY: Record<string, AdapterDefaults> = {
   cursor_local: {
     runtimeImage: "ghcr.io/paperclipai/agent-runtime-cursor:v1",
     envKeys: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
-    allowFqdns: ["api.anthropic.com", "api.openai.com"],
+    // cursor.com for CLI install / assets; api2.cursor.sh for Cursor backend services;
+    // api.anthropic.com and api.openai.com for model inference endpoints.
+    allowFqdns: [
+      "api.anthropic.com",
+      "api.openai.com",
+      "cursor.com",
+      "api2.cursor.sh",
+    ],
     probeCommand: ["cursor-agent", "--version"],
   },
   opencode_local: {
