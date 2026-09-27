@@ -97,11 +97,24 @@ function AddConnectorConnectionDialog({
   const { pushToast } = useToast();
   const [upstream, setUpstream] = useState(connector.upstreams[0] ?? "");
   const [name, setName] = useState(connector.upstreams[0] ? `${connector.name} ${connector.upstreams[0]}` : "");
+  const [draftConnectionId, setDraftConnectionId] = useState<string | null>(null);
+
+  const handleClose = () => {
+    if (draftConnectionId) {
+      void toolsApi.archiveConnection(draftConnectionId).catch(() => undefined);
+    }
+    onClose();
+  };
 
   const create = useMutation({
     mutationFn: async () => {
-      let createdConnectionId: string | null = null;
-      try {
+      let connectionId = draftConnectionId;
+      if (connectionId) {
+        await toolsApi.updateConnection(connectionId, {
+          name: name.trim(),
+          config: { connectorId: connector.id, upstream },
+        });
+      } else {
         const connection = await toolsApi.createConnection(companyId, {
           applicationName: name.trim(),
           name: name.trim(),
@@ -110,19 +123,16 @@ function AddConnectorConnectionDialog({
           enabled: false,
           config: { connectorId: connector.id, upstream },
         });
-        createdConnectionId = connection.id;
-        await toolsApi.checkConnectionHealth(connection.id);
-        await toolsApi.updateConnection(connection.id, { status: "active", enabled: true });
-        const refreshed = await toolsApi.refreshCatalog(connection.id);
-        return refreshed;
-      } catch (error) {
-        if (createdConnectionId) {
-          await toolsApi.archiveConnection(createdConnectionId).catch(() => undefined);
-        }
-        throw error;
+        connectionId = connection.id;
+        setDraftConnectionId(connection.id);
       }
+      await toolsApi.checkConnectionHealth(connectionId);
+      await toolsApi.updateConnection(connectionId, { status: "active", enabled: true });
+      const refreshed = await toolsApi.refreshCatalog(connectionId);
+      return refreshed;
     },
     onSuccess: (refreshed) => {
+      setDraftConnectionId(null);
       qc.invalidateQueries({ queryKey: queryKeys.tools.connections(companyId) });
       qc.invalidateQueries({ queryKey: queryKeys.tools.applications(companyId) });
       pushToast({
@@ -142,7 +152,7 @@ function AddConnectorConnectionDialog({
   const canCreate = Boolean(upstream) && name.trim().length > 0 && !create.isPending;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Add connection through {connector.name}</DialogTitle>
@@ -178,7 +188,7 @@ function AddConnectorConnectionDialog({
           </div>
         </div>
         <DialogFooter className="flex-row items-center justify-between sm:justify-between">
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={handleClose}>
             Cancel
           </Button>
           <Button type="button" onClick={() => create.mutate()} disabled={!canCreate}>
