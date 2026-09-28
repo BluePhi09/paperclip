@@ -61,7 +61,7 @@ wins):
 
 | Variable | Config file key | Meaning |
 | --- | --- | --- |
-| `PAPERCLIP_URL` | `paperclipUrl` | Paperclip public HTTPS URL (same as `PAPERCLIP_PUBLIC_URL`); plaintext HTTP is accepted only for literal `127.0.0.1` or `[::1]` loopback development. Enrollment and credential rotation do not follow redirects. |
+| `PAPERCLIP_URL` | `paperclipUrl` | Paperclip public HTTPS URL (same as `PAPERCLIP_PUBLIC_URL`); plaintext HTTP is accepted only for `localhost`, literal `127.0.0.1` or `[::1]` loopback development. `localhost` is pinned to `127.0.0.1` before any credential transfer. Enrollment and credential rotation do not follow redirects. |
 | `PAPERCLIP_MCP_CONNECTOR_ENROLLMENT_TOKEN` | `enrollmentToken` | One-time token, used only on first start. |
 | `PAPERCLIP_MCP_CONNECTOR_CREDENTIALS_FILE` | `credentialsFile` | Where the long-lived credential is stored (mode `0600`). Put it on a persistent volume. |
 | `PAPERCLIP_MCP_CONNECTOR_UPSTREAMS` | `upstreams` | `name=url,name=url`, or a JSON object. |

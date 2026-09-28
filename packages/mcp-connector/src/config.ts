@@ -117,9 +117,14 @@ export function loadConnectorConfig(input: { configPath?: string | null; env?: E
     throw new ConnectorConfigError("Set PAPERCLIP_URL (or paperclipUrl in the config file) to the Paperclip public URL");
   }
   const loopbackHttp = paperclipUrl.protocol === "http:"
-    && (paperclipUrl.hostname === "127.0.0.1" || paperclipUrl.hostname === "[::1]");
+    && (["127.0.0.1", "[::1]", "localhost"].includes(paperclipUrl.hostname));
   if (paperclipUrl.protocol !== "https:" && !loopbackHttp) {
-    throw new ConnectorConfigError("PAPERCLIP_URL must use HTTPS (HTTP is allowed only for 127.0.0.1 or [::1] loopback)");
+    throw new ConnectorConfigError("PAPERCLIP_URL must use HTTPS (HTTP is allowed only for localhost, 127.0.0.1 or [::1] loopback)");
+  }
+  // Pin the local-development hostname to a literal loopback address so a
+  // hosts-file or DNS change cannot route a credential-bearing HTTP request elsewhere.
+  if (paperclipUrl.protocol === "http:" && paperclipUrl.hostname === "localhost") {
+    paperclipUrl.hostname = "127.0.0.1";
   }
   const upstreamSource = env.PAPERCLIP_MCP_CONNECTOR_UPSTREAMS
     ? parseUpstreamsEnv(env.PAPERCLIP_MCP_CONNECTOR_UPSTREAMS)

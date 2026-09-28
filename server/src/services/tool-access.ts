@@ -17545,19 +17545,22 @@ export function toolAccessService(
       } else {
         const appName = input.applicationName ?? input.name;
         const appKey = normalizeKey(appName);
-        const [existing] = await db
+        let [existing] = await db
           .select()
           .from(toolApplications)
           .where(and(eq(toolApplications.companyId, companyId), eq(toolApplications.name, appName)))
           .limit(1);
         if (!existing) {
           const [keyOwner] = await db
-            .select({ id: toolApplications.id })
+            .select()
             .from(toolApplications)
             .where(and(eq(toolApplications.companyId, companyId), eq(toolApplications.applicationKey, appKey)))
             .limit(1);
           if (keyOwner) {
-            throw unprocessable("A different application already uses this key");
+            if (keyOwner.name.trim().toLowerCase() !== appName.trim().toLowerCase()) {
+              throw unprocessable("A different application already uses this key");
+            }
+            existing = keyOwner;
           }
         }
         if (existing) {
