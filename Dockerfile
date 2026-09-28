@@ -50,10 +50,12 @@ COPY packages/plugins/plugin-workspace-diff/package.json packages/plugins/plugin
 COPY patches/ patches/
 COPY scripts/link-plugin-dev-sdk.mjs scripts/
 
-# PRs cannot commit lockfile updates. Resolve a newly added workspace package
-# inside this build stage, then use the resulting frozen lockfile for install.
-RUN pnpm install --resolution-only --no-frozen-lockfile \
-  && pnpm install --frozen-lockfile
+# PRs cannot commit lockfile updates. Preserve a current verified lockfile;
+# only resolve a newly added workspace package if frozen install rejects it.
+RUN if ! pnpm install --frozen-lockfile; then \
+      pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile \
+      && pnpm install --frozen-lockfile; \
+    fi
 
 FROM base AS rust-toolchain
 WORKDIR /app
