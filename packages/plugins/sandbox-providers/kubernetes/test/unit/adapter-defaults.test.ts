@@ -35,7 +35,7 @@ describe("adapter-defaults (built-in)", () => {
 
   it("returns defaults for gemini_local", () => {
     const d = getAdapterDefaults("gemini_local");
-    expect(d.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-gemini:v1");
+    expect(d.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-gemini:latest");
     expect(d.envKeys).toContain("GOOGLE_API_KEY");
     expect(d.envKeys).toContain("GEMINI_API_KEY");
     expect(d.allowFqdns).toContain("generativelanguage.googleapis.com");
