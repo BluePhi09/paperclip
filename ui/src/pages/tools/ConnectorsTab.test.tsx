@@ -238,4 +238,36 @@ describe("ConnectorsTab", () => {
 
     expect(archiveConnectionMock).toHaveBeenCalledWith("conn-456");
   });
+
+  it("archives the connection without activating it when the dialog closes during creation", async () => {
+    listMock.mockResolvedValue({ connectors: [connector({ upstreams: ["unifi"] })] });
+    let resolveCreate: (value: { id: string }) => void = () => undefined;
+    createConnectionMock.mockImplementation(
+      () => new Promise<{ id: string }>((resolve) => { resolveCreate = resolve; }),
+    );
+    archiveConnectionMock.mockResolvedValue({ id: "conn-789", status: "archived" });
+
+    await render();
+    const addBtn = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Add connection"))!;
+    await act(() => addBtn.click());
+    await flushReact();
+
+    const submitBtn = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Connect and discover actions"))!;
+    await act(() => submitBtn.click());
+    await flushReact();
+    expect(createConnectionMock).toHaveBeenCalledTimes(1);
+
+    const cancelBtn = [...document.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!;
+    await act(() => cancelBtn.click());
+    await flushReact();
+    expect(archiveConnectionMock).not.toHaveBeenCalled();
+
+    await act(async () => resolveCreate({ id: "conn-789" }));
+    await flushReact();
+
+    expect(archiveConnectionMock).toHaveBeenCalledWith("conn-789");
+    expect(checkConnectionHealthMock).not.toHaveBeenCalled();
+    expect(updateConnectionMock).not.toHaveBeenCalled();
+    expect(refreshCatalogMock).not.toHaveBeenCalled();
+  });
 });

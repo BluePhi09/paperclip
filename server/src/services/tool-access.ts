@@ -17559,6 +17559,14 @@ export function toolAccessService(
           )
           .limit(1);
         if (existing) {
+          if (
+            (isRemoteMcpTransport(transport) && existing.type !== "mcp_http") ||
+            (transport === "local_stdio" && existing.type !== "mcp_stdio")
+          ) {
+            throw unprocessable(
+              "Connection transport must match application type",
+            );
+          }
           applicationId = existing.id;
           applicationNamespace = existing.applicationKey ?? existing.name;
           if (existing.status === "archived") {
