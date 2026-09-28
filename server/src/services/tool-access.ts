@@ -17548,16 +17548,18 @@ export function toolAccessService(
         const [existing] = await db
           .select()
           .from(toolApplications)
-          .where(
-            and(
-              eq(toolApplications.companyId, companyId),
-              or(
-                eq(toolApplications.name, appName),
-                eq(toolApplications.applicationKey, appKey),
-              ),
-            ),
-          )
+          .where(and(eq(toolApplications.companyId, companyId), eq(toolApplications.name, appName)))
           .limit(1);
+        if (!existing) {
+          const [keyOwner] = await db
+            .select({ id: toolApplications.id })
+            .from(toolApplications)
+            .where(and(eq(toolApplications.companyId, companyId), eq(toolApplications.applicationKey, appKey)))
+            .limit(1);
+          if (keyOwner) {
+            throw unprocessable("A different application already uses this key");
+          }
+        }
         if (existing) {
           if (
             (isRemoteMcpTransport(transport) && existing.type !== "mcp_http") ||

@@ -99,6 +99,7 @@ export class McpConnectorClient {
     }
     const response = await this.doFetch(new URL(MCP_CONNECTOR_ENROLL_PATH, `${this.config.paperclipUrl}/`), {
       method: "POST",
+      redirect: "error",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token: this.config.enrollmentToken, version: CONNECTOR_VERSION }),
     });
@@ -129,6 +130,7 @@ export class McpConnectorClient {
     const current = this.credentials ?? await this.ensureCredentials();
     const response = await this.doFetch(new URL(MCP_CONNECTOR_ROTATE_PATH, `${this.config.paperclipUrl}/`), {
       method: "POST",
+      redirect: "error",
       headers: { authorization: `Bearer ${current.credential}` },
     });
     if (!response.ok) {

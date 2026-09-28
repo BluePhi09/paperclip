@@ -116,8 +116,10 @@ export function loadConnectorConfig(input: { configPath?: string | null; env?: E
   } catch {
     throw new ConnectorConfigError("Set PAPERCLIP_URL (or paperclipUrl in the config file) to the Paperclip public URL");
   }
-  if (paperclipUrl.protocol !== "https:" && paperclipUrl.protocol !== "http:") {
-    throw new ConnectorConfigError("PAPERCLIP_URL must be an http(s) URL");
+  const loopbackHttp = paperclipUrl.protocol === "http:"
+    && (paperclipUrl.hostname === "127.0.0.1" || paperclipUrl.hostname === "[::1]");
+  if (paperclipUrl.protocol !== "https:" && !loopbackHttp) {
+    throw new ConnectorConfigError("PAPERCLIP_URL must use HTTPS (HTTP is allowed only for 127.0.0.1 or [::1] loopback)");
   }
   const upstreamSource = env.PAPERCLIP_MCP_CONNECTOR_UPSTREAMS
     ? parseUpstreamsEnv(env.PAPERCLIP_MCP_CONNECTOR_UPSTREAMS)

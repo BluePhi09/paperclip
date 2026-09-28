@@ -2682,6 +2682,27 @@ describeEmbeddedPostgres("tool access service", () => {
       .where(eq(toolConnections.companyId, company.id))).toEqual([]);
   });
 
+  it("does not attach a connection to a differently named application with a matching key", async () => {
+    const company = await createCompany(db);
+    const service = createTestToolAccessService(db);
+    const [other] = await db.insert(toolApplications).values({
+      companyId: company.id,
+      applicationKey: "my-new-app",
+      name: "Legacy app with an independent key",
+      type: "mcp_http",
+      status: "active",
+    }).returning();
+
+    await expect(service.createConnection(company.id, {
+      applicationName: "My New App",
+      name: "My New App",
+      transport: "mcp_remote",
+      config: { url: "https://mcp.example.com/mcp" },
+    })).rejects.toMatchObject({ status: 422 });
+    expect(await db.select().from(toolConnections)
+      .where(eq(toolConnections.applicationId, other.id))).toEqual([]);
+  });
+
   it("rejects the obsolete Anthropic REST setup before storing credentials", async () => {
     const company = await createCompany(db);
     const service = createTestToolAccessService(db);

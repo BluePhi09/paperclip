@@ -5,6 +5,18 @@ import { describe, expect, it } from "vitest";
 import { ConnectorConfigError, loadConnectorConfig } from "./config.js";
 
 describe("loadConnectorConfig", () => {
+  it("rejects plaintext Paperclip URLs outside explicit loopback addresses", () => {
+    for (const url of ["http://paperclip.example.com", "http://192.168.1.10:3100", "http://localhost:3100", "http://127.0.0.2:3100"]) {
+      expect(() => loadConnectorConfig({
+        env: { PAPERCLIP_URL: url, PAPERCLIP_MCP_CONNECTOR_UPSTREAMS: "demo=http://localhost/mcp" },
+      })).toThrow(/HTTPS.*loopback/);
+    }
+    for (const url of ["http://127.0.0.1:3100", "http://[::1]:3100"]) {
+      expect(loadConnectorConfig({
+        env: { PAPERCLIP_URL: url, PAPERCLIP_MCP_CONNECTOR_UPSTREAMS: "demo=http://localhost/mcp" },
+      }).paperclipUrl).toBe(url);
+    }
+  });
   it("reads upstreams from the environment shorthand", () => {
     const config = loadConnectorConfig({
       env: {
