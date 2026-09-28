@@ -19,7 +19,7 @@ CREATE TABLE "tool_mcp_connectors" (
 	CONSTRAINT "tool_mcp_connectors_status_check" CHECK ("tool_mcp_connectors"."status" in ('pending', 'active', 'revoked'))
 );
 --> statement-breakpoint
-ALTER TABLE "tool_connections" DROP CONSTRAINT "tool_connections_transport_check";--> statement-breakpoint
+ALTER TABLE "tool_connections" DROP CONSTRAINT IF EXISTS "tool_connections_transport_check";--> statement-breakpoint
 ALTER TABLE "tool_mcp_connectors" ADD CONSTRAINT "tool_mcp_connectors_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "tool_mcp_connectors_company_idx" ON "tool_mcp_connectors" USING btree ("company_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "tool_mcp_connectors_company_name_uq" ON "tool_mcp_connectors" USING btree ("company_id","name");--> statement-breakpoint
