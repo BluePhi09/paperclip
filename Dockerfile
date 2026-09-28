@@ -52,10 +52,13 @@ COPY scripts/link-plugin-dev-sdk.mjs scripts/
 
 # PRs cannot commit lockfile updates. Preserve a current verified lockfile;
 # only resolve a newly added workspace package if frozen install rejects it.
-RUN if ! pnpm install --frozen-lockfile; then \
+# Never execute third-party lifecycle hooks as root; run only the trusted
+# repository hook required to link the excluded development plugins.
+RUN if ! pnpm install --frozen-lockfile --ignore-scripts; then \
       pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile \
-      && pnpm install --frozen-lockfile; \
-    fi
+      && pnpm install --frozen-lockfile --ignore-scripts; \
+    fi \
+  && node scripts/link-plugin-dev-sdk.mjs
 
 FROM base AS rust-toolchain
 WORKDIR /app

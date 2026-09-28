@@ -12,15 +12,16 @@ RUN if ! pnpm install --frozen-lockfile --ignore-scripts --filter "@paperclipai/
       && pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile \
       && pnpm install --frozen-lockfile --ignore-scripts --filter "@paperclipai/mcp-connector..."; \
     fi \
-  && pnpm --filter @paperclipai/mcp-connector build
+  && pnpm --filter @paperclipai/mcp-connector build \
+  && pnpm --filter @paperclipai/mcp-connector deploy --prod --ignore-scripts /out
 
 FROM node:24-alpine
 WORKDIR /app
 ENV NODE_ENV=production \
     PAPERCLIP_MCP_CONNECTOR_CREDENTIALS_FILE=/data/credentials.json
-COPY --from=build /src/packages/mcp-connector/dist ./dist
-RUN npm install --omit=dev --no-audit --no-fund ws@8.21.3 \
-  && mkdir -p /data && chown node:node /data
+# Carry only the lockfile-resolved runtime package and its dependencies.
+COPY --from=build /out/ ./
+RUN mkdir -p /data && chown node:node /data
 USER node
 VOLUME ["/data"]
 ENTRYPOINT ["node", "/app/dist/main.js"]
