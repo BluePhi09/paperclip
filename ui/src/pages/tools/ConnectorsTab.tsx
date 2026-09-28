@@ -108,8 +108,35 @@ function AddConnectorConnectionDialog({
   const cancelledRef = useRef(false);
   const draftConnectionIdRef = useRef<string | null>(null);
 
-  const archiveDraft = (connectionId: string) =>
-    toolsApi.archiveConnection(connectionId).then(() => undefined, () => undefined);
+  const invalidateConnections = () => {
+    qc.invalidateQueries({ queryKey: queryKeys.tools.connections(companyId) });
+    qc.invalidateQueries({ queryKey: queryKeys.tools.applications(companyId) });
+  };
+
+  // Removes the connection a cancelled setup left behind. The dialog is
+  // usually gone by the time this settles, so a failure is reported through a
+  // toast that lets the operator retry instead of being dropped.
+  const removeCancelledConnection = async (connectionId: string): Promise<void> => {
+    try {
+      await toolsApi.archiveConnection(connectionId);
+      if (draftConnectionIdRef.current === connectionId) draftConnectionIdRef.current = null;
+    } catch (error) {
+      // Setup may already have activated it: at least take it out of service.
+      const disabled = await toolsApi
+        .updateConnection(connectionId, { status: "draft", enabled: false })
+        .then(() => true, () => false);
+      pushToast({
+        title: "Could not remove cancelled connection",
+        body: `${errorMessage(error)} ${
+          disabled ? "It has been disabled" : "It may still be enabled"
+        }. Retry, or remove it under Apps.`,
+        tone: "error",
+        action: { label: "Retry removal", onClick: () => void removeCancelledConnection(connectionId) },
+      });
+    } finally {
+      invalidateConnections();
+    }
+  };
 
   const handleClose = () => {
     cancelledRef.current = true;
@@ -117,7 +144,7 @@ function AddConnectorConnectionDialog({
     // the connection itself once its current step returns, so cleanup never
     // races activation.
     if (!create.isPending && draftConnectionIdRef.current) {
-      void archiveDraft(draftConnectionIdRef.current);
+      void removeCancelledConnection(draftConnectionIdRef.current);
     }
     onClose();
   };
@@ -126,6 +153,7 @@ function AddConnectorConnectionDialog({
     mutationFn: async () => {
       cancelledRef.current = false;
       let connectionId = draftConnectionIdRef.current;
+      let activated = false;
       const throwIfCancelled = () => {
         if (cancelledRef.current) throw new DialogCancelledError();
       };
@@ -151,21 +179,36 @@ function AddConnectorConnectionDialog({
         await toolsApi.checkConnectionHealth(connectionId);
         throwIfCancelled();
         await toolsApi.updateConnection(connectionId, { status: "active", enabled: true });
+        activated = true;
         throwIfCancelled();
         const refreshed = await toolsApi.refreshCatalog(connectionId);
         throwIfCancelled();
         return refreshed;
       } catch (error) {
+        if (!connectionId) throw error;
         // The operator closed the dialog mid-flight: remove whatever this run
         // created, after its last request settled, so nothing is left active.
-        if (cancelledRef.current && connectionId) await archiveDraft(connectionId);
+        if (cancelledRef.current) {
+          await removeCancelledConnection(connectionId);
+          throw error;
+        }
+        // Discovery did not finish: put the connection back to an inactive
+        // draft so a retry (or closing the dialog) starts from a clean state.
+        if (activated) {
+          try {
+            await toolsApi.updateConnection(connectionId, { status: "draft", enabled: false });
+          } catch (rollbackError) {
+            throw new Error(
+              `${errorMessage(error)} The connection could not be deactivated (${errorMessage(rollbackError)}) and is still enabled; retry, or close this dialog to remove it.`,
+            );
+          }
+        }
         throw error;
       }
     },
     onSuccess: (refreshed) => {
       draftConnectionIdRef.current = null;
-      qc.invalidateQueries({ queryKey: queryKeys.tools.connections(companyId) });
-      qc.invalidateQueries({ queryKey: queryKeys.tools.applications(companyId) });
+      invalidateConnections();
       pushToast({
         title: "Connection added",
         body: `${refreshed.discoveredCount} actions discovered. Review access for them under Apps.`,
@@ -174,8 +217,7 @@ function AddConnectorConnectionDialog({
       onClose();
     },
     onError: (error) => {
-      qc.invalidateQueries({ queryKey: queryKeys.tools.connections(companyId) });
-      qc.invalidateQueries({ queryKey: queryKeys.tools.applications(companyId) });
+      invalidateConnections();
       if (error instanceof DialogCancelledError) return;
       pushToast({ title: "Could not add connection", body: errorMessage(error), tone: "error" });
     },

@@ -14,6 +14,7 @@ const checkConnectionHealthMock = vi.hoisted(() => vi.fn());
 const updateConnectionMock = vi.hoisted(() => vi.fn());
 const refreshCatalogMock = vi.hoisted(() => vi.fn());
 const archiveConnectionMock = vi.hoisted(() => vi.fn());
+const pushToastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/mcp-connectors", () => ({
   mcpConnectorsApi: {
@@ -35,7 +36,7 @@ vi.mock("@/api/tools", () => ({
 }));
 
 vi.mock("@/context/ToastContext", () => ({
-  useToast: () => ({ pushToast: vi.fn() }),
+  useToast: () => ({ pushToast: pushToastMock }),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -269,5 +270,70 @@ describe("ConnectorsTab", () => {
     expect(checkConnectionHealthMock).not.toHaveBeenCalled();
     expect(updateConnectionMock).not.toHaveBeenCalled();
     expect(refreshCatalogMock).not.toHaveBeenCalled();
+  });
+
+  it("deactivates the connection again when catalog refresh fails after activation", async () => {
+    listMock.mockResolvedValue({ connectors: [connector({ upstreams: ["unifi"] })] });
+    createConnectionMock.mockResolvedValue({ id: "conn-321" });
+    checkConnectionHealthMock.mockResolvedValue({ status: "ok" });
+    updateConnectionMock.mockResolvedValue({ id: "conn-321" });
+    refreshCatalogMock.mockRejectedValue(new Error("Discovery failed"));
+
+    await render();
+    const addBtn = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Add connection"))!;
+    await act(() => addBtn.click());
+    await flushReact();
+
+    const submitBtn = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Connect and discover actions"))!;
+    await act(() => submitBtn.click());
+    await flushReact();
+
+    expect(updateConnectionMock.mock.calls).toEqual([
+      ["conn-321", { status: "active", enabled: true }],
+      ["conn-321", { status: "draft", enabled: false }],
+    ]);
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Could not add connection", body: expect.stringContaining("Discovery failed"), tone: "error" }),
+    );
+  });
+
+  it("surfaces a failed cleanup after cancelling and lets the operator retry removal", async () => {
+    listMock.mockResolvedValue({ connectors: [connector({ upstreams: ["unifi"] })] });
+    createConnectionMock.mockResolvedValue({ id: "conn-654" });
+    checkConnectionHealthMock.mockResolvedValue({ status: "ok" });
+    let resolveActivate: (value: { id: string }) => void = () => undefined;
+    updateConnectionMock
+      .mockImplementationOnce(() => new Promise<{ id: string }>((resolve) => { resolveActivate = resolve; }))
+      .mockResolvedValue({ id: "conn-654" });
+    archiveConnectionMock
+      .mockRejectedValueOnce(new Error("Archive failed."))
+      .mockResolvedValue({ id: "conn-654", status: "archived" });
+
+    await render();
+    const addBtn = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Add connection"))!;
+    await act(() => addBtn.click());
+    await flushReact();
+
+    const submitBtn = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Connect and discover actions"))!;
+    await act(() => submitBtn.click());
+    await flushReact();
+
+    const cancelBtn = [...document.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!;
+    await act(() => cancelBtn.click());
+    await flushReact();
+
+    await act(async () => resolveActivate({ id: "conn-654" }));
+    await flushReact();
+
+    expect(refreshCatalogMock).not.toHaveBeenCalled();
+    expect(archiveConnectionMock).toHaveBeenCalledWith("conn-654");
+    expect(updateConnectionMock).toHaveBeenLastCalledWith("conn-654", { status: "draft", enabled: false });
+    const toast = pushToastMock.mock.calls.map(([input]) => input).find((input) => input.title === "Could not remove cancelled connection");
+    expect(toast).toMatchObject({ tone: "error", action: { label: "Retry removal" } });
+    expect(toast.body).toContain("It has been disabled");
+
+    await act(async () => toast.action.onClick());
+    await flushReact();
+    expect(archiveConnectionMock).toHaveBeenCalledTimes(2);
   });
 });
