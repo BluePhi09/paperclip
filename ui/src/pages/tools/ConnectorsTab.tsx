@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpConnector, McpConnectorEnrollment } from "@paperclipai/shared";
 import { Cable, Check, Copy, Plus, RotateCcw, ShieldOff } from "lucide-react";
@@ -83,6 +83,12 @@ function EnrollmentTokenPanel({ enrollment, onDone }: { enrollment: McpConnector
   );
 }
 
+class DialogCancelledError extends Error {
+  constructor() {
+    super("Connection setup was cancelled");
+  }
+}
+
 /** Create a `transport: "connector"` connection for one published upstream, probe it, then activate it. */
 function AddConnectorConnectionDialog({
   companyId,
@@ -97,42 +103,67 @@ function AddConnectorConnectionDialog({
   const { pushToast } = useToast();
   const [upstream, setUpstream] = useState(connector.upstreams[0] ?? "");
   const [name, setName] = useState(connector.upstreams[0] ? `${connector.name} ${connector.upstreams[0]}` : "");
-  const [draftConnectionId, setDraftConnectionId] = useState<string | null>(null);
+  // Refs so an in-flight mutation sees a close that happens after it started
+  // and the close handler sees a connection ID the moment it exists.
+  const cancelledRef = useRef(false);
+  const draftConnectionIdRef = useRef<string | null>(null);
+
+  const archiveDraft = (connectionId: string) =>
+    toolsApi.archiveConnection(connectionId).then(() => undefined, () => undefined);
 
   const handleClose = () => {
-    if (draftConnectionId) {
-      void toolsApi.archiveConnection(draftConnectionId).catch(() => undefined);
+    cancelledRef.current = true;
+    // While a create/probe/activate request is in flight, the mutation archives
+    // the connection itself once its current step returns, so cleanup never
+    // races activation.
+    if (!create.isPending && draftConnectionIdRef.current) {
+      void archiveDraft(draftConnectionIdRef.current);
     }
     onClose();
   };
 
   const create = useMutation({
     mutationFn: async () => {
-      let connectionId = draftConnectionId;
-      if (connectionId) {
-        await toolsApi.updateConnection(connectionId, {
-          name: name.trim(),
-          config: { connectorId: connector.id, upstream },
-        });
-      } else {
-        const connection = await toolsApi.createConnection(companyId, {
-          applicationName: name.trim(),
-          name: name.trim(),
-          transport: "connector",
-          status: "draft",
-          enabled: false,
-          config: { connectorId: connector.id, upstream },
-        });
-        connectionId = connection.id;
-        setDraftConnectionId(connection.id);
+      cancelledRef.current = false;
+      let connectionId = draftConnectionIdRef.current;
+      const throwIfCancelled = () => {
+        if (cancelledRef.current) throw new DialogCancelledError();
+      };
+      try {
+        if (connectionId) {
+          await toolsApi.updateConnection(connectionId, {
+            name: name.trim(),
+            config: { connectorId: connector.id, upstream },
+          });
+        } else {
+          const connection = await toolsApi.createConnection(companyId, {
+            applicationName: name.trim(),
+            name: name.trim(),
+            transport: "connector",
+            status: "draft",
+            enabled: false,
+            config: { connectorId: connector.id, upstream },
+          });
+          connectionId = connection.id;
+          draftConnectionIdRef.current = connection.id;
+        }
+        throwIfCancelled();
+        await toolsApi.checkConnectionHealth(connectionId);
+        throwIfCancelled();
+        await toolsApi.updateConnection(connectionId, { status: "active", enabled: true });
+        throwIfCancelled();
+        const refreshed = await toolsApi.refreshCatalog(connectionId);
+        throwIfCancelled();
+        return refreshed;
+      } catch (error) {
+        // The operator closed the dialog mid-flight: remove whatever this run
+        // created, after its last request settled, so nothing is left active.
+        if (cancelledRef.current && connectionId) await archiveDraft(connectionId);
+        throw error;
       }
-      await toolsApi.checkConnectionHealth(connectionId);
-      await toolsApi.updateConnection(connectionId, { status: "active", enabled: true });
-      const refreshed = await toolsApi.refreshCatalog(connectionId);
-      return refreshed;
     },
     onSuccess: (refreshed) => {
-      setDraftConnectionId(null);
+      draftConnectionIdRef.current = null;
       qc.invalidateQueries({ queryKey: queryKeys.tools.connections(companyId) });
       qc.invalidateQueries({ queryKey: queryKeys.tools.applications(companyId) });
       pushToast({
@@ -145,6 +176,7 @@ function AddConnectorConnectionDialog({
     onError: (error) => {
       qc.invalidateQueries({ queryKey: queryKeys.tools.connections(companyId) });
       qc.invalidateQueries({ queryKey: queryKeys.tools.applications(companyId) });
+      if (error instanceof DialogCancelledError) return;
       pushToast({ title: "Could not add connection", body: errorMessage(error), tone: "error" });
     },
   });
