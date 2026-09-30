@@ -23,7 +23,7 @@ describe("adapter-defaults (built-in)", () => {
 
   it("returns defaults for codex_local", () => {
     const d = getAdapterDefaults("codex_local");
-    expect(d.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-codex:latest");
+    expect(d.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-codex:git-38d8f371722b315d2fb3bbaa512518742e33ce2f@sha256:3ec984b41bdcaa17690744f4e4123f3158e3f25b6c05a913e5945877b99cd8a4");
     expect(d.envKeys).toContain("OPENAI_API_KEY");
     expect(d.allowFqdns).toContain("api.openai.com");
     expect(d.allowFqdns).toContain("auth.openai.com");

@@ -25,7 +25,7 @@ const REGISTRY: Record<string, AdapterDefaults> = {
     probeCommand: ["claude", "--version"],
   },
   codex_local: {
-    runtimeImage: "ghcr.io/paperclipai/agent-runtime-codex:latest",
+    runtimeImage: "ghcr.io/paperclipai/agent-runtime-codex:git-38d8f371722b315d2fb3bbaa512518742e33ce2f@sha256:3ec984b41bdcaa17690744f4e4123f3158e3f25b6c05a913e5945877b99cd8a4",
     envKeys: ["OPENAI_API_KEY"],
     // Codex device-login and subscription authentication endpoints:
     // auth.openai.com for device auth token exchange, api.openai.com for REST API/models,
