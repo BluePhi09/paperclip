@@ -137,8 +137,10 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   // caller's own grants: the controller requires a running heartbeat, an
   // `access.*`/`env.*` binding on this agent and `secrets:read`, and registers
   // each resolved value for run-log redaction. Secret management stays denied.
+  // The key segment mirrors the secret key format (`[a-zA-Z0-9_.-]{1,120}` in
+  // shared/validators/secret.ts), minus the `.`/`..` dot segments.
   { method: "GET", path: /^\/api\/agents\/me\/secrets$/ },
-  { method: "POST", path: /^\/api\/agents\/me\/secrets\/[A-Za-z_][A-Za-z0-9_]*\/value$/ },
+  { method: "POST", path: /^\/api\/agents\/me\/secrets\/(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,120}\/value$/ },
 
   // Read-only schema discovery for validated control-plane requests.
   { method: "GET", path: /^\/api\/openapi\.json$/ },
