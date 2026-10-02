@@ -1452,6 +1452,9 @@ describe("sandbox callback bridge", () => {
       { method: "POST", path: "/api/routines/r-1/triggers" },
       { method: "PATCH", path: "/api/routine-triggers/t-1" },
       { method: "DELETE", path: "/api/routine-triggers/t-1" },
+      { method: "GET", path: "/api/agents/me/secrets" },
+      { method: "POST", path: "/api/agents/me/secrets/SYNNAS_USER/value" },
+      { method: "POST", path: "/api/agents/me/secrets/github_token/value" },
     ];
     for (const request of allowed) {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBeNull();
@@ -1491,6 +1494,16 @@ describe("sandbox callback bridge", () => {
       { method: "POST", path: "/api/companies/co-1/logo" },
       { method: "GET", path: "/api/companies/co-1/secrets" },
       { method: "PATCH", path: "/api/secrets/secret-1" },
+      // Secret access stays confined to the caller's own run-bound grants.
+      { method: "GET", path: "/api/agents/agent-1/secrets" },
+      { method: "POST", path: "/api/agents/agent-1/secrets/SYNNAS_USER/value" },
+      { method: "GET", path: "/api/agents/me/secrets/SYNNAS_USER/value" },
+      { method: "POST", path: "/api/agents/me/secrets" },
+      { method: "POST", path: "/api/agents/me/secrets/SYNNAS_USER" },
+      { method: "POST", path: "/api/agents/me/secrets/a/b/value" },
+      { method: "POST", path: "/api/agents/me/secrets/..%2Fx/value" },
+      { method: "DELETE", path: "/api/agents/me/secrets/SYNNAS_USER/value" },
+      { method: "POST", path: "/api/agents/me/secret-proposals" },
     ];
     for (const request of denied) {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBe(
