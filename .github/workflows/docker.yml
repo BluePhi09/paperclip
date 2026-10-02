@@ -225,14 +225,21 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          # Pin the self-hosted image to the production stage explicitly:
-          # the Dockerfile now declares a later `cloud` stage, and without a
-          # target the default would silently become that stage.
-          target: production
+          # BluePhi09: switched from `production` to `cloud` so the e2b
+          # sandbox-provider plugin ships pre-built (dist/ + node_modules),
+          # since our paperclip Deployment runs with readOnlyRootFilesystem:
+          # true and can't build it at container-runtime install time.
+          # Reviewed 2026-10-02: the existing cloud-plugins stage works for
+          # e2b unmodified (same postinstall plugin-sdk symlink mechanism
+          # daytona already relies on) — no Dockerfile change needed, just
+          # this target/build-arg switch. `cloud` also bakes CLOUD_BUNDLED_SERVER_DEPS
+          # (@sentry/node, default) — inert unless Sentry is configured.
+          target: cloud
           build-args: |
             PAPERCLIP_BUILD_VERSION=${{ steps.build-version.outputs.version }}
             PAPERCLIP_BUILD_COMMIT=${{ github.sha }}
             CLI_TOOLS_CACHE_EPOCH=${{ steps.tools-epoch.outputs.epoch }}
+            CLOUD_BUNDLED_PLUGINS=daytona e2b
           platforms: ${{ matrix.platform }}
           # By digest, not by tag: two runners cannot each push the same tag
           # and end up with a manifest list. Each leg publishes an untagged
