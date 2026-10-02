@@ -1455,6 +1455,8 @@ describe("sandbox callback bridge", () => {
       { method: "GET", path: "/api/agents/me/secrets" },
       { method: "POST", path: "/api/agents/me/secrets/SYNNAS_USER/value" },
       { method: "POST", path: "/api/agents/me/secrets/github_token/value" },
+      { method: "POST", path: "/api/agents/me/secrets/nova-gitea-token/value" },
+      { method: "POST", path: "/api/agents/me/secrets/nebula.sops.v2/value" },
     ];
     for (const request of allowed) {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBeNull();
@@ -1502,6 +1504,9 @@ describe("sandbox callback bridge", () => {
       { method: "POST", path: "/api/agents/me/secrets/SYNNAS_USER" },
       { method: "POST", path: "/api/agents/me/secrets/a/b/value" },
       { method: "POST", path: "/api/agents/me/secrets/..%2Fx/value" },
+      { method: "POST", path: "/api/agents/me/secrets/./value" },
+      { method: "POST", path: "/api/agents/me/secrets/../value" },
+      { method: "POST", path: `/api/agents/me/secrets/${"a".repeat(121)}/value` },
       { method: "DELETE", path: "/api/agents/me/secrets/SYNNAS_USER/value" },
       { method: "POST", path: "/api/agents/me/secret-proposals" },
     ];
