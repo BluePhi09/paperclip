@@ -272,6 +272,32 @@ describe("buildPluginWorkerEnv", () => {
     });
   });
 
+  it("passes the self-hosted E2B endpoint vars alongside the E2B credential", () => {
+    const env = buildPluginWorkerEnv({
+      manifest: {
+        capabilities: ["environment.drivers.register"],
+        environmentDrivers: [{ driverKey: "e2b" }],
+      },
+      packageName: "@paperclipai/plugin-e2b",
+      packagePath: null,
+      instanceInfo,
+      processEnv: {
+        E2B_API_KEY: "e2b-token",
+        E2B_API_URL: "http://e2b.internal:3000",
+        E2B_SANDBOX_URL: "http://e2b.internal:3002",
+        E2B_DOMAIN: "e2b.internal",
+      },
+    });
+
+    expect(env).toEqual({
+      PAPERCLIP_DEPLOYMENT_MODE: "authenticated",
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "public",
+      E2B_API_KEY: "e2b-token",
+      E2B_API_URL: "http://e2b.internal:3000",
+      E2B_SANDBOX_URL: "http://e2b.internal:3002",
+    });
+  });
+
   it("does not pass the credential to a local plugin that self-declares the first-party name", () => {
     const env = buildPluginWorkerEnv({
       manifest: {

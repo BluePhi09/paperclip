@@ -143,7 +143,12 @@ const SANDBOX_PROVIDER_CREDENTIAL_ENV_PASSTHROUGH: Record<
 > = {
   "@paperclipai/plugin-createos": { driverKey: "createos", envVars: ["CREATEOS_API_KEY"] },
   "@paperclipai/plugin-daytona": { driverKey: "daytona", envVars: ["DAYTONA_API_KEY"] },
-  "@paperclipai/plugin-e2b": { driverKey: "e2b", envVars: ["E2B_API_KEY"] },
+  "@paperclipai/plugin-e2b": {
+    driverKey: "e2b",
+    // E2B_API_URL / E2B_SANDBOX_URL point the SDK at a self-hosted E2B
+    // deployment instead of the public e2b.app cloud.
+    envVars: ["E2B_API_KEY", "E2B_API_URL", "E2B_SANDBOX_URL"],
+  },
   "@paperclipai/plugin-exe-dev": { driverKey: "exe-dev", envVars: ["EXE_API_KEY"] },
   "@paperclipai/plugin-novita-sandbox": { driverKey: "novita", envVars: ["NOVITA_API_KEY"] },
 };
