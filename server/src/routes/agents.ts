@@ -1353,6 +1353,7 @@ export function agentRoutes(
     try {
       leaseRecord = await environmentRuntime.acquireRunLease({
         companyId: input.companyId,
+        adapterType: input.adapterType,
         environment: testEnvironment,
         issueId: null,
         heartbeatRunId: null,
