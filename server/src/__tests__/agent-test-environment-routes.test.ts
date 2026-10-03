@@ -248,6 +248,69 @@ describe("agent test-environment route", () => {
     await unregisterTestAdapter("external_test");
   });
 
+  it.each([
+    { adapterType: "codex_local", savedAdapterType: "claude_local" },
+    { adapterType: "codex_local", savedAdapterType: null },
+    { adapterType: "claude_local", savedAdapterType: "codex_local" },
+    { adapterType: "claude_local", savedAdapterType: null },
+  ])("leases the requested $adapterType runtime instead of the environment default (saved adapter: $savedAdapterType)", async ({ adapterType, savedAdapterType }) => {
+    const environmentId = "11111111-1111-4111-8111-111111111111";
+    const agentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    mockEnvironmentService.getById.mockResolvedValue({
+      id: environmentId, companyId: "company-1", name: "Mixed harness sandbox",
+      driver: "sandbox", config: { provider: "fake-plugin", adapterType: "claude_local" },
+    });
+    if (savedAdapterType) {
+      mockAgentService.getById.mockResolvedValue({
+        id: agentId, companyId: "company-1", adapterType: savedAdapterType,
+        adapterConfig: {}, runtimeConfig: {}, defaultEnvironmentId: environmentId,
+      });
+    }
+    const target = {
+      kind: "remote", transport: "sandbox", remoteCwd: "/workspace",
+      providerKey: "fake-plugin", runner: { execute: vi.fn() },
+    };
+    mockResolveEnvironmentExecutionTarget.mockResolvedValue(target);
+    // Replace only the provider probe: exercise the real route without starting
+    // a CLI or contacting a provider, including prospective/new-agent tests.
+    const { registerServerAdapter, getServerAdapter, unregisterServerAdapter } = await import("../adapters/index.js");
+    const previous = getServerAdapter(adapterType);
+    unregisterServerAdapter(adapterType);
+    registerServerAdapter({ ...externalAdapter, type: adapterType });
+    testEnvironmentSpy.mockResolvedValue({
+      adapterType, status: "pass", checks: [], testedAt: new Date(0).toISOString(),
+    });
+    try {
+      const app = await createApp();
+      const res = await request(app)
+        .post(`/api/companies/company-1/adapters/${adapterType}/test-environment`)
+        .send({ environmentId, ...(savedAdapterType ? { agentId } : {}) });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(mockEnvironmentRuntime.acquireRunLease).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        companyId: "company-1",
+        adapterType,
+        environment: expect.objectContaining({
+          id: environmentId,
+          config: expect.objectContaining({ adapterType: "claude_local", reuseLease: false, archiveOnRelease: true }),
+        }),
+        heartbeatRunId: null,
+        issueId: null,
+        persistedExecutionWorkspace: null,
+        assertCompanyBinding: true,
+        applyCustomImageTemplate: true,
+      }));
+      expect(mockResolveEnvironmentExecutionTarget).toHaveBeenCalledWith(expect.objectContaining({ adapterType }));
+      expect(testEnvironmentSpy).toHaveBeenCalledWith(expect.objectContaining({ adapterType, executionTarget: target }));
+      expect(res.body.status).toBe("pass");
+      expect(mockReleaseRunLease).toHaveBeenCalledWith(expect.objectContaining({
+        lease: expect.objectContaining({ id: "lease-1" }), status: "released",
+      }));
+    } finally {
+      unregisterServerAdapter(adapterType);
+      if (previous) registerServerAdapter(previous);
+    }
+  });
+
   it("tests the instance default sandbox when the agent inherits its environment", async () => {
     const environmentId = "11111111-1111-4111-8111-111111111111";
     mockInstanceSettingsService.get.mockResolvedValue({ defaultEnvironmentId: environmentId });
