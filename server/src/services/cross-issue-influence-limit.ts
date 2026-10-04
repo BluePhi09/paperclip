@@ -1,4 +1,4 @@
-import { and, count, desc, eq, or } from "drizzle-orm";
+import { and, count, eq, or } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { activityLog, heartbeatRuns, issues } from "@paperclipai/db";
 import { isUuidLike, issueWriteDenialResponse } from "@paperclipai/shared";
@@ -44,18 +44,28 @@ function readRunSourceIssueId(contextSnapshot: unknown) {
 }
 
 /**
+ * The transaction type `Db.transaction` hands to its callback. Derived
+ * from `Db` itself so it cannot drift from the driver generics.
+ */
+type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
  * A run's anchor may live on the issue it holds checked out rather than in
  * its context snapshot. Timer heartbeats start unanchored — the scheduler
  * wakes them with no task — and they pick work up from the inbox and then
  * check it out, so the checkout row is the only place that names the issue.
  * Without this fallback every heartbeat run fails closed and the whole timer
  * path loses the ability to comment on or update any issue.
+ *
+ * Every live claim is returned rather than the most recently touched one,
+ * so the caller can tell a run that is working one issue from a run that
+ * is juggling several.
  */
-async function readCheckedOutIssueId(
-  tx: Db,
+async function readClaimedIssueIds(
+  tx: DbTransaction,
   input: { companyId: string; runId: string },
-): Promise<string | null> {
-  const row = await tx
+): Promise<string[]> {
+  return tx
     .select({ id: issues.id })
     .from(issues)
     .where(
@@ -67,10 +77,7 @@ async function readCheckedOutIssueId(
         ),
       ),
     )
-    .orderBy(desc(issues.updatedAt))
-    .limit(1)
-    .then((rows) => rows[0] ?? null);
-  return row?.id ?? null;
+    .then((rows) => rows.map((row) => row.id));
 }
 
 export function evaluateCrossIssueInfluenceLimit(input: {
@@ -139,13 +146,29 @@ export async function observeCrossIssueInfluence(
       throw crossIssueInfluenceRunContextError();
     }
 
-    const sourceIssueId =
-      readRunSourceIssueId(run.contextSnapshot) ??
-      (await readCheckedOutIssueId(tx, { companyId: input.companyId, runId: input.runId }));
-    if (!sourceIssueId) throw crossIssueInfluenceRunContextError();
+    const snapshotIssueId = readRunSourceIssueId(run.contextSnapshot);
+    const claimedIssueIds = snapshotIssueId
+      ? []
+      : await readClaimedIssueIds(tx, {
+          companyId: input.companyId,
+          runId: input.runId,
+        });
+    // Exactly one live claim means the run is working that issue, so
+    // writes to it are its own work and stay free. Several claims mean
+    // the run is juggling issues at once and has no single subject, so
+    // every write it makes is metered against the cap — a run cannot
+    // buy free writes by checking out one issue after another. No
+    // claim at all stays unattributable and fails closed.
+    const sourceIssueId = snapshotIssueId ?? (claimedIssueIds.length === 1 ? claimedIssueIds[0] : null);
+    if (!sourceIssueId && claimedIssueIds.length === 0) {
+      throw crossIssueInfluenceRunContextError();
+    }
     if (
-      sourceIssueId === input.targetIssueId ||
-      (input.targetIssueIdentifier && sourceIssueId.toUpperCase() === input.targetIssueIdentifier.toUpperCase())
+      sourceIssueId !== null &&
+      (sourceIssueId === input.targetIssueId ||
+        (input.targetIssueIdentifier &&
+          sourceIssueId.toUpperCase() ===
+            input.targetIssueIdentifier.toUpperCase()))
     ) {
       return null;
     }

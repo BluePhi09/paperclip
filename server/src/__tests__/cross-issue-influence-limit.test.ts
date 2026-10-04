@@ -10,7 +10,7 @@ import {
 function counterDb(
   initialCount = 0,
   runOverrides: Record<string, unknown> | null = {},
-  checkedOutIssueId: string | null = null,
+  claimedIssueIds: string[] = [],
 ) {
   let observedCount = initialCount;
   const inserted: Array<Record<string, unknown>> = [];
@@ -30,16 +30,18 @@ function counterDb(
           if (Object.keys(selection).includes("count")) {
             return resolved([{ count: observedCount }]);
           }
-          // One chainable covers both remaining shapes: the run lock (`.for`)
-          // and the checked-out-issue anchor lookup (`.orderBy().limit()`).
-          const chainable = {
-            then: (resolve: (rows: unknown[]) => unknown) =>
-              resolve(runOverrides === null ? [] : [runRow]),
-            for: () => chainable,
-            orderBy: () => chainable,
-            limit: () => resolved(checkedOutIssueId ? [{ id: checkedOutIssueId }] : []),
-          };
-          return chainable;
+          // The run lock (`.for`) and the checked-out-issue claim lookup
+          // (`.then`) both start here; only the run select carries the
+          // agent and snapshot columns.
+          if (Object.keys(selection).includes("contextSnapshot")) {
+            const runLock = {
+              then: (resolve: (rows: unknown[]) => unknown) =>
+                resolve(runOverrides === null ? [] : [runRow]),
+              for: () => runLock,
+            };
+            return runLock;
+          }
+          return resolved(claimedIssueIds.map((id) => ({ id })));
         },
       }),
     }),
@@ -204,7 +206,7 @@ describe("cross-issue influence limit rollout", () => {
     expect(fake.inserted).toEqual([]);
   });
 
-  it("fails closed when the persisted run has no source issue", async () => {
+  it("fails closed when the run holds no live issue claim", async () => {
     const fake = counterDb(0, { contextSnapshot: {} });
 
     await expect(observeCrossIssueInfluence(fake.db as never, {
@@ -220,9 +222,9 @@ describe("cross-issue influence limit rollout", () => {
     expect(fake.inserted).toEqual([]);
   });
 
-  it("does not charge a heartbeat run for writing to the issue it has checked out", async () => {
+  it("does not charge a heartbeat run for writing to the only issue it has checked out", async () => {
     const checkedOut = "55555555-5555-4555-8555-555555555555";
-    const fake = counterDb(0, { contextSnapshot: {} }, checkedOut);
+    const fake = counterDb(0, { contextSnapshot: {} }, [checkedOut]);
 
     await expect(observeCrossIssueInfluence(fake.db as never, {
       companyId: "22222222-2222-4222-8222-222222222222",
@@ -235,7 +237,7 @@ describe("cross-issue influence limit rollout", () => {
   });
 
   it("still charges a heartbeat run for writing to an issue it has not checked out", async () => {
-    const fake = counterDb(0, { contextSnapshot: {} }, "55555555-5555-4555-8555-555555555555");
+    const fake = counterDb(0, { contextSnapshot: {} }, ["55555555-5555-4555-8555-555555555555"]);
 
     await expect(observeCrossIssueInfluence(fake.db as never, {
       companyId: "22222222-2222-4222-8222-222222222222",
@@ -244,5 +246,19 @@ describe("cross-issue influence limit rollout", () => {
       targetIssueId: "66666666-6666-4666-8666-666666666666",
       kind: "update",
     })).resolves.toMatchObject({ count: 1, allowed: true });
+  });
+
+  it("charges writes once a run juggles two live checkouts instead of buying them free", async () => {
+    const checkedOut = "55555555-5555-4555-8555-555555555555";
+    const fake = counterDb(0, { contextSnapshot: {} }, [checkedOut, "66666666-6666-4666-8666-666666666666"]);
+
+    await expect(observeCrossIssueInfluence(fake.db as never, {
+      companyId: "22222222-2222-4222-8222-222222222222",
+      runId: "11111111-1111-4111-8111-111111111111",
+      agentId: "33333333-3333-4333-8333-333333333333",
+      targetIssueId: checkedOut,
+      kind: "comment",
+    })).resolves.toMatchObject({ count: 1, allowed: true });
+    expect(fake.inserted[0]).toMatchObject({ details: { sourceIssueId: null } });
   });
 });
