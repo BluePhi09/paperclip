@@ -38,6 +38,7 @@ export interface BuildSandboxCrManifestInput {
    * out-of-band and have no registry path at pod-start time.
    */
   preloadedImages?: boolean;
+  /**
    * Provider-side hard stop for a lease with a caller-requested deadline. A
    * crash or an outage on paperclip-server must not leave the pod running
    * past the attested expiry, so this bounds it independently of any
