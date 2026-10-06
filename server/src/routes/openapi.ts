@@ -11,6 +11,7 @@ import {
   aiConnectionLoginIntentSchema,
   localAiConnectionSchema,
   localAiLoginStartSchema,
+  browserCodeSchema,
   emailEndpointSetupSchema,
   emailConnectionSchema,
   emailAddressCheckSchema,
@@ -266,6 +267,7 @@ import {
   revokeToolTrustRuleSchema,
   unbindToolProfileBindingSchema,
   importMcpJsonSchema,
+  mcpConsentSchema,
   toolPolicyTestRequestSchema,
   createToolMcpGatewaySchema,
   completeConnectionIntentSchema,
@@ -1350,6 +1352,7 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "POST /api/companies/{companyId}/ai-connections/local",
   "POST /api/companies/{companyId}/ai-connections/local/attempts",
   "POST /api/companies/{companyId}/ai-connections/local/check",
+  "POST /api/companies/{companyId}/ai-connections/local/attempts/{sessionId}/code",
   "DELETE /api/companies/{companyId}/ai-connections/local/attempts/{sessionId}",
   "PUT /api/companies/{companyId}/ai-connections/default",
   "GET /api/companies/{companyId}/ai-connections/{connectionId}/active-runs",
@@ -1685,6 +1688,8 @@ function resolveOperationAuthLevel(
   path: string,
 ): OpenApiAuthLevel {
   const key = operationKey(method, path);
+  if (key === "GET /api/mcp/requests/{id}" || key === "GET /api/mcp/device") return "public";
+  if (path === "/api/mcp/setup" || path === "/api/mcp/device/consent" || path.startsWith("/api/mcp/requests/") || path.startsWith("/api/mcp/connections")) return "board";
   if (PUBLIC_OPERATIONS.has(key)) return "public";
   if (key === "POST /api/mcp/project-tools" || key === "POST /api/companies/{companyId}/slack/tasks/{issueId}/tools") return "agent_run";
   if (RUNTIME_TOOLS_OPERATIONS.has(key)) return "runtime_tools";
@@ -3454,6 +3459,25 @@ registry.registerPath({
   summary: "Get an agent",
   request: { params: z.object({ id: z.string() }) },
   responses: { 200: r.ok(), 401: r.unauthorized, 404: r.notFound },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/agents/{id}/identity",
+  tags: ["agents"],
+  summary: "Get an agent's public cryptographic identity, or null before provisioning",
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: r.ok(z.object({
+      algorithm: z.literal("Ed25519"),
+      keyId: z.string(),
+      publicKeyPem: z.string(),
+      createdAt: z.string().datetime(),
+    }).nullable()),
+    401: r.unauthorized,
+    403: r.forbidden,
+    404: r.notFound,
+  },
 });
 
 registry.registerPath({
@@ -11469,6 +11493,49 @@ registerCurrentRoute({
 });
 
 registerCurrentRoute({
+  method: "get", path: "/api/mcp/setup", tags: ["tool-gateway"],
+  summary: "Read assistant connection setup using a human browser session",
+  // Available while disabled; returns metadata only and never grants access.
+  responses: {
+    200: r.ok(z.object({ enabled: z.boolean(), serverUrl: z.string().url(), invitationUrl: z.string().url(), invitation: z.string() })),
+    401: r.unauthorized, 403: r.forbidden, 404: r.notFound,
+  },
+});
+
+registerCurrentRoute({
+  method: "get", path: "/api/mcp/requests/{id}", tags: ["tool-gateway"],
+  summary: "Describe an assistant connection request and available sign-in options",
+  responses: { 200: r.ok(), 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "post", path: "/api/mcp/requests/{id}/consent", tags: ["tool-gateway"],
+  summary: "Approve or deny assistant access using a same-origin browser session",
+  body: mcpConsentSchema,
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden },
+});
+registerCurrentRoute({
+  method: "get", path: "/api/mcp/device", tags: ["tool-gateway"],
+  summary: "Describe a device approval request without revealing unauthenticated organization data",
+  responses: { 200: r.ok(), 400: r.badRequest, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "post", path: "/api/mcp/device/consent", tags: ["tool-gateway"],
+  summary: "Approve or deny a device request using a same-origin human browser session",
+  body: mcpConsentSchema.extend({ userCode: z.string().min(8).max(12) }),
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden },
+});
+registerCurrentRoute({
+  method: "get", path: "/api/mcp/connections", tags: ["tool-gateway"],
+  summary: "List the signed-in person's assistant connections",
+  responses: { 200: r.ok(), 401: r.unauthorized },
+});
+registerCurrentRoute({
+  method: "delete", path: "/api/mcp/connections/{id}", tags: ["tool-gateway"],
+  summary: "Revoke an assistant connection using a same-origin browser session",
+  responses: { 204: { description: "Connection revoked" }, 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden },
+});
+
+registerCurrentRoute({
   method: "get",
   path: "/api/tool-gateway/gateways/{gatewayId}/mcp",
   tags: ["tool-gateway"],
@@ -11703,7 +11770,7 @@ registerCurrentRoute({
   method: "post",
   path: "/api/companies/{companyId}/ai-connections/local",
   tags: ["ai-connections"],
-  summary: "Verify and save the local operator's CLI subscription account",
+  summary: "Verify and save an owned local subscription sign-in",
   body: localAiConnectionSchema,
   responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 422: r.unprocessable },
 });
@@ -11723,8 +11790,16 @@ registerCurrentRoute({
 registerCurrentRoute({
   method: "post",
   path: "/api/companies/{companyId}/ai-connections/local/check",
-  tags: ["ai-connections"], summary: "Check the local operator's subscription sign-in without saving a connection",
+  tags: ["ai-connections"], summary: "Check an owned local subscription sign-in without saving a connection",
   body: localAiConnectionSchema,
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/companies/{companyId}/ai-connections/local/attempts/{sessionId}/code",
+  tags: ["ai-connections"], summary: "Submit the browser code for an owned local Claude sign-in",
+  body: z.object({ browserCode: browserCodeSchema }),
   responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
 });
 
