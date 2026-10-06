@@ -1665,7 +1665,10 @@ describe("worktree helpers", () => {
       // table. Build the actual all-but-last schema before shuffling its history.
       const migrationsRoot = new URL("../../../packages/db/src/migrations/", import.meta.url);
       const journal = JSON.parse(fs.readFileSync(new URL("meta/_journal.json", migrationsRoot), "utf8"));
-      const priorEntries = journal.entries.slice(0, -1);
+      // The pending tail is upstream's lifecycle repair migration plus the
+      // fork-only tool_mcp_connectors migration that is appended after it.
+      const pendingTailLength = 2;
+      const priorEntries = journal.entries.slice(0, -pendingTailLength);
       const priorMigrations = path.join(tempRoot, "prior-migrations");
       fs.mkdirSync(path.join(priorMigrations, "meta"), { recursive: true });
       fs.writeFileSync(path.join(priorMigrations, "meta", "_journal.json"), JSON.stringify({ ...journal, entries: priorEntries }));
@@ -1717,7 +1720,7 @@ describe("worktree helpers", () => {
       if (laggingMigrationState.status !== "needsMigrations") {
         throw new Error("Expected the source migration journal to lag the code journal");
       }
-      expect(laggingMigrationState.pendingMigrations).toHaveLength(1);
+      expect(laggingMigrationState.pendingMigrations).toHaveLength(pendingTailLength);
       const expectedAppliedPrefix = laggingMigrationState.availableMigrations.slice(
         0,
         laggingMigrationState.appliedMigrations.length,
