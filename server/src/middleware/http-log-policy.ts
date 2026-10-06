@@ -38,6 +38,8 @@ function normalizePath(url: string): string {
 }
 
 const SECRET_SENSITIVE_HTTP_PATHS = [
+  /^\/mcp\/(?:oauth|paperclip)(?:\/|$)/,
+  /^\/api\/mcp(?:\/|$)/,
   /^\/api\/chat-endpoints\/[^/]+\/setup(?:-secret)?(?:\/|$)/,
   // Outbound MCP connector enrollment and credential rotation carry tokens.
   /^\/api\/mcp-connectors(?:\/|$)/,
