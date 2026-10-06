@@ -521,6 +521,9 @@ const plugin = definePlugin({
       secretName,
       phase: "Pending",
       backend: config.backend,
+      // Adapter environment probes sync managed assets before workspace
+      // realization. Give native sync the pod's mounted confinement root now.
+      remoteCwd: "/workspace",
       scopedNetworkPolicyName,
       scopedNetworkEgress,
       // Native file sync streams over a pod exec; only the sandbox-cr backend
@@ -614,6 +617,10 @@ const plugin = definePlugin({
       secretName,
       phase: check.phase,
       backend: leaseBackend,
+      remoteCwd:
+        typeof params.leaseMetadata?.remoteCwd === "string" && params.leaseMetadata.remoteCwd.trim()
+          ? params.leaseMetadata.remoteCwd.trim()
+          : "/workspace",
       scopedNetworkPolicyName:
         typeof params.leaseMetadata?.scopedNetworkPolicyName === "string"
           ? params.leaseMetadata.scopedNetworkPolicyName
