@@ -265,6 +265,15 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
       ),
     } satisfies AiConnectionList);
   });
+  router.get("/companies/:companyId/ai-connections/:connectionId/models", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertBoard(req);
+    assertCompanyAccess(req, companyId);
+    const connectionId = z.string().uuid().parse(req.params.connectionId);
+    const query = z.object({ grantId: z.string().uuid(), refresh: z.enum(["true", "false"]).optional() }).strict().parse(req.query);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await service.models(companyId, getActorInfo(req).actorId, connectionId, query.grantId, query.refresh === "true"));
+  });
   router.get(
     "/companies/:companyId/ai-connections/:connectionId/usage",
     async (req, res) => {
@@ -336,8 +345,8 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
           "Use the existing provider sign-in flow to connect a subscription",
         );
       const attemptStartedAt = new Date();
-      // Custom destinations are exercised in the selected execution environment,
-      // never fetched by the control plane (including localhost/private URLs).
+      // Creation never probes custom destinations. Model catalog reads separately
+      // enforce HTTPS and guarded egress; runtime validation stays runner-side.
       if (!input.routing || input.routing.kind === "openrouter") await validateAiApiKey(input.provider, input.apiKey!);
       const result = await service.save(
         companyId,

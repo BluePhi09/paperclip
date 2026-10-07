@@ -69,6 +69,11 @@ export type AiConnectionBinding = z.infer<typeof aiConnectionBindingSchema>;
 export const aiConnectionMetadataSchema = z.object({ ...requirement, routing: aiProviderRoutingSchema.optional() }).strict();
 export type AiConnectionMetadata = z.infer<typeof aiConnectionMetadataSchema>;
 
+/** Upstream model identities only; presence is not proof of protocol/capability support. */
+export interface AiConnectionModelCatalog {
+  models: { id: string; ownedBy?: string }[];
+}
+
 /** Existing integrations only. This table describes compatibility, never routing. */
 export const AI_CONNECTION_CAPABILITIES: Record<
   AiProvider,

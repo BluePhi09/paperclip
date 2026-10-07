@@ -561,8 +561,8 @@ environment probes and task execution. The settings file contains no credential.
 OpenClaw Gateway, Hermes Gateway, Claude Managed, AWS AgentCore, Process, HTTP,
 and legacy `acpx_local` are excluded: external agents retain their own model
 configuration, and `acpx_local` is retired. Cursor/Pi/Copilot custom routing,
-Vertex, ambient AWS identity, arbitrary authentication headers, and automatic
-catalog discovery for custom gateways are not part of this implementation.
+Vertex, ambient AWS identity, and arbitrary authentication headers are not part
+of this implementation.
 
 OpenRouter connections without an explicit model list automatically load its public
 [model catalog](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties),
@@ -570,6 +570,71 @@ ordered with `sort=most-popular`. New-agent setup and agent settings share this
 discovery path, preserve the provider's ordering, and adapt model IDs to the selected
 harness. Explicit connection model lists take precedence. Catalog discovery sends
 no credentials; a failed request offers refresh and manual model entry.
+
+### Authenticated custom model discovery
+
+When a selected gateway/local connection has no explicit `routing.models`, the
+new-agent and agent-settings model pickers automatically request
+`GET /api/companies/:companyId/ai-connections/:connectionId/models?grantId=...`.
+**Refresh models** adds `refresh=true`; errors remain visible and manual model
+IDs remain available. Explicit static lists and public OpenRouter discovery are
+unchanged. A catalog read does not mutate routing, grants, connection health, or
+agent configuration. It does not bypass immutable reconnect destinations or the
+existing rejection of AI config edits through the generic connection PATCH API.
+
+The board-only read requires active company membership and the exact saved
+connection/grant pair. Personal credentials remain owner-only; shared credentials
+respect the human audience. Agent API keys and legacy agent delegations cannot
+bypass this boundary. Archived, disabled, unhealthy, expired, and revoked accounts
+are denied before network/cache access. Authorization is checked again after I/O;
+a credential or routing change during the read requires retry. Agent installation
+and protocol compatibility still apply separately when configuring/running agents.
+
+The server resolves the existing vault credential and derives only the model-list
+path from the validated saved HTTPS base URL: `/models` after a terminal `/v1`,
+otherwise `/v1/models` under the saved path prefix. There is no caller-provided URL,
+header, or credential override. Saved bearer, Messages API-key header, and no-auth
+modes are respected. The upstream `{ data: [{ id, owned_by? }] }` becomes
+`{ models: [{ id, ownedBy? }] }`. Other fields are discarded. Catalog membership
+**does not prove Responses, Messages, Chat, tools, vision, or reasoning support**;
+use a model compatible with the connection's chosen protocol and run a test.
+Pagination is not followed; at most 5,000 model entries / 1 MiB decoded JSON are
+accepted. Malformed/oversized responses fail without raw provider error text.
+
+Egress uses the existing DNS-pinned, peer-checked remote HTTP transport, preserves
+TLS hostname verification, never follows redirects, and has a 15-second overall
+request signal plus DNS/connect/response deadlines. Private/reserved destinations
+are denied by default. For self-hosted private HTTPS ingress an **instance
+operator** can set `PAPERCLIP_AI_MODEL_PRIVATE_ENDPOINT_ALLOWLIST` to comma-separated
+exact origins, e.g. `https://models.internal.example`. Entries cannot contain a
+path, query, credentials, or fragment; wildcards are not supported. DNS pinning
+and the unconditional link-local/metadata block remain active even for allowlisted
+origins. This setting is separate from HTTP-adapter/MCP networking and is not
+editable through the connection API. Never add an origin without trusting its
+operator and all tenant-controlled paths under it.
+
+HTTP localhost endpoints remain runner-local; the control plane will not discover
+models from them. HTTPS local endpoints require the same explicit operator opt-in
+and a valid TLS certificate. A remote runner's private endpoint may be unreachable
+from the control plane; manual model entry still works. Standard host TLS trust
+applies; certificate checks are never disabled. No inference request is made.
+
+Successful results are cached in memory for 60 seconds (maximum 100 contexts),
+keyed by a hash of company, caller, connection, grant, routing, credential value,
+and private-egress policy. Rotation selects a new cache context; errors are not
+cached and explicit refresh evicts the previous result. Browser responses use
+`Cache-Control: no-store`. The UI query separates caller/connection/grant/routing,
+discards inactive catalogs, and does not display stale models after an error.
+
+Verification (all local, upstream responses simulated; no production gateway call):
+
+```sh
+pnpm exec vitest run server/src/services/ai-connection-models.test.ts server/src/__tests__/ai-connection-models.test.ts ui/src/components/ai-connections/useConnectionModels.test.tsx server/src/__tests__/remote-http-endpoint-guard.test.ts server/src/__tests__/remote-http-rebinding.test.ts server/src/__tests__/openapi-routes.test.ts
+```
+
+The integration suite uses a disposable PostgreSQL database and encrypted vault.
+Live target-ingress/catalog qualification remains a deployment acceptance step;
+no allowlist or production configuration is changed by this implementation.
 
 `config.ai.routing` stores only kind, protocol, URL, auth method, region, and
 optional model IDs/labels. The vault stores provider API keys, including Bedrock API keys.

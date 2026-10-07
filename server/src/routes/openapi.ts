@@ -1357,6 +1357,7 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "PUT /api/companies/{companyId}/ai-connections/default",
   "GET /api/companies/{companyId}/ai-connections/{connectionId}/active-runs",
   "GET /api/companies/{companyId}/ai-connections/{connectionId}/usage",
+  "GET /api/companies/{companyId}/ai-connections/{connectionId}/models",
   "GET /api/companies/{companyId}/ai-connections/login/{sessionId}",
   "GET /api/companies/{companyId}/ai-connection-pools",
   "POST /api/companies/{companyId}/ai-connection-pools",
@@ -10450,6 +10451,18 @@ registerCurrentRoute({
   tags: ["ai-connections"],
   summary: "Inspect authorized pool members and fresh cached usage without probing",
   responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden, 404: r.notFound },
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/ai-connections/{connectionId}/models",
+  tags: ["ai-connections"],
+  summary: "Read model identities from the selected authorized custom AI connection",
+  query: z.object({ grantId: z.string().uuid(), refresh: z.enum(["true", "false"]).optional() }).strict(),
+  responses: {
+    200: r.ok(z.object({ models: z.array(z.object({ id: z.string(), ownedBy: z.string().optional() })) })),
+    400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable,
+  },
 });
 
 registerCurrentRoute({

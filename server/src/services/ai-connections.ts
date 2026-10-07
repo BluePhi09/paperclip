@@ -38,6 +38,9 @@ import { forbidden, notFound, unprocessable } from "../errors.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
 import { probeAiConnectionUsage } from "./ai-connection-usage.js";
+import { createAiModelCatalog } from "./ai-connection-models.js";
+
+const readModelCatalog = createAiModelCatalog();
 
 /** Same human audience displayed by the existing Connections identity controls. */
 function canUseCredential(
@@ -237,6 +240,34 @@ export function aiConnectionService(db: Db) {
     }
     const value = await credential(row);
     return { ...identity, ...await probeAiConnectionUsage(metadata.data, value) };
+  }
+  /** Board catalog reads use the same human credential audience as selection.
+   * Agent installations/delegations never grant a different person credential access. */
+  async function authorizeModelRead(companyId: string, userId: string, connectionId: string, grantId: string) {
+    if (!(await membership(companyId, userId))) throw forbidden("An active company member is required");
+    const row = (await rows(companyId)).find(row => row.connection.id === connectionId && row.grant.id === grantId);
+    if (!row || row.connection.status === "archived") throw notFound("AI connection not found");
+    const audience = await db.select().from(connectionGrantMembers).where(and(
+      eq(connectionGrantMembers.companyId, companyId), eq(connectionGrantMembers.grantId, grantId),
+    ));
+    if (!canUseCredential(row.grant, userId, audience)) throw notFound("AI connection not found");
+    if (row.grant.kind === "user" && !(await membership(companyId, row.grant.subjectUserId)))
+      throw forbidden("The account owner is no longer an active company member");
+    if (row.grant.status !== "active" || !row.connection.enabled || row.connection.status !== "active" || row.connection.healthStatus !== "ok")
+      throw unprocessable("Reconnect or enable this AI connection before loading models");
+    const metadata = aiConnectionMetadataSchema.safeParse(row.connection.config.ai);
+    if (!metadata.success || metadata.data.method !== "api_key" || !metadata.data.routing)
+      throw unprocessable("This connection does not support custom model discovery");
+    return { routing: metadata.data.routing, value: await credential(row) };
+  }
+  async function models(companyId: string, userId: string, connectionId: string, grantId: string, refresh = false) {
+    const before = await authorizeModelRead(companyId, userId, connectionId, grantId);
+    const result = await readModelCatalog({ companyId, userId, connectionId, grantId, routing: before.routing, credential: before.value, refresh });
+    // Do not return a catalog after revocation, audience changes or rotation during I/O.
+    const after = await authorizeModelRead(companyId, userId, connectionId, grantId);
+    if (before.value !== after.value || !isDeepStrictEqual(before.routing, after.routing))
+      throw unprocessable("The connection changed while loading models. Try again.");
+    return result;
   }
   async function select(input: {
     companyId: string;
@@ -859,5 +890,5 @@ export function aiConnectionService(db: Db) {
       });
     });
   }
-  return { list, select, credential, probeUsage, save, setDefault, membership, markAuthenticationFailed };
+  return { list, select, credential, probeUsage, models, save, setDefault, membership, markAuthenticationFailed };
 }

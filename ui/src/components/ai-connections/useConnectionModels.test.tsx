@@ -8,7 +8,7 @@ import { aiConnectionsApi } from "@/api/ai-connections";
 import { agentsApi } from "@/api/agents";
 import { useConnectionModels } from "./useConnectionModels";
 
-vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: { list: vi.fn() } }));
+vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: { list: vi.fn(), models: vi.fn() } }));
 vi.mock("@/api/agents", () => ({ agentsApi: { adapterModels: vi.fn() } }));
 
 const binding: AiConnectionBinding = { provider: "openrouter", method: "api_key", mode: "shared", connectionId: "router", grantId: "grant" };
@@ -28,6 +28,7 @@ let result: ReturnType<typeof useConnectionModels>;
 let render: (value: AiConnectionBinding | undefined) => Promise<void>;
 
 beforeEach(() => {
+  vi.mocked(aiConnectionsApi.models).mockResolvedValue({ models: [{ id: "private/model", ownedBy: "vendor" }] });
   vi.mocked(agentsApi.adapterModels).mockResolvedValue(catalog);
   vi.mocked(aiConnectionsApi.list).mockResolvedValue({ currentUserId: "you", connections: [account], canManageConnections: true });
 });
@@ -76,7 +77,62 @@ it("does not reuse public OpenRouter models after switching to a custom gateway"
   await render({ provider: "openai", method: "api_key", mode: "shared", connectionId: gateway.id, grantId: gateway.grantId });
   expect(result?.models).toEqual([]);
   expect(result?.resolveModel("private-model")).toBe("paperclip/private-model");
+  expect(result?.refreshModels).toBeTypeOf("function");
+  await vi.waitFor(() => expect(result?.models).toEqual([{ id: "paperclip/private/model", label: "private/model" }]));
+});
+
+it.each(["codex_local", "claude_local", "opencode_local", "hermes_local"])("discovers the selected authenticated gateway for %s and preserves manual IDs", async harness => {
+  const gateway: AiManagedConnectionSummary = { ...account, provider: "openai", routing: { kind: "gateway", protocol: "responses", auth: "bearer", baseUrl: "https://gateway.example/v1", models: [] } };
+  await mount([gateway], harness, { ...binding, provider: "openai" });
+  await vi.waitFor(() => expect(result?.models).toHaveLength(1));
+  expect(aiConnectionsApi.models).toHaveBeenCalledWith("company", "router", "grant");
+  expect(result?.models[0]?.id).toBe(harness === "opencode_local" ? "paperclip/private/model" : "private/model");
+  expect(result?.resolveModel("manual/model")).toBe(harness === "opencode_local" ? "paperclip/manual/model" : "manual/model");
+  expect(agentsApi.adapterModels).not.toHaveBeenCalled();
+});
+
+it("shows custom discovery errors and refreshes explicitly while retaining manual entry", async () => {
+  const gateway: AiManagedConnectionSummary = { ...account, provider: "openai", routing: { kind: "gateway", protocol: "responses", auth: "bearer", baseUrl: "https://gateway.example/v1", models: [] } };
+  vi.mocked(aiConnectionsApi.models).mockRejectedValueOnce(new Error("Could not load models"));
+  await mount([gateway], "codex_local", { ...binding, provider: "openai" });
+  await vi.waitFor(() => expect(result?.error?.message).toBe("Could not load models"));
+  expect(result?.resolveModel("manual")).toBe("manual");
+  await act(async () => { await result?.refreshModels?.(); });
+  await vi.waitFor(() => expect(result?.models).toEqual([{ id: "private/model", label: "private/model" }]));
+  expect(aiConnectionsApi.models).toHaveBeenLastCalledWith("company", "router", "grant", true);
+  expect(result?.error).toBeNull();
+});
+
+it("does not discover a custom static list or revoked connection", async () => {
+  const gateway: AiManagedConnectionSummary = { ...account, provider: "openai", routing: { kind: "gateway", protocol: "responses", auth: "bearer", baseUrl: "https://gateway.example/v1", models: [{ id: "approved" }] } };
+  await mount([gateway], "codex_local", { ...binding, provider: "openai" });
+  expect(result?.models).toEqual([{ id: "approved", label: "approved" }]);
   expect(result?.refreshModels).toBeUndefined();
+  expect(aiConnectionsApi.models).not.toHaveBeenCalled();
+  await act(async () => { client.setQueryData(["ai-connections", "company"], { currentUserId: "you", connections: [{ ...gateway, status: "revoked", routing: { ...gateway.routing, models: [] } }] }); });
+  await vi.waitFor(() => expect(result?.models).toEqual([]));
+  expect(aiConnectionsApi.models).not.toHaveBeenCalled();
+});
+
+it("does not retain models after a refresh loses access", async () => {
+  const gateway: AiManagedConnectionSummary = { ...account, provider: "openai", routing: { kind: "gateway", protocol: "responses", auth: "bearer", baseUrl: "https://gateway.example/v1", models: [] } };
+  await mount([gateway], "codex_local", { ...binding, provider: "openai" });
+  await vi.waitFor(() => expect(result?.models).toHaveLength(1));
+  vi.mocked(aiConnectionsApi.models).mockRejectedValueOnce(new Error("Connection unavailable"));
+  await act(async () => { await result?.refreshModels?.(); });
+  await vi.waitFor(() => expect(result?.error?.message).toBe("Connection unavailable"));
+  expect(result?.models).toEqual([]);
+});
+
+it("isolates custom catalogs when switching grants on the same endpoint", async () => {
+  const gateway: AiManagedConnectionSummary = { ...account, provider: "openai", routing: { kind: "gateway", protocol: "responses", auth: "bearer", baseUrl: "https://gateway.example/v1", models: [] } };
+  await mount([gateway, { ...gateway, grantId: "second" }], "codex_local", { ...binding, provider: "openai" });
+  await vi.waitFor(() => expect(result?.models).toHaveLength(1));
+  vi.mocked(aiConnectionsApi.models).mockResolvedValueOnce({ models: [{ id: "second-model" }] });
+  await render({ ...binding, provider: "openai", grantId: "second" });
+  expect(result?.models).not.toContainEqual({ id: "private/model", label: "private/model" });
+  await vi.waitFor(() => expect(result?.models).toEqual([{ id: "second-model", label: "second-model" }]));
+  expect(aiConnectionsApi.models).toHaveBeenLastCalledWith("company", "router", "second");
 });
 
 it("leaves native model discovery alone", async () => {
