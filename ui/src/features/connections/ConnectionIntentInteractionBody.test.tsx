@@ -508,7 +508,10 @@ describe("AI repair inside the card", () => {
     setupOptionsMock.mockResolvedValue({ interaction, existingConnections: [], aiConnection: binding, aiConnectionRequiresAdoption: true });
     if (fails) adoptMock.mockRejectedValue(new Error("Connection test failed"));
     else adoptMock.mockResolvedValue({ ...interaction, status: "accepted" });
-    renderBody(interaction); await flush();
+    renderBody(interaction);
+    // Setup options arrive through React Query's scheduled observer notification;
+    // one timer turn does not establish that the adoption control is ready.
+    await waitForAssertion(() => expect(button("Connect OpenAI")?.disabled).toBe(false));
     await act(() => button("Connect OpenAI")!.click());
     await act(() => button("Reconnect selected account")!.click());
     expect(adoptMock).not.toHaveBeenCalled();
@@ -521,13 +524,16 @@ describe("AI repair inside the card", () => {
     expect(updateAgentMock).not.toHaveBeenCalled();
     expect(installMock).not.toHaveBeenCalled();
     expect(completeMock).not.toHaveBeenCalled();
-    if (fails) expect(document.querySelector('[role="alert"]')?.textContent).toContain("Connection test failed");
+    if (fails) await waitForAssertion(() =>
+      expect(document.querySelector('[role="alert"]')?.textContent).toContain("Connection test failed"),
+    );
   });
   it.each(["anthropic", "openai"])("connects a missing %s default directly in the task", async (provider) => {
     setupOptionsMock.mockResolvedValue({ interaction, existingConnections: [], aiConnection: { provider, method: "api_key", mode: "responsible_user" } });
     completeMock.mockResolvedValue({ ...interaction, status: "accepted" });
-    renderBody(interaction); await flush();
+    renderBody(interaction);
     const providerName = provider === "anthropic" ? "Claude" : "OpenAI";
+    await waitForAssertion(() => expect(button(`Connect ${providerName}`)?.disabled).toBe(false));
     expect(document.body.textContent).toContain(`Connect your ${providerName} account`);
     expect(document.body.textContent).toContain("needs your own AI connection");
     await act(() => button(`Connect ${providerName}`)!.click());
