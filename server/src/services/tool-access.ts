@@ -15038,6 +15038,7 @@ export function toolAccessService(
       const payload = {
         version: 1 as const,
         prompt: `Connect your ${providerName} to continue`,
+        brief: nativeConnectionAuthorizationBrief(providerName, `connection:${connection.id}`, state, `Connect ${providerName}`),
         acceptLabel: `Connect ${providerName}`,
         rejectLabel: "Not now",
         detailsMarkdown:
@@ -21156,3 +21157,4 @@ export function toolAccessService(
     },
   };
 }
+import { nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";

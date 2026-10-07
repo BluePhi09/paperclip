@@ -1296,7 +1296,8 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
               createdByAgentId: interaction.createdByAgentId,
               // Presence, not validity: future/invalid briefs need their fallback
               // disclosed by the native detail card before any compact vote.
-              requiresDetailReview: Object.prototype.hasOwnProperty.call(payload, "brief"),
+              targetRevisionId: typeof readRecord(payload.target).revisionId === "string" ? readRecord(payload.target).revisionId : null,
+              requiresDetailReview: true,
               isPlanTarget,
               targetDocumentKey: isPlanTarget ? "plan" : null,
             },

@@ -2,6 +2,7 @@ import {
   currentContinuationOrigins,
   deliveredContinuationCommentIds,
 } from "./execution-continuation.js";
+import { assertHumanInteractionContext } from "./human-decision-context.js";
 import { parseQuestionInteractionAnswers } from "./question-interaction-answers.js";
 import { isUniqueViolation } from "../db-errors.js";
 import { assertAgentRunWriteAllowed } from "../agent-run-cancellation.js";
@@ -3528,6 +3529,8 @@ export function issueThreadInteractionService(
           return interaction;
         }
       }
+
+      assertHumanInteractionContext(data, policy.effectiveResolverPolicy);
 
       if (data.sourceCommentId) {
         const sourceComment = await db

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@paperclipai/shared";
+import { decisionBriefSchema } from "@paperclipai/shared";
 import { AlertTriangle, ArrowUpRight, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, ExternalLink, FileText, GitBranch, ImagePlus, KeyRound, Loader2, MessageSquareQuote, MinusCircle, ShieldAlert, ThumbsUp, TriangleAlert, Wrench, X, XCircle } from "lucide-react";
 import { Link } from "@/lib/router";
 import { formatAssigneeUserLabel } from "../lib/assignees";
@@ -2637,7 +2638,7 @@ function RequestConfirmationCard({
         <ConfirmationActionRow
           resetKey={`${interaction.id}:${interaction.status}`}
           approveLabel={interaction.payload.acceptLabel ?? CONFIRMATION_APPROVE_LABEL}
-          rejectLabel={CONFIRMATION_REJECT_LABEL}
+          rejectLabel={interaction.payload.rejectLabel ?? CONFIRMATION_REJECT_LABEL}
           approveVariant={isPlan ? "cta" : "default"}
           primaryActionOnRight={primaryActionOnRight}
           allowRevise={allowRevise}
@@ -3143,12 +3144,14 @@ function ItemVerdictDeepLink({ item }: { item: RequestItemVerdictsItem }) {
 
 function ItemVerdictSegmentedControl({
   itemId,
+  labels,
   verdicts,
   value,
   disabled,
   onSelect,
 }: {
   itemId: string;
+  labels?: Record<string, string | undefined>;
   verdicts: RequestItemVerdictValue[];
   value: RequestItemVerdictValue | null;
   disabled: boolean;
@@ -3176,7 +3179,7 @@ function ItemVerdictSegmentedControl({
             variant={variant}
             disabled={disabled}
             aria-pressed={active}
-            aria-label={`${VERDICT_LABEL[verdict]} this item`}
+            aria-label={labels?.[verdict] ?? `${VERDICT_LABEL[verdict]} this item`}
             className="min-h-11 min-w-24"
             onClick={() => onSelect(verdict)}
             data-verdict={verdict}
@@ -3184,7 +3187,7 @@ function ItemVerdictSegmentedControl({
             data-active={active}
           >
             <Icon className="h-4 w-4" aria-hidden />
-            {VERDICT_LABEL[verdict]}
+            {labels?.[verdict] ?? VERDICT_LABEL[verdict]}
           </Button>
         );
       })}
@@ -3373,6 +3376,8 @@ function RequestItemVerdictsCard({
       {/* Item list (S1/S2/S3/S4) */}
       <ul className="space-y-2" aria-label="Items to review">
         {items.map((item) => {
+          const parsedBrief = decisionBriefSchema.safeParse(item.brief);
+          const labels = parsedBrief.success ? Object.fromEntries(parsedBrief.data.selectionConsequences.map(entry => [entry.optionId, entry.label])) : undefined;
           const resolved = resolvedById.get(item.id);
           const applying = applyingItemIds.has(item.id);
           const draft = drafts.get(item.id);
@@ -3425,6 +3430,7 @@ function RequestItemVerdictsCard({
                   ) : (
                     <ItemVerdictSegmentedControl
                       itemId={item.id}
+                      labels={labels}
                       verdicts={enabledVerdicts}
                       value={draft?.verdict ?? null}
                       disabled={working}
@@ -3826,7 +3832,7 @@ export function IssueThreadInteractionCard({
           </Tooltip>
         </div>
 
-        <DecisionBriefSummary value={"brief" in interaction.payload ? interaction.payload.brief : undefined} />
+        {(interaction.kind === "request_confirmation" || interaction.kind === "request_checkbox_confirmation") && <DecisionBriefSummary value={interaction.payload.brief} />}
         <div className="mt-5">
           {interaction.kind === "suggest_tasks" ? (
             <SuggestTasksCard

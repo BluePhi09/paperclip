@@ -179,6 +179,7 @@ import {
   releaseIssueTreeHoldSchema,
   // Issue interactions
   createIssueThreadInteractionSchema,
+  decisionBriefMetadataSchema,
   createChildIssueSchema,
   acceptIssueThreadInteractionSchema,
   resolveConfirmationFromCommentSchema,
@@ -5887,7 +5888,7 @@ const createDecisionBodySchema = z
     expiresAt: z.string().datetime().optional(),
     idempotencyKey: z.string().trim().min(1).max(500).nullable().optional(),
     continuationPolicy: z.enum(["none", "wake_origin_agent"]).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: decisionBriefMetadataSchema.optional(),
   })
   .strict();
 
@@ -5895,7 +5896,7 @@ registerCurrentRoute({
   method: "post",
   path: "/api/companies/{companyId}/decisions",
   tags: ["decisions"],
-  summary: "Propose a decision",
+  summary: "Propose a decision (new human cards require a complete concise brief)",
   body: createDecisionBodySchema,
   responses: {
     201: r.ok(),
@@ -7452,12 +7453,12 @@ registry.registerPath({
   tags: ["issues"],
   summary: "Create an issue thread interaction",
   description:
-    "Resolver policy defaults to canonical `anyone` for every interaction kind. `not_creator` and `human_only` are opt-in restrictions; deprecated `board_or_agents` and `board_only` inputs are accepted as compatibility aliases.",
+    "Resolver policy defaults to canonical anyone. New human-facing questions, confirmations, checkbox confirmations and item verdicts require a concise brief and effective human_only policy. Supply payload.brief or per-question/per-item briefs, mainSummary, explicit purpose, labeled consequences and (except personal facts) scope, excludedScope, risks and preconditions. Missing context returns 422 with details.code decision_context_missing and field paths; clarify internally, do not invent context. Existing stored cards remain readable. Named expert addressees retain native policy. Deprecated board_or_agents and board_only aliases remain accepted.",
   request: {
     params: z.object({ id: z.string() }),
     body: jsonBody(createIssueThreadInteractionSchema),
   },
-  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 422: r.unprocessable },
 });
 
 registry.registerPath({

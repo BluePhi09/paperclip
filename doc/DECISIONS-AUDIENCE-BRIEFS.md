@@ -58,12 +58,18 @@ agent/run identity. Standalone Decisions and their effects remain Board-only.
 Existing creator exclusions, human-only gates, company checks, bound target
 revision checks, governed-action controls, and persisted attribution still apply.
 
-## Optional version 1 brief
+## Version 1 brief
+
+New human cards now require the concise creation contract described in
+[Concise decisions and native discussion](DECISIONS-CONCISE-CHAT.md).
+Optional fields below describe legacy read compatibility, not permission to
+create a new incomplete human card.
 
 Use `metadata.brief` on standalone Decisions. Use `payload.brief` on native
 confirmation and checkbox confirmation, `questions[].brief` on native questions,
 and `items[].brief` on item verdicts. Existing brief-less cards retain native
-behavior. New opted-in briefs must validate against `decisionBriefSchema`.
+authority and show a conservative warning. New human cards also pass the
+shared quality preflight; named expert-agent briefs remain optional.
 
 Required fields:
 
@@ -93,7 +99,8 @@ verdict values. A recommendation must name an existing option.
 Purpose can be omitted on effectless briefs, but never to authorize effects.
 Human-risk and explicit execution-authorization briefs also require `reason`,
 `scope`, `excludedScope`, `risks`, `preconditions` (array, empty if none),
-`recommendationOptionId`, and `recommendationReason`. A personal fact must not
+with recommendations optional but requiring `recommendationOptionId` and
+`recommendationReason` together when supplied. A personal fact must not
 recommend an answer. Do not invent a personal fact or reuse it as an approval.
 
 Standalone briefs must target humans. Native human targets require an effective
@@ -112,8 +119,8 @@ label silently grants execution authority.
 
 ## Explanation before action
 
-Cards render a supported brief before decisive controls. Scope, evidence, and
-prerequisites are available in expandable details. Stored confirmation briefs with
+Cards render a supported brief before decisive controls. Scope, exclusions,
+risks and prerequisites stay visible; evidence is in expandable details. Stored confirmation briefs with
 null, invalid, or future-version content retain their original native payload and
 show a fallback warning. This tolerance is display-only; creation remains strict.
 Unsupported brief content never grants authority.
@@ -122,7 +129,7 @@ The feed marks stored brief presence as `requiresDetailReview`. Compact Accept
 and Reject open the original detail instead of voting. Button activation by keyboard
 uses the same path. Desk Enter toggles detail without a vote. The normal native
 control may act only after disclosure and still uses the original resolver.
-Brief-less legacy compact behavior remains unchanged.
+Brief-less legacy confirmations also open the original detail before any vote.
 
 ## Supporting release prerequisite: application reuse
 

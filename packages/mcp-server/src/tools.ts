@@ -158,6 +158,7 @@ const createSuggestTasksToolSchema = z.object({
 });
 
 const createAskUserQuestionsToolSchema = z.object({
+  resolverPolicy: z.literal("human_only").default("human_only"),
   issueId: issueIdSchema,
   idempotencyKey: z.string().trim().max(255).nullable().optional(),
   sourceCommentId: z.string().guid().nullable().optional(),
@@ -169,6 +170,7 @@ const createAskUserQuestionsToolSchema = z.object({
 });
 
 const createRequestConfirmationToolSchema = z.object({
+  resolverPolicy: z.literal("human_only").default("human_only"),
   issueId: issueIdSchema,
   idempotencyKey: z.string().trim().max(255).nullable().optional(),
   sourceCommentId: z.string().guid().nullable().optional(),
@@ -180,6 +182,7 @@ const createRequestConfirmationToolSchema = z.object({
 });
 
 const createRequestCheckboxConfirmationToolSchema = z.object({
+  resolverPolicy: z.literal("human_only").default("human_only"),
   issueId: issueIdSchema,
   idempotencyKey: z.string().trim().max(255).nullable().optional(),
   sourceCommentId: z.string().guid().nullable().optional(),
@@ -564,7 +567,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "paperclipAskUserQuestions",
-      "Create an ask_user_questions interaction on an issue",
+      "Create human-only questions. Each question requires a concise brief with mainSummary, explicit purpose and labeled selectionConsequences matching options. Missing context returns decision_context_missing; clarify internally, never invent facts.",
       createAskUserQuestionsToolSchema,
       async ({ issueId, ...body }) =>
         client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/interactions`, {
@@ -576,7 +579,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "paperclipRequestConfirmation",
-      "Create a request_confirmation interaction on an issue",
+      "Create a human-only confirmation. payload.brief must explain subject, mainSummary, purpose, labeled accept/reject consequences, exact scope, exclusions, risks and prerequisites. Native labels must match the brief. Missing context must be clarified internally.",
       createRequestConfirmationToolSchema,
       async ({ issueId, ...body }) =>
         client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/interactions`, {
@@ -588,7 +591,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "paperclipRequestCheckboxConfirmation",
-      "Create a request_checkbox_confirmation interaction on an issue",
+      "Create a human-only checkbox confirmation with a complete concise payload.brief explaining every option plus accept/reject. Include exact scope, exclusions, risks and prerequisites; use matching understandable labels. No implicit execution authority.",
       createRequestCheckboxConfirmationToolSchema,
       async ({ issueId, ...body }) =>
         client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/interactions`, {

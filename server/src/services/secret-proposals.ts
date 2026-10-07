@@ -203,8 +203,19 @@ export function createSecretProposalsService(db: Db) {
         payload: {
           version: 1,
           prompt: `Bind secret ${sourceSecretLabel} to ${target.name} as ${proposal.configPath}?`,
+          brief: nativeHumanActionBrief({
+            subject: `Give ${target.name} access to ${sourceSecretLabel}?`,
+            summary: `Create a binding so ${target.name} can use ${sourceSecretLabel}. Rejecting leaves this binding uncreated.`,
+            scope: `Bind only ${sourceSecretLabel} to ${target.name} at ${proposal.configPath}.`,
+            excludedScope: "No other agent or secret binding is authorized.",
+            risks: "The target agent will be able to use the credential and its existing permissions.",
+            preconditions: ["Verify that this agent should hold these credential permissions before creating the binding."],
+            source: `secret-proposal:${proposal.id}`, revision: proposal.id,
+            acceptLabel: "Create binding", rejectLabel: "Reject binding",
+            acceptConsequence: "Create the proposed secret binding for this agent.", rejectConsequence: "Leave the binding uncreated.",
+          }),
           acceptLabel: "Create binding",
-          rejectLabel: "Reject",
+          rejectLabel: "Reject binding",
           rejectRequiresReason: true,
           rejectReasonLabel: "Why should this binding not be created?",
           allowDeclineReason: true,
@@ -876,3 +887,4 @@ export function createSecretProposalsService(db: Db) {
 
   return { getById, view: enrich, createSecret, createBinding, listForAgent, listForBoard, assertBindingSnapshotCurrent, approve, transition, sweepExpired };
 }
+import { nativeHumanActionBrief } from "./native-human-action-brief.js";

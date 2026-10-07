@@ -17,10 +17,14 @@ import { TooltipProvider } from "./ui/tooltip";
 import { AttentionQueueRow } from "./AttentionQueueRow";
 
 vi.mock("@/lib/router", () => ({
+  useNavigate: () => vi.fn(),
   Link: ({ children, to, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
     <a href={to} {...props}>{children}</a>
   ),
 }));
+
+vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "c1" }), useOptionalCompany: () => ({ selectedCompanyId: "c1" }) }));
+vi.mock("../hooks/useAgentChatEnabled", () => ({ useAgentChatEnabled: () => ({ enabled: false, loaded: true }) }));
 
 vi.mock("../api/approvals", () => ({
   approvalsApi: {
@@ -613,7 +617,7 @@ describe("AttentionQueueRow", () => {
     await vi.waitFor(() => expect(issuesApi.acceptInteraction).toHaveBeenCalledWith("issue-1", "interaction-1", expect.any(Object)));
   });
 
-  it("renders configured confirmation labels and accepts from the compact action area", async () => {
+  it("renders configured confirmation labels and opens legacy detail before compact acceptance", async () => {
     const onToggleExpand = vi.fn();
     vi.mocked(issuesApi.acceptInteraction).mockResolvedValue({} as never);
     render(
@@ -654,8 +658,8 @@ describe("AttentionQueueRow", () => {
     act(() => approve?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(issuesApi.acceptInteraction).toHaveBeenCalledWith("issue-1", "interaction-1");
-    expect(onToggleExpand).not.toHaveBeenCalled();
+    expect(issuesApi.acceptInteraction).not.toHaveBeenCalled();
+    expect(onToggleExpand).toHaveBeenCalledOnce();
   });
 
   it("opens the matching confirmation form when requesting changes from a compact action", () => {
@@ -999,39 +1003,23 @@ describe("AttentionQueueRow", () => {
     expect(container?.querySelector('[data-testid="interaction-audience"]')).toBeNull();
   });
 
-  it("keeps the server denial reason and names the responder when a compact accept is refused", async () => {
-    vi.mocked(issuesApi.acceptInteraction).mockRejectedValue(
-      new ApiError("This issue-thread interaction is human-only", 403, {
-        error: "This issue-thread interaction is human-only",
-        code: "interaction_human_only",
-      }),
-    );
-    render(
-      <AttentionQueueRow
-        item={interactionItem({
-          ...openAudience,
-          requestedResolverPolicy: "human_only",
-          effectiveResolverPolicy: "human_only",
-        })}
-        companyId="c1"
-        expanded={false}
-        onToggleExpand={noop}
-        onDismiss={noop}
-      />,
-    );
-
-    const accept = Array.from(container?.querySelectorAll("button") ?? []).find(
-      (button) => button.textContent === "Accept",
-    );
-    act(() => accept?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    const feedback = document.body.textContent ?? "";
-    expect(feedback).toContain("This issue-thread interaction is human-only.");
-    expect(feedback).toContain("Only the board can respond.");
-    expect(feedback).not.toMatch(/try again/i);
+  it("keeps the server denial reason after opening detail and using the native resolver", async () => {
+    vi.mocked(issuesApi.acceptInteraction).mockRejectedValue(new ApiError("This issue-thread interaction is human-only", 403, { error: "This issue-thread interaction is human-only", code: "interaction_human_only" }));
+    const interaction = { ...pendingRequestConfirmationInteraction, id: "interaction-1", issueId: "issue-1", payload: { ...pendingRequestConfirmationInteraction.payload, acceptLabel: "Confirm" } };
+    vi.mocked(issuesApi.listInteractions).mockResolvedValue([interaction]);
+    const item = interactionItem({ ...openAudience, requestedResolverPolicy: "human_only", effectiveResolverPolicy: "human_only" });
+    function Harness() {
+      const [expanded, setExpanded] = useState(false);
+      return <ThemeProvider><TooltipProvider><AttentionQueueRow item={item} companyId="c1" expanded={expanded} onToggleExpand={() => setExpanded(true)} onDismiss={noop} /></TooltipProvider></ThemeProvider>;
+    }
+    const el = render(<Harness />);
+    act(() => Array.from(el.querySelectorAll("button")).find(button => button.textContent === "Accept")?.click());
+    expect(issuesApi.acceptInteraction).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(el.textContent).toContain("Confirm"));
+    act(() => Array.from(el.querySelectorAll("button")).find(button => button.textContent?.trim() === "Confirm")?.click());
+    await vi.waitFor(() => expect(el.textContent).toContain("This issue-thread interaction is human-only"));
+    expect(issuesApi.acceptInteraction).toHaveBeenCalledOnce();
+    expect(el.textContent).not.toMatch(/try again/i);
   });
 
   it("does not surface training state or actions for decisions", () => {

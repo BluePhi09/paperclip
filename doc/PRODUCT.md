@@ -118,7 +118,11 @@ labels do not change native authority. Standalone Decisions remain Board-only;
 agent reviewers use their original interaction or execution stage with real run
 identity. Optional versioned briefs explain the subject, resolver, evidence,
 consequences, and authorization scope before action. Human-only and independent
-review restrictions remain enforced. See [Decisions audiences and briefs](DECISIONS-AUDIENCE-BRIEFS.md)
+review restrictions remain enforced. New human cards require a self-contained
+concise explanation; a company-bound discussion button opens the source agent or
+named expert's native chat without sending or resolving anything. See
+[Concise decisions and native discussion](DECISIONS-CONCISE-CHAT.md) and
+[Decisions audiences and briefs](DECISIONS-AUDIENCE-BRIEFS.md)
 for the API contract and verification limits.
 
 ## Further Detail

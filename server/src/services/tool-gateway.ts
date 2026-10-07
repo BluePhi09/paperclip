@@ -2512,6 +2512,17 @@ export function createToolGatewayService(
         payload: {
           version: 1,
           prompt: `Approve ${input.tool.displayName?.trim() || input.tool.name}?`,
+          brief: nativeHumanActionBrief({
+            subject: `Approve ${input.tool.displayName?.trim() || input.tool.name}?`,
+            summary: `Allow this agent to run ${input.tool.displayName?.trim() || input.tool.name} once with the displayed arguments. Rejecting does not run it.`,
+            scope: `One action with these arguments: ${input.argumentsSummary.summary}`,
+            excludedScope: "No other action or different arguments are authorized. Remembering an action is a separate broader permission.",
+            risks: input.tool.risk === "destructive" ? "This action is marked destructive and may irreversibly remove data." : input.tool.risk === "read" ? "This action reads data and can expose it to the agent." : "This action can change external data or state.",
+            preconditions: ["Review the displayed action preview and arguments before authorizing; the argument hash must still match."],
+            source: `tool-action:${actionRequest.id}`, revision: canonicalArgumentsHash,
+            acceptLabel: "Approve action", rejectLabel: "Reject action",
+            acceptConsequence: "Run this one action with its bound arguments after the native permission checks.", rejectConsequence: "Do not run this action.",
+          }),
           acceptLabel: "Approve action",
           rejectLabel: "Reject action",
           rejectRequiresReason: false,
@@ -4376,6 +4387,7 @@ export function createToolGatewayService(
         grantKind === "organization"
           ? `Reconnect the ${connection.name} organization identity to continue`
           : `Connect your ${connection.name} account to continue`,
+      brief: nativeConnectionAuthorizationBrief(connection.name, `connection:${connection.id}`, connection.updatedAt.toISOString(), grantKind === "organization" ? "Reconnect organization" : "Connect account"),
       acceptLabel:
         grantKind === "organization"
           ? "Reconnect organization"
@@ -11349,3 +11361,4 @@ export function createToolGatewayService(
 }
 
 export type ToolGatewayService = ReturnType<typeof createToolGatewayService>;
+import { nativeHumanActionBrief, nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";
