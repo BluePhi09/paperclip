@@ -18099,30 +18099,52 @@ export function toolAccessService(
       if (transport === "local_stdio") await stdioTemplateId(companyId, config);
       assertLocalStdioCanBeEnabled(transport, input.enabled ?? false, config);
       await assertGoogleSheetsSpreadsheetOwnership(companyId, config);
+      let app: typeof toolApplications.$inferSelect;
       if (applicationId) {
-        const app = await assertApplication(companyId, applicationId);
-        applicationNamespace = app.applicationKey ?? app.name;
-        if (
-          (isRemoteMcpTransport(transport) && app.type !== "mcp_http") ||
-          (transport === "local_stdio" && app.type !== "mcp_stdio")
-        ) {
-          throw unprocessable(
-            "Connection transport must match application type",
-          );
-        }
+        app = await assertApplication(companyId, applicationId);
       } else {
-        const [app] = await db
+        const applicationName = input.applicationName ?? input.name;
+        const applicationKey = normalizeKey(applicationName);
+        const [created] = await db
           .insert(toolApplications)
           .values({
             companyId,
-            applicationKey: normalizeKey(input.applicationName ?? input.name),
-            name: input.applicationName ?? input.name,
+            applicationKey,
+            name: applicationName,
             type: isBrowserUseConnection({ transport, config }) ? "rest_api" : isRemoteMcpTransport(transport) ? "mcp_http" : "mcp_stdio",
             status: "active",
             metadata: {},
           })
+          // Let the native company/name and company/key identities arbitrate
+          // concurrent creates; never mint a new key to bypass a collision.
+          .onConflictDoNothing()
           .returning();
+        if (created) {
+          app = created;
+        } else {
+          const candidates = await db.select().from(toolApplications).where(and(
+            eq(toolApplications.companyId, companyId),
+            or(
+              eq(toolApplications.name, applicationName),
+              eq(toolApplications.applicationKey, applicationKey),
+            ),
+          ));
+          // A matching slug alone does not establish application identity.
+          // Reject ambiguous name/key matches rather than choosing a row.
+          if (candidates.length !== 1 ||
+              candidates[0].name.trim().toLowerCase() !== applicationName.trim().toLowerCase()) {
+            throw unprocessable("Application name conflicts with an existing application key");
+          }
+          app = candidates[0];
+        }
         applicationId = app.id;
+      }
+      applicationNamespace = app.applicationKey ?? app.name;
+      if (
+        (isRemoteMcpTransport(transport) && app.type !== "mcp_http") ||
+        (transport === "local_stdio" && app.type !== "mcp_stdio")
+      ) {
+        throw unprocessable("Connection transport must match application type");
       }
       const connectionId = randomUUID();
       const binding = actorBinding(actor);

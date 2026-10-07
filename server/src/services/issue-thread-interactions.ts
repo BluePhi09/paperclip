@@ -79,6 +79,7 @@ import {
   connectionIntentPayloadSchema,
   connectionIntentResultSchema,
   createIssueThreadInteractionSchema,
+  decisionBriefAuthorizesEffects,
   legacyIssueThreadInteractionResolverPolicyAlias,
   normalizeIssueThreadInteractionResolverPolicy,
   rejectIssueThreadInteractionSchema,
@@ -705,17 +706,26 @@ function hydrateInteraction(
           row,
         ),
       } satisfies AskUserQuestionsInteraction;
-    case "request_confirmation":
+    case "request_confirmation": {
+      // Stored explanations are display data, not grants. Keep unsupported
+      // briefs for an honest UI fallback while validating the native payload.
+      const stored = row.payload as RequestConfirmationInteraction["payload"];
+      const { brief, ...nativePayload } = stored;
+      const payload = requestConfirmationPayloadSchema.parse(nativePayload);
+      if (Object.prototype.hasOwnProperty.call(stored, "brief")) {
+        payload.brief = brief as RequestConfirmationInteraction["payload"]["brief"];
+      }
       return {
         ...base,
         kind: "request_confirmation",
-        payload: requestConfirmationPayloadSchema.parse(row.payload),
+        payload,
         result: parseStoredInteractionResult(
           requestConfirmationResultSchema,
           row.result,
           row,
         ),
       } satisfies RequestConfirmationInteraction;
+    }
     case "request_checkbox_confirmation":
       return {
         ...base,
@@ -3410,6 +3420,30 @@ export function issueThreadInteractionService(
           data.kind === "request_confirmation" &&
           data.payload.secretProposal !== undefined,
       });
+      const briefs = data.kind === "ask_user_questions" ? data.payload.questions.flatMap((question) => question.brief ? [question.brief] : [])
+        : data.kind === "request_item_verdicts" ? data.payload.items.flatMap((item) => item.brief ? [item.brief] : [])
+        : (data.kind === "request_confirmation" || data.kind === "request_checkbox_confirmation") && data.payload.brief ? [data.payload.brief] : [];
+      for (const brief of briefs) {
+        const target = brief.resolverTarget;
+        if (target.type === "agent") {
+          if (policy.effectiveResolverPolicy === "human_only" || data.addresseeAgentId !== target.agentId || data.addresseeUserId) {
+            throw unprocessable("Brief agent resolver must match the native addressee and effective resolver policy");
+          }
+        } else {
+          if (policy.effectiveResolverPolicy !== "human_only") {
+            throw unprocessable("Brief human resolver requires an effective human-only policy");
+          }
+          if (data.addresseeAgentId || (target.userId && target.userId !== data.addresseeUserId)) {
+            throw unprocessable("Brief human resolver must match the native addressee");
+          }
+        }
+        if ((brief.decisionClass === "personal_fact" || brief.decisionClass === "human_risk_decision") && (target.type !== "human" || policy.effectiveResolverPolicy !== "human_only")) {
+          throw unprocessable("Personal facts and human risk decisions require an effective human-only resolver");
+        }
+        if (!decisionBriefAuthorizesEffects(brief) && data.kind === "request_confirmation" && (data.payload.toolAction || data.payload.secretProposal)) {
+          throw unprocessable("Governed actions require an explicit execution-authorization brief");
+        }
+      }
       const normalizedData = {
         ...data,
         resolverPolicy: policy.requestedResolverPolicy,

@@ -1072,6 +1072,55 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
     OPEN_DECISION_MAX_LIMIT,
   );
   return {
+    /** Read-only, actor-bound expert projection. No queue materialization or Board sources. */
+    listExpert: async (companyId: string, agentId: string): Promise<AttentionFeed> => {
+      const prefix = await companyPrefix(db, companyId);
+      const roster = await db.select({ id: agents.id, companyId: agents.companyId, name: agents.name, reportsTo: agents.reportsTo, status: agents.status }).from(agents).where(eq(agents.companyId, companyId));
+      const names = new Map(roster.map((agent) => [agent.id, agent.name]));
+      if (!names.has(agentId)) throw badRequest("Agent is not in this company");
+      const interactions = await db.select().from(issueThreadInteractions).where(and(
+        eq(issueThreadInteractions.companyId, companyId), eq(issueThreadInteractions.addresseeAgentId, agentId), eq(issueThreadInteractions.status, "pending"), isNull(issueThreadInteractions.addresseeUserId),
+      ));
+      const visible = collapsePendingConfirmationsToNewest(interactions.filter((row) => {
+        const policy = canonicalizeStoredResolverPolicy(row.effectiveResolverPolicy, row.resolverPolicyProvenance);
+        return policy !== "human_only" && (policy !== "not_creator" || row.createdByAgentId !== agentId);
+      }));
+      const issueMap = await issueSummaryMap(db, companyId, visible.map((row) => row.issueId));
+      const items: AttentionItem[] = [];
+      const expertFields = {
+        audience: "agent" as const, resolverAgentId: agentId, resolverLabel: `Expert reviewer: ${names.get(agentId)}`,
+        routingBlocker: evaluateAgentInvokability(roster.find((row) => row.id === agentId), roster).invokable ? null : "Reviewer cannot run. Repair internal routing; no Human substitute vote.",
+        inlineResolvable: false, decisionVerbs: [],
+      };
+      for (const row of visible) {
+        const issue = issueMap.get(row.issueId);
+        if (!issue) continue;
+        items.push(createItem({
+          companyId, sourceKind: "issue_thread_interaction", ...expertFields,
+          subject: { kind: "interaction", id: row.id, companyId, title: row.title ?? row.summary ?? interactionLabel(row.kind), identifier: null, status: row.status, href: `${issueHref(prefix, issue)}#interaction-${row.id}`, metadata: { kind: row.kind, issueId: row.issueId } },
+          whyNow: "Your named expert interaction is pending. Resolve through the original interaction with real run identity.",
+          entryRule: "Pending interaction addressed to this agent; effective policy allows agents.", exitRule: "Original interaction resolves or becomes stale.", dedupKey: `interaction:${row.id}`, severity: "medium",
+          activityAt: toIso(row.updatedAt), createdAt: toIso(row.createdAt), updatedAt: toIso(row.updatedAt), relatedIssue: issueSubject(prefix, issue), ...issueContext(issue),
+          resolverAudience: interactionResolverAudience(row, (id) => names.get(id) ?? null),
+          detail: interactionDetail({ kind: row.kind, payload: readRecord(row.payload), issue, planDocument: null, images: [] }),
+        }));
+      }
+      const reviews = await db.select({ id: issues.id, executionState: issues.executionState }).from(issues).where(and(eq(issues.companyId, companyId), eq(issues.status, "in_review"), executionIssueCondition()));
+      const ownReviews = reviews.filter((row) => {
+        const state = parseIssueExecutionState(row.executionState);
+        return state?.status === "pending" && state.currentStageType === "review" && state.currentParticipant?.type === "agent" && state.currentParticipant.agentId === agentId;
+      });
+      const reviewMap = await issueSummaryMap(db, companyId, ownReviews.map((row) => row.id));
+      for (const row of ownReviews) {
+        const issue = reviewMap.get(row.id);
+        if (!issue) continue;
+        items.push(createItem({ companyId, sourceKind: "review", ...expertFields, subject: issueSubject(prefix, issue), relatedIssue: null, ...issueContext(issue), whyNow: "Your execution review stage is pending. Use the original execution resolver.", entryRule: "Pending review stage assigned to this agent.", exitRule: "Original stage advances.", dedupKey: `review:${row.id}`, severity: "medium", activityAt: toIso(issue.updatedAt), createdAt: toIso(issue.createdAt), updatedAt: toIso(issue.updatedAt), detail: genericDetail(issue.title, []) }));
+      }
+      items.sort(compareAttentionItems).forEach((item, index) => { item.rank = index + 1; });
+      const countsBySourceKind = emptyCounts();
+      for (const item of items) countsBySourceKind[item.sourceKind]++;
+      return { companyId, generatedAt: new Date().toISOString(), totalCount: items.length, deskBadgeCount: items.length, nextCursor: null, countsBySourceKind, items };
+    },
     list: async (companyId: string, options: AttentionListOptions = {}): Promise<AttentionFeed> => {
       if (options.all && !options.queue && !options.allowUnscopedAll) {
         throw badRequest("all requires a queue filter");
@@ -1193,7 +1242,7 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
         row.addresseeAgentId !== null
         || canonicalizeStoredResolverPolicy(row.effectiveResolverPolicy, row.resolverPolicyProvenance) === "not_creator"
       );
-      const companyAgentRows: AgentOrgRow[] = needsCompanyAgents
+      const companyAgentRows: AgentOrgRow[] = needsCompanyAgents || options.audience !== undefined
         ? await db
           .select({
             id: agents.id,
@@ -1207,7 +1256,7 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
         : [];
       const companyAgentMap = new Map(companyAgentRows.map((agent) => [agent.id, agent]));
       const boardInteractionRows = interactionRows.filter((row) =>
-        (row.addresseeAgentId === null ||
+        (options.audience !== undefined || row.addresseeAgentId === null ||
           !evaluateAgentInvokability(companyAgentMap.get(row.addresseeAgentId), companyAgentRows).invokable)
         && (row.addresseeUserId === null || row.addresseeUserId === options.userId)
       );
@@ -1245,6 +1294,9 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
               kind: interaction.kind,
               issueId: interaction.issueId,
               createdByAgentId: interaction.createdByAgentId,
+              // Presence, not validity: future/invalid briefs need their fallback
+              // disclosed by the native detail card before any compact vote.
+              requiresDetailReview: Object.prototype.hasOwnProperty.call(payload, "brief"),
               isPlanTarget,
               targetDocumentKey: isPlanTarget ? "plan" : null,
             },
@@ -1611,10 +1663,12 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
         const state = parseIssueExecutionState(review.executionState);
         const currentParticipant = state?.status === "pending" ? state.currentParticipant : null;
         const hasHumanParticipant = currentParticipant?.type === "user";
+        const expertAgentId = options.audience !== undefined && currentParticipant?.type === "agent" && state?.currentStageType === "review"
+          ? currentParticipant.agentId : null;
         const pendingApprovalId = pendingApprovalByIssueId.get(review.id) ?? null;
         const reviewAttention = reviewAttentionByIssueId.get(review.id);
         const stalled = reviewAttention?.state === "stalled";
-        if (!hasHumanParticipant && !review.assigneeUserId && !pendingApprovalId && !stalled) continue;
+        if (!expertAgentId && !hasHumanParticipant && !review.assigneeUserId && !pendingApprovalId && !stalled) continue;
         const issue = reviewIssueMap.get(review.id);
         if (!issue) continue;
         const dedupKey = `review:${review.id}`;
@@ -1626,10 +1680,13 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
         add(createItem({
           companyId,
           sourceKind: "review",
+          audience: expertAgentId ? "agent" : "human",
+          resolverAgentId: expertAgentId,
           subject: stalled
             ? { ...reviewSubject, metadata: { ...reviewSubject.metadata, reviewAttentionState: "stalled" } }
             : reviewSubject,
-          whyNow: stalled
+          whyNow: expertAgentId ? "Pending expert execution review; Board observes, the named agent votes."
+            : stalled
             ? "Issue is in review without a maintained reviewer, interaction, approval, monitor, run, wake, or recovery path."
             : pendingApprovalId
             ? "Issue is in review with a linked pending approval."
@@ -1868,7 +1925,25 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
         deduped.set(item.dedupKey, current ? betterDuplicate(current, item) : item);
       }
 
-      const collectedItems = [...deduped.values()].sort(compareAttentionItems);
+      const collectedItems = [...deduped.values()].sort(compareAttentionItems).map((item) => {
+        const resolver = item.resolverAudience;
+        const audience = resolver
+          ? resolver.effectiveResolverPolicy === "human_only" || resolver.addresseeUserId
+            ? "human"
+            : resolver.addresseeAgentId ? "agent" : "unclassified"
+          : item.audience ?? "human";
+        const resolverAgentId = audience === "agent" ? resolver?.addresseeAgentId ?? item.resolverAgentId ?? null : null;
+        return {
+          ...item,
+          audience,
+          resolverAgentId,
+          routingBlocker: resolverAgentId && !evaluateAgentInvokability(companyAgentMap.get(resolverAgentId), companyAgentRows).invokable
+            ? `Reviewer ${companyAgentMap.get(resolverAgentId)?.name ?? resolverAgentId} cannot run. Repair internal routing; no Human substitute vote.` : null,
+          resolverLabel: audience === "agent" ? `Expert reviewer: ${resolver?.addresseeName ?? resolverAgentId}`
+            : audience === "human" ? "Human / Board decision" : "Triage needed: resolver not named",
+          ...(audience === "agent" ? { inlineResolvable: false, decisionVerbs: [] } : {}),
+        } as AttentionItem;
+      });
       await decisionQueueService(db).materializeSeededQueues(companyId, collectedItems);
       const enrichedItems = await enrichAttentionItems(db, companyId, collectedItems, now);
 
@@ -1879,6 +1954,8 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
       }
       const queueKey = options.queue?.trim() || null;
       const visibleItems = enrichedItems.filter((item) => {
+        if (options.audience && options.audience !== "all" && item.audience !== options.audience) return false;
+        if (options.resolverAgentId && item.resolverAgentId !== options.resolverAgentId) return false;
         if (options.archived === true ? !item.archivedAt : Boolean(item.archivedAt)) return false;
         if (!includeDismissed && item.snoozedUntil && timestamp(item.snoozedUntil) > now) return false;
         const activity = timestamp(item.activityAt);

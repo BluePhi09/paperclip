@@ -213,6 +213,75 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     };
   }
 
+  it.each(["ask_user_questions", "request_checkbox_confirmation", "request_item_verdicts"] as const)("binds %s briefs to effective human-only policy", async (kind) => {
+    const { companyId, issueId } = await seedConfirmationIssue("Atomic brief policy");
+    const ids = kind === "request_checkbox_confirmation" ? ["me", "accept", "reject"] : kind === "request_item_verdicts" ? ["approve", "reject", "defer"] : ["me"];
+    const brief = { version: 1 as const, decisionClass: "personal_fact" as const, subject: "Who performed this action?", resolverTarget: { type: "human" as const, reason: "Personal knowledge" }, evidenceRefs: [{ source: "Access record", revision: "7 October" }], selectionConsequences: ids.map((optionId) => ({ optionId, consequence: "Record only, no authorization" })), safeDefault: "Unknown" };
+    const payload = kind === "ask_user_questions" ? { version: 1 as const, questions: [{ id: "actor", prompt: "Who?", selectionMode: "single" as const, options: [{ id: "me", label: "Me" }], brief }] } : kind === "request_item_verdicts" ? { version: 1 as const, prompt: "Review", verdicts: ["approve", "reject", "defer"] as const, items: [{ id: "actor", label: "Actor", brief }] } : { version: 1 as const, prompt: "Confirm", options: [{ id: "me", label: "Me" }], brief };
+    const input = { kind, payload } as Parameters<typeof interactionsSvc.create>[1];
+    await expect(interactionsSvc.create({ id: issueId, companyId }, { ...input, resolverPolicy: "anyone" }, { userId: "local-board" })).rejects.toMatchObject({ status: 422 });
+    const created = await interactionsSvc.create({ id: issueId, companyId }, { ...input, resolverPolicy: "human_only" }, { userId: "local-board" });
+    expect(JSON.stringify(created.payload)).toContain(brief.subject);
+  });
+
+  it.each(["expert_review", "internal_detail"] as const)("rejects governed %s brief without explicit execution authorization", async (decisionClass) => {
+    const { companyId, issueId } = await seedConfirmationIssue("Governed brief");
+    const brief = { version: 1 as const, decisionClass, subject: "Record only", resolverTarget: { type: "human" as const, reason: "Board" }, evidenceRefs: [{ source: "Document", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record only" }, { optionId: "reject", consequence: "Leave unchanged" }], safeDefault: "No execution" };
+    const toolAction = { version: 1 as const, actionRequestId: randomUUID(), invocationId: randomUUID(), toolName: "example.write", toolDisplayName: "Write", connectionId: randomUUID(), applicationId: randomUUID(), appDisplayName: "Example", risk: "write" as const, previewMarkdown: "Write one row", argumentsSummaryJson: "{}", argumentsHash: "hash", expiresAt: "2099-01-01T00:00:00.000Z" };
+    const input = { kind: "request_confirmation" as const, resolverPolicy: "human_only" as const, payload: { version: 1 as const, prompt: "Confirm", toolAction, brief } };
+    await expect(interactionsSvc.create({ id: issueId, companyId }, input, { userId: "local-board" })).rejects.toMatchObject({ status: 422, message: "Governed actions require an explicit execution-authorization brief" });
+    const authorized = { ...brief, purpose: "execution_authorization" as const, reason: "Routine approved scope", scope: "One row", excludedScope: "Other rows", risks: "Wrong value", preconditions: [], recommendationOptionId: "accept", recommendationReason: "Within scope" };
+    const created = await interactionsSvc.create({ id: issueId, companyId }, { ...input, payload: { ...input.payload, brief: authorized } }, { userId: "local-board" });
+    expect(created.payload).toMatchObject({ brief: authorized });
+  });
+
+  it.each(["expert_review", "internal_detail"] as const)("protects every human-target %s brief from creator self-response", async (decisionClass) => {
+    const { companyId, issueId, agentId, runId } = await seedSourceQuestionFixture({});
+    const brief = { version: 1 as const, decisionClass, subject: "Independent Board review", resolverTarget: { type: "human" as const, reason: "Independent Board reviewer" }, evidenceRefs: [{ source: "Document", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record review only" }, { optionId: "reject", consequence: "Revise" }], safeDefault: "No execution", purpose: decisionClass === "expert_review" ? "plan_review" as const : "internal_detail" as const };
+    const input = { kind: "request_confirmation" as const, sourceRunId: runId, resolverPolicy: "anyone" as const, payload: { version: 1 as const, prompt: "Review", brief } };
+    const issue = { id: issueId, companyId };
+    await expect(interactionsSvc.create(issue, input, { agentId, runId })).rejects.toMatchObject({ status: 422, message: "Brief human resolver requires an effective human-only policy" });
+    const created = await interactionsSvc.create(issue, { ...input, resolverPolicy: "human_only" }, { agentId, runId });
+    expect(created).toMatchObject({ effectiveResolverPolicy: "human_only", createdByAgentId: agentId, sourceRunId: runId });
+    await expect(interactionsSvc.acceptInteraction(issue, created.id, {}, { agentId, runId })).rejects.toMatchObject({ status: 403 });
+    expect(await interactionsSvc.getById(created.id)).toMatchObject({ status: "pending", resolvedByAgentId: null });
+    const accepted = await interactionsSvc.acceptInteraction(issue, created.id, {}, { userId: "local-board" });
+    expect(accepted.interaction).toMatchObject({ status: "accepted", resolvedByUserId: "local-board", resolvedByAgentId: null, resolvedByRunId: null, createdByAgentId: agentId, sourceRunId: runId });
+  });
+
+  it("excludes a human creator from a brief-declared independent expert review", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Independent human review");
+    const brief = { version: 1 as const, decisionClass: "expert_review" as const, purpose: "plan_review" as const, subject: "Independent review", resolverTarget: { type: "human" as const, reason: "Independent Board reviewer" }, evidenceRefs: [{ source: "Plan", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record review" }, { optionId: "reject", consequence: "Revise" }], safeDefault: "No execution" };
+    const issue = { id: issueId, companyId };
+    const created = await interactionsSvc.create(issue, { kind: "request_confirmation", resolverPolicy: "human_only", payload: { version: 1, prompt: "Review", brief } }, { userId: "writer" });
+    await expect(interactionsSvc.acceptInteraction(issue, created.id, {}, { userId: "writer" })).rejects.toMatchObject({ status: 403, details: { code: "interaction_creator_excluded" } });
+    expect(await interactionsSvc.getById(created.id)).toMatchObject({ status: "pending" });
+    const accepted = await interactionsSvc.acceptInteraction(issue, created.id, {}, { userId: "reviewer" });
+    expect(accepted.interaction).toMatchObject({ status: "accepted", createdByUserId: "writer", resolvedByUserId: "reviewer" });
+  });
+
+  it.each([null, { version: 2 }, { version: 1, subject: "Incomplete" }])("retains invalid/future stored confirmation brief %j for detail fallback", async (brief) => {
+    const { companyId, issueId } = await seedConfirmationIssue("Stored brief fallback");
+    const id = randomUUID();
+    await db.insert(issueThreadInteractions).values({ id, companyId, issueId, kind: "request_confirmation", status: "pending", effectiveResolverPolicy: "human_only", payload: { version: 1, prompt: "Original explanation", brief } });
+    const read = await interactionsSvc.getById(id);
+    expect(read?.payload).toMatchObject({ prompt: "Original explanation", brief });
+    expect((await interactionsSvc.listForIssue(issueId))[0].payload).toMatchObject({ brief });
+  });
+
+  it("binds opted-in confirmation brief resolver to effective policy and native addressee", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Brief resolver");
+    const agentId = randomUUID();
+    await db.insert(agents).values({ id: agentId, companyId, name: "Reviewer", role: "engineer", status: "active", adapterType: "codex_local", adapterConfig: {}, runtimeConfig: {}, permissions: {} });
+    const brief = { version: 1 as const, decisionClass: "expert_review" as const, subject: "Review revision 1 only", resolverTarget: { type: "agent" as const, agentId, reason: "Independent expert" }, evidenceRefs: [{ source: "Document", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record review only" }, { optionId: "reject", consequence: "Revise document" }], safeDefault: "No execution", purpose: "plan_review" as const };
+    const input = { kind: "request_confirmation" as const, addresseeAgentId: agentId, resolverPolicy: "human_only" as const, payload: { version: 1 as const, prompt: "Review only", brief } };
+    await expect(interactionsSvc.create({ id: issueId, companyId }, input, { userId: "local-board" })).rejects.toMatchObject({ status: 422 });
+    await expect(interactionsSvc.create({ id: issueId, companyId }, { ...input, resolverPolicy: "anyone", payload: { ...input.payload, brief: { ...brief, resolverTarget: { ...brief.resolverTarget, agentId: randomUUID() } } } }, { userId: "local-board" })).rejects.toMatchObject({ status: 422 });
+    const created = await interactionsSvc.create({ id: issueId, companyId }, { ...input, resolverPolicy: "anyone" }, { userId: "local-board" });
+    expect(created.payload).toMatchObject({ brief });
+    await expect(interactionsSvc.create({ id: issueId, companyId }, { ...input, resolverPolicy: "anyone", payload: { ...input.payload, brief: { ...brief, decisionClass: "personal_fact", purpose: "fact" } } }, { userId: "local-board" })).rejects.toMatchObject({ status: 422 });
+  });
+
   it("persists and answers a canonical-only mixed question form", async () => {
     const { companyId, issueId } = await seedSourceQuestionFixture({});
     const questionSet = {

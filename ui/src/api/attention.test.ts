@@ -37,6 +37,11 @@ describe("attentionApi.list", () => {
     );
   });
 
+  it("sends audience and named reviewer to the server", async () => {
+    await attentionApi.list("company-1", { audience: "agent", resolverAgentId: "reviewer-1" });
+    expect(mockApi.get).toHaveBeenCalledWith("/companies/company-1/attention?audience=agent&resolverAgentId=reviewer-1");
+  });
+
   it("omits the query delimiter when no options are supplied", async () => {
     await attentionApi.list("company-1");
 

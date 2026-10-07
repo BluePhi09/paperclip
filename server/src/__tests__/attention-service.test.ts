@@ -225,6 +225,79 @@ describeEmbeddedPostgres("attention service", () => {
     };
   }
 
+  it.each([1, 2, null])("requires detail review for stored brief version %s, never for brief-less legacy", async (version) => {
+    const { companyId } = await seedCompany("BRF");
+    const issueId = await insertIssue({ companyId, identifier: "BRF-1", title: "Human review", status: "in_progress" });
+    const id = randomUUID();
+    await db.insert(issueThreadInteractions).values({ id, companyId, issueId, kind: "request_confirmation", status: "pending", effectiveResolverPolicy: "human_only", payload: { version: 1, prompt: "Confirm", brief: version === null ? null : { version, decisionClass: "expert_review" } } });
+    const item = (await attentionService(db).list(companyId, { userId: "board-user", audience: "human" })).items.find((entry) => entry.subject.id === id);
+    expect(item).toMatchObject({ audience: "human", subject: { metadata: { requiresDetailReview: true } } });
+    await db.update(issueThreadInteractions).set({ payload: { version: 1, prompt: "Legacy" } }).where(eq(issueThreadInteractions.id, id));
+    const legacy = (await attentionService(db).list(companyId, { userId: "board-user", audience: "human" })).items.find((entry) => entry.subject.id === id);
+    expect(legacy?.subject.metadata?.requiresDetailReview).toBe(false);
+  });
+
+  it("projects agent-addressed expert interactions for Board observation, not Board resolution", async () => {
+    const { companyId, workerId, reviewerId } = await seedCompany("AUD");
+    const issueId = await insertIssue({ companyId, identifier: "AUD-1", title: "Review DMARC revision 1", status: "in_progress" });
+    const id = randomUUID();
+    await db.insert(issueThreadInteractions).values({ id, companyId, issueId, kind: "request_confirmation", status: "pending", payload: { prompt: "Review revision 1; no DNS execution" }, addresseeAgentId: reviewerId, createdByAgentId: workerId, requestedResolverPolicy: "not_creator", effectiveResolverPolicy: "not_creator" });
+    const feed = await attentionService(db).list(companyId, { userId: "board-user", audience: "agent" });
+    expect(feed.items.find((item) => item.subject.id === id)).toMatchObject({ audience: "agent", resolverAgentId: reviewerId, inlineResolvable: false, decisionVerbs: [] });
+    const human = await attentionService(db).list(companyId, { userId: "board-user", audience: "human" });
+    expect(human.items.some((item) => item.subject.id === id)).toBe(false);
+  });
+
+  it("keeps an inactive named reviewer in expert audience with a routing blocker", async () => {
+    const { companyId, workerId, reviewerId } = await seedCompany("BLK");
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, reviewerId));
+    const issueId = await insertIssue({ companyId, identifier: "BLK-1", title: "Review only", status: "in_progress" });
+    const id = randomUUID();
+    await db.insert(issueThreadInteractions).values({ id, companyId, issueId, kind: "request_confirmation", status: "pending", payload: { prompt: "Review only" }, addresseeAgentId: reviewerId, createdByAgentId: workerId, effectiveResolverPolicy: "not_creator" });
+    const feed = await attentionService(db).list(companyId, { userId: "board-user", audience: "all" });
+    expect(feed.items.find((item) => item.subject.id === id)).toMatchObject({ audience: "agent", inlineResolvable: false, routingBlocker: expect.stringContaining("Reviewer") });
+  });
+
+  it("projects pending agent execution reviews without allowing a Board expert vote", async () => {
+    const { companyId, reviewerId } = await seedCompany("STG");
+    const id = await insertIssue({ companyId, identifier: "STG-1", title: "Review stage", status: "in_review", assigneeAgentId: reviewerId, executionState: pendingAgentExecutionState(reviewerId) });
+    const feed = await attentionService(db).list(companyId, { userId: "board-user", audience: "agent" });
+    expect(feed.items.find((item) => item.sourceKind === "review" && item.subject.id === id)).toMatchObject({ audience: "agent", resolverAgentId: reviewerId, inlineResolvable: false, decisionVerbs: [] });
+  });
+
+  it("honors and validates Board audience query before returning a filtered count", async () => {
+    const { companyId } = await seedCompany("AFQ");
+    const testApp = express();
+    testApp.use((req, _res, next) => { (req as any).actor = { type: "board", source: "local_implicit", userId: "board-user" }; next(); });
+    testApp.use("/api", attentionRoutes(db)); testApp.use(errorHandler);
+    await db.insert(approvals).values({ companyId, type: "request_board_approval", status: "pending", payload: {} });
+    const expert = await request(testApp).get(`/api/companies/${companyId}/attention?audience=agent`);
+    expect(expert.status).toBe(200); expect(expert.body.totalCount).toBe(0);
+    expect((await request(testApp).get(`/api/companies/${companyId}/attention?audience=wrong`)).status).toBe(400);
+  });
+
+  it("serves only an agent's own expert interactions and stages without unlocking Board APIs", async () => {
+    const { companyId, workerId, reviewerId } = await seedCompany("OWN");
+    const other = await seedCompany("OTH");
+    const issueId = await insertIssue({ companyId, identifier: "OWN-1", title: "Own expert task", status: "in_progress" });
+    const stageId = await insertIssue({ companyId, identifier: "OWN-2", title: "Own stage", status: "in_review", executionState: pendingAgentExecutionState(reviewerId) });
+    const ownId = randomUUID(), humanId = randomUUID(), foreignId = randomUUID();
+    await db.insert(issueThreadInteractions).values([
+      { id: ownId, companyId, issueId, kind: "request_confirmation", status: "pending", payload: { prompt: "Review revision" }, addresseeAgentId: reviewerId, createdByAgentId: workerId, effectiveResolverPolicy: "not_creator" },
+      { id: humanId, companyId, issueId, kind: "request_confirmation", status: "pending", payload: { prompt: "Private fact" }, addresseeAgentId: reviewerId, effectiveResolverPolicy: "human_only" },
+      { id: foreignId, companyId, issueId, kind: "request_confirmation", status: "pending", payload: { prompt: "Other reviewer" }, addresseeAgentId: workerId, effectiveResolverPolicy: "anyone" },
+    ]);
+    const testApp = express();
+    testApp.use((req, _res, next) => { (req as any).actor = { type: "agent", companyId, agentId: reviewerId }; next(); });
+    testApp.use("/api", attentionRoutes(db)); testApp.use(errorHandler);
+    const result = await request(testApp).get(`/api/companies/${companyId}/attention/expert`);
+    expect(result.status).toBe(200);
+    expect(result.body.items.map((item: any) => item.subject.id).sort()).toEqual([ownId, stageId].sort());
+    expect((await request(testApp).get(`/api/companies/${other.companyId}/attention/expert`)).status).toBe(403);
+    expect((await request(testApp).get(`/api/companies/${companyId}/attention`)).status).toBe(403);
+    expect((await request(testApp).get(`/api/companies/${companyId}/attention/expert?resolverAgentId=${workerId}`)).status).toBe(400);
+  });
+
   it("excludes internal harness reviews from items, counts, and decision queues", async () => {
     const { companyId, workerId } = await seedCompany("ATH");
     const harnessIssueId = await insertIssue({

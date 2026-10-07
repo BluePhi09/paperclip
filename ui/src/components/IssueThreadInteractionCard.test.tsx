@@ -125,6 +125,22 @@ afterEach(() => {
 });
 
 describe("IssueThreadInteractionCard", () => {
+  it.each(["question", "checkbox", "item"] as const)("renders %s brief before selection controls", (kind) => {
+    const ids = kind === "checkbox" ? ["accept", "reject", "criterion"] : kind === "item" ? ["approve", "reject"] : ["me"];
+    const brief = { version: 1 as const, decisionClass: "expert_review" as const, subject: "Bounded atomic review, no execution", resolverTarget: { type: "human" as const, reason: "Named resolver" }, evidenceRefs: [{ source: "Document", revision: "Revision 1" }], selectionConsequences: ids.map((optionId) => ({ optionId, consequence: "No implementation authorized" })), safeDefault: "Remain pending" };
+    const interaction = kind === "question" ? { ...pendingAskUserQuestionsInteraction, payload: { ...pendingAskUserQuestionsInteraction.payload, questions: pendingAskUserQuestionsInteraction.payload.questions.map((question) => ({ ...question, brief })) } } : kind === "item" ? { ...pendingRequestItemVerdictsInteraction, payload: { ...pendingRequestItemVerdictsInteraction.payload, items: pendingRequestItemVerdictsInteraction.payload.items.map((item) => ({ ...item, brief })) } } : { ...pendingRequestCheckboxConfirmationInteraction, payload: { ...pendingRequestCheckboxConfirmationInteraction.payload, brief } };
+    const el = renderCard({ interaction });
+    expect(el.textContent).toContain(brief.subject);
+    expect(el.textContent).toContain("No implementation authorized");
+  });
+  it("renders the native confirmation brief with reviewer and exact revision", () => {
+    const brief = { version: 1, decisionClass: "expert_review", subject: "Review DMARC revision 1 only", resolverTarget: { type: "agent", agentId: "11111111-1111-4111-8111-111111111111", reason: "Independent reviewer" }, evidenceRefs: [{ source: "DMARC document", revision: "Revision 1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record review only; no DNS changes" }, { optionId: "reject", consequence: "Revise document" }], safeDefault: "No execution" };
+    const el = renderCard({ interaction: { ...pendingRequestConfirmationInteraction, payload: { ...pendingRequestConfirmationInteraction.payload, brief } } as typeof pendingRequestConfirmationInteraction });
+    expect(el.textContent).toContain("Review DMARC revision 1 only");
+    expect(el.textContent).toContain("Independent reviewer");
+    expect(el.textContent).toContain("Revision 1");
+    expect(el.textContent).toContain("Record review only; no DNS changes");
+  });
   it("opens the shared connection setup for the addressed user", async () => {
     connectionIntentsApiMocks.setupOptions.mockResolvedValue({ existingConnections: [] });
     const host = renderCard({

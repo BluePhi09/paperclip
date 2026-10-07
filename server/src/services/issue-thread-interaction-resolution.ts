@@ -2,7 +2,7 @@ import type {
   IssueThreadInteractionCanonicalResolverPolicy,
   IssueThreadInteractionResolverPolicy,
 } from "@paperclipai/shared";
-import { normalizeIssueThreadInteractionResolverPolicy } from "@paperclipai/shared";
+import { decisionBriefSchema, normalizeIssueThreadInteractionResolverPolicy } from "@paperclipai/shared";
 import { HttpError } from "../errors.js";
 
 export const ISSUE_THREAD_INTERACTION_RESOLUTION_DENIAL_CODES = [
@@ -49,6 +49,7 @@ export type IssueThreadInteractionResolverAudienceInput = {
     addresseeUserId?: string | null;
     effectiveResolverPolicy: IssueThreadInteractionResolverPolicy | string;
     resolverPolicyProvenance?: string | null;
+    payload?: unknown;
   };
   /**
    * A server-derived restriction owned by a binding flow such as issue review.
@@ -163,8 +164,20 @@ export function evaluateIssueThreadInteractionResolverAudience(
   // severity scale: their intersection means "a human other than the
   // creator." Keep both predicates even though the persisted public policy
   // enum can only name one of them.
+  const payload = input.interaction.payload;
+  const record = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown> : {};
+  const briefCandidates = [record.brief, ...[record.questions, record.items].flatMap((entries) =>
+    Array.isArray(entries) ? entries.map((entry: unknown) => entry && typeof entry === "object" ? (entry as Record<string, unknown>).brief : undefined) : [])];
+  // Opted-in expert reviews are independent even when human_only wins the
+  // public policy enum. Legacy cards without a valid brief remain unchanged.
+  const independentBrief = briefCandidates.some((candidate) => {
+    const parsed = decisionBriefSchema.safeParse(candidate);
+    return parsed.success && parsed.data.decisionClass === "expert_review";
+  });
   const creatorExcluded =
-    persistedPolicy === "not_creator"
+    independentBrief
+    || persistedPolicy === "not_creator"
     || additionalRestriction?.policy === "not_creator";
   const humanOnly =
     Boolean(input.governedAction)

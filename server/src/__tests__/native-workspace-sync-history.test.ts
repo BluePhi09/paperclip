@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { finished } from "node:stream/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { heartbeatRuns, type Db } from "@paperclipai/db";
 import type { EnvironmentLease } from "@paperclipai/shared";
@@ -11,17 +12,57 @@ import { runLocalGit } from "@paperclipai/adapter-utils/git-workspace-sync";
 import { prepareNativeWorkspaceSync } from "../services/native-runtime/native-workspace-sync.js";
 
 const runner: CommandManagedRuntimeRunner = {
-  execute: (input) => new Promise((resolve) => {
-    const child = execFile(input.command, input.args ?? [], {
-      cwd: input.cwd, env: { ...process.env, ...input.env },
-      timeout: input.timeoutMs, maxBuffer: 16 * 1024 * 1024,
-    }, (error, stdout, stderr) => resolve({
-      exitCode: error ? (typeof error.code === "number" ? error.code : 1) : 0,
-      signal: error?.signal ?? null, timedOut: error?.killed ?? false, stdout, stderr,
-    }));
-    child.stdin?.end(input.stdin ?? "");
-  }),
+  execute: async (input) => {
+    let stdinCompletion: Promise<Error | undefined> = Promise.resolve(undefined);
+    const startedAt = new Date().toISOString();
+    const result = await new Promise<Awaited<ReturnType<CommandManagedRuntimeRunner["execute"]>>>((resolve) => {
+      const child = execFile(input.command, input.args ?? [], {
+        cwd: input.cwd, env: { ...process.env, ...input.env },
+        timeout: input.timeoutMs, maxBuffer: 16 * 1024 * 1024,
+      }, (error, stdout, stderr) => resolve({
+        exitCode: error ? (typeof error.code === "number" ? error.code : 1) : 0,
+        signal: error?.signal ?? null, timedOut: error?.killed ?? false, stdout, stderr,
+        pid: child.pid ?? null, startedAt,
+      }));
+      if (child.stdin) {
+        // Observe transfer errors immediately, but settle only after the child exits.
+        stdinCompletion = finished(child.stdin, { readable: false }).then(
+          () => undefined, (error: Error) => error,
+        );
+        if (input.stdin) child.stdin.end(input.stdin);
+        else child.stdin.end(); // EOF is not an empty data write.
+      }
+    });
+    const stdinError = await stdinCompletion;
+    if (stdinError) throw stdinError;
+    return result;
+  },
 };
+
+describe("history fixture command runner", () => {
+  it.each([undefined, ""])("sends EOF for stdin %s", async (stdin) => {
+    const result = await runner.execute({ command: "cat", stdin });
+    expect(result).toEqual({ pid: expect.any(Number), startedAt: expect.any(String), exitCode: 0, signal: null, timedOut: false, stdout: "", stderr: "" });
+  });
+
+  it("preserves a nonempty payload", async () => {
+    const stdin = "payload with UTF-8: ä\n\0end\n";
+    const result = await runner.execute({ command: "cat", stdin });
+    expect(result).toEqual({ pid: expect.any(Number), startedAt: expect.any(String), exitCode: 0, signal: null, timedOut: false, stdout: stdin, stderr: "" });
+  });
+
+  it("rejects a failed transfer when the payload reader closes early", async () => {
+    // Exceed the pipe buffer so a child that never reads cannot accept the payload.
+    await expect(runner.execute({
+      command: "sh", args: ["-c", "exec 0<&-; printf closed"], stdin: "x".repeat(2 * 1024 * 1024),
+    })).rejects.toMatchObject({ code: "EPIPE" });
+  });
+
+  it("retains a failed child command's status and output", async () => {
+    const result = await runner.execute({ command: "sh", args: ["-c", "printf failure >&2; exit 23"] });
+    expect(result).toEqual({ pid: expect.any(Number), startedAt: expect.any(String), exitCode: 23, signal: null, timedOut: false, stdout: "", stderr: "failure" });
+  });
+});
 
 async function git(cwd: string, ...args: string[]) {
   return (await runLocalGit(cwd, args)).stdout.trim();

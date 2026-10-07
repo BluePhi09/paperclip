@@ -332,6 +332,9 @@ export const AttentionQueueRow = memo(function AttentionQueueRow({
         </div>
       </div>
 
+      {item.resolverLabel && <p className="text-xs font-medium text-muted-foreground">{item.resolverLabel}</p>}
+      {item.routingBlocker && <p role="status" className="text-xs text-destructive">{item.routingBlocker}</p>}
+
       {/* Headline — the primary expand target for inline rows. Title wraps to
           two lines instead of truncating to a sliver on narrow screens. */}
       <div
@@ -545,7 +548,7 @@ function CompactDecisionActions({
           disabled={decision.isPending}
           onClick={(event) => {
             event.stopPropagation();
-            if (item.sourceKind === "issue_thread_interaction" && action === "reject") {
+            if (item.sourceKind === "issue_thread_interaction" && (action === "reject" || item.subject.metadata?.requiresDetailReview === true)) {
               onOpen();
               return;
             }

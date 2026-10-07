@@ -88,6 +88,7 @@ export function WhatNeedsMe() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [audience, setAudience] = useState<"human" | "agent" | "unclassified" | "all">("human");
   const [selectedAttentionId, setSelectedAttentionId] = useState<string | null>(null);
   // How the current selection was made. The selection ring is the keyboard
   // cursor — it marks the row that j/k, e, x and s will act on — so it is drawn
@@ -155,11 +156,13 @@ export function WhatNeedsMe() {
     queryKey: [
       ...queryKeys.attention(selectedCompanyId!),
       "with-dismissed",
+      audience,
       activityBounds.activitySince ?? null,
       activityBounds.activityUntil ?? null,
     ],
     queryFn: () => attentionApi.list(selectedCompanyId!, {
       includeDismissed: true,
+      audience,
       all: true,
       ...activityBounds,
     }),
@@ -521,6 +524,8 @@ export function WhatNeedsMe() {
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-bold">Decisions</h1>
         <DecisionsToolbar
+          audience={audience}
+          onAudienceChange={(next) => { setAudience(next); setExpandedId(null); setSelectedAttentionId(null); }}
           visibleCount={visibleCount}
           filterOptions={filterOptions}
           filters={filters}

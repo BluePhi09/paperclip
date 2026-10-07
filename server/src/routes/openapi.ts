@@ -5579,6 +5579,8 @@ registry.registerPath({
   request: {
     params: z.object({ companyId: z.string() }),
     query: z.object({
+      audience: z.enum(["human", "agent", "unclassified", "all"]).optional(),
+      resolverAgentId: z.string().min(1).optional(),
       includeDismissed: z.enum(["true", "false"]).optional(),
       archived: z.enum(["true", "false"]).optional(),
       all: z.enum(["true", "false"]).optional(),
@@ -5591,6 +5593,16 @@ registry.registerPath({
     }),
   },
   responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{companyId}/attention/expert",
+  tags: ["inbox"],
+  summary: "List the authenticated agent's pending native expert reviews",
+  description: "Requires an agent actor in the company. Accepts no query parameters. Returns an AttentionFeed without queue materialization or resolver writes. Original interaction and execution-stage authorization still applies.",
+  request: { params: z.object({ companyId: z.string() }) },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden },
 });
 
 // ─── Decisions ──────────────────────────────────────────────────────────────

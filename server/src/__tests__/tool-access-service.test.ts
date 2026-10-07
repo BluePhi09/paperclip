@@ -2802,6 +2802,104 @@ describeEmbeddedPostgres("tool access service", () => {
       config: { url: "https://mcp.example.com/mcp" },
     });
     expect(connection.applicationId).toBe(existing.id);
+    expect(connection.uid).toMatch(/^linear\/linear-workspace-/);
+    expect(await db.select().from(toolApplications)
+      .where(eq(toolApplications.companyId, company.id))).toEqual([existing]);
+  });
+
+  it("reuses the native name identity and application key for concurrent connections", async () => {
+    const company = await createCompany(db);
+    const service = createTestToolAccessService(db);
+    const existing = await service.createApplication(company.id, {
+      applicationKey: "native:legacy-key",
+      name: "Native identity fixture",
+      type: "mcp_http",
+    });
+    const connections = await Promise.all(["first", "second"].map((name) =>
+      service.createConnection(company.id, {
+        applicationName: existing.name,
+        name,
+        transport: "mcp_remote",
+        config: { url: "https://mcp.example.com/mcp" },
+      })));
+    expect(connections.map((connection) => connection.applicationId)).toEqual([existing.id, existing.id]);
+    for (const connection of connections) expect(connection.uid).toMatch(/^native:legacy-key\//);
+    expect(await db.select().from(toolApplications)
+      .where(eq(toolApplications.companyId, company.id))).toEqual([existing]);
+  });
+
+  it("uses native uniqueness to share one application across concurrent first connections", async () => {
+    const company = await createCompany(db);
+    const service = createTestToolAccessService(db);
+    const connections = await Promise.all(["first", "second"].map((name) =>
+      service.createConnection(company.id, {
+        applicationName: "Concurrent identity fixture",
+        name,
+        transport: "mcp_remote",
+        config: { url: "https://mcp.example.com/mcp" },
+      })));
+    const applications = await db.select().from(toolApplications)
+      .where(eq(toolApplications.companyId, company.id));
+    expect(applications).toHaveLength(1);
+    expect(connections.map((connection) => connection.applicationId))
+      .toEqual([applications[0].id, applications[0].id]);
+  });
+
+  it("does not reuse another company's matching application identity", async () => {
+    const company = await createCompany(db);
+    const otherCompany = await createCompany(db);
+    const service = createTestToolAccessService(db);
+    const other = await service.createApplication(otherCompany.id, {
+      name: "Company identity fixture", type: "mcp_http",
+    });
+    const connection = await service.createConnection(company.id, {
+      applicationName: other.name,
+      name: "Company-bound connection",
+      transport: "mcp_remote",
+      config: { url: "https://mcp.example.com/mcp" },
+    });
+    expect(connection.applicationId).not.toBe(other.id);
+    const applications = await db.select().from(toolApplications)
+      .where(eq(toolApplications.companyId, company.id));
+    expect(applications).toHaveLength(1);
+    expect(applications[0].id).toBe(connection.applicationId);
+  });
+
+  it("rejects ambiguous native name and key identities without attaching or duplicating", async () => {
+    const company = await createCompany(db);
+    const service = createTestToolAccessService(db);
+    const applications = await db.insert(toolApplications).values([
+      { companyId: company.id, applicationKey: "independent-key", name: "Ambiguous fixture", type: "mcp_http" },
+      { companyId: company.id, applicationKey: "ambiguous-fixture", name: "Other fixture", type: "mcp_http" },
+    ]).returning();
+    await expect(service.createConnection(company.id, {
+      applicationName: "Ambiguous fixture",
+      name: "Ambiguous connection",
+      transport: "mcp_remote",
+      config: { url: "https://mcp.example.com/mcp" },
+    })).rejects.toMatchObject({ status: 422 });
+    expect(await db.select().from(toolConnections)
+      .where(eq(toolConnections.companyId, company.id))).toEqual([]);
+    const savedApplications = await db.select().from(toolApplications)
+      .where(eq(toolApplications.companyId, company.id));
+    expect(savedApplications).toHaveLength(applications.length);
+    expect(savedApplications).toEqual(expect.arrayContaining(applications));
+  });
+
+  it("rejects a reused key's incompatible type before creating a connection", async () => {
+    const company = await createCompany(db);
+    const service = createTestToolAccessService(db);
+    const existing = await service.createApplication(company.id, { name: "Type fixture", type: "mcp_stdio" });
+    await expect(service.createConnection(company.id, {
+      applicationName: "type fixture",
+      name: "Type-bound connection",
+      transport: "mcp_remote",
+      config: { url: "https://mcp.example.com/mcp" },
+    })).rejects.toMatchObject({ status: 422, message: "Connection transport must match application type" });
+    expect(await db.select().from(toolConnections)
+      .where(eq(toolConnections.companyId, company.id))).toEqual([]);
+    expect(await db.select().from(toolApplications)
+      .where(eq(toolApplications.companyId, company.id))).toEqual([existing]);
   });
 
   it("rejects the obsolete Anthropic REST setup before storing credentials", async () => {
