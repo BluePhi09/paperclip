@@ -124,6 +124,23 @@ uses the same path. Desk Enter toggles detail without a vote. The normal native
 control may act only after disclosure and still uses the original resolver.
 Brief-less legacy compact behavior remains unchanged.
 
+## Supporting release prerequisite: application reuse
+
+This PR also contains an isolated correction to `createConnection` in tool access,
+not a Decisions permission change. Three application-reuse tests already failed on
+its integration base: implicit creation always inserted a new application and hit
+native unique constraints before reuse or type validation could run.
+
+Implicit connections now let PostgreSQL's existing company/name and company/key
+identities arbitrate creation. A conflict reuses only one company-scoped row with
+an equivalent display name (trimmed, case-insensitive); an unrelated key collision
+or ambiguous name/key pair returns 422 without attaching a connection or minting
+a duplicate key. Explicit and implicit reuse share the existing MCP transport/type
+validation. Connection UIDs use the resolved application's native key. No schema,
+migration, credential policy, or workflow gate is changed. Real embedded PostgreSQL
+fixtures cover reuse, incompatible types, collisions, company isolation, and
+concurrent creation; this supporting change does not certify a live Apps pilot.
+
 ## Verification and limits
 
 Targeted tests cover source projection, brief/effect preflight, creator exclusion,
