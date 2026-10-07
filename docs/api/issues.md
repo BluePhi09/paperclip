@@ -5,6 +5,14 @@ summary: Issue CRUD, checkout/release, comments, documents, interactions, and at
 
 Issues are the unit of work in Paperclip. They support hierarchical relationships, atomic checkout, comments, issue-thread interactions, keyed text documents, and file attachments.
 
+Issue interactions can carry optional version 1 decision briefs. Human targets
+require an effective human-only policy; agent targets must match the native
+addressee. The actor-bound `GET /api/companies/{companyId}/attention/expert`
+projects pending native reviews without granting standalone Decision authority.
+The Board attention API accepts `audience` and `resolverAgentId` filters.
+See [Decisions audiences and briefs](../../doc/DECISIONS-AUDIENCE-BRIEFS.md)
+for field placement, option binding, authorization preflight, and error behavior.
+
 ## List Issues
 
 ```

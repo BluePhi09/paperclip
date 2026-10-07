@@ -11,6 +11,9 @@ import { ApiError } from "../api/client";
 import { issuesApi } from "../api/issues";
 import { ToastViewport } from "./ToastViewport";
 import { ToastProvider } from "../context/ToastContext";
+import { pendingRequestConfirmationInteraction } from "../fixtures/issueThreadInteractionFixtures";
+import { ThemeProvider } from "../context/ThemeContext";
+import { TooltipProvider } from "./ui/tooltip";
 import { AttentionQueueRow } from "./AttentionQueueRow";
 
 vi.mock("@/lib/router", () => ({
@@ -29,6 +32,7 @@ vi.mock("../api/approvals", () => ({
 
 vi.mock("../api/issues", () => ({
   issuesApi: {
+    listInteractions: vi.fn(),
     acceptInteraction: vi.fn(),
     rejectInteraction: vi.fn(),
     decideStalledReview: vi.fn(() => Promise.resolve({})),
@@ -134,6 +138,12 @@ function buildItem(overrides: Partial<AttentionItem> = {}): AttentionItem {
 const noop = () => {};
 
 describe("AttentionQueueRow", () => {
+  it("shows expert resolver and routing blocker without Board voting controls", () => {
+    const el = render(<AttentionQueueRow item={buildItem({ audience: "agent", resolverLabel: "Expert reviewer: Vera", routingBlocker: "Reviewer cannot run; repair routing", inlineResolvable: false })} companyId="c1" expanded onToggleExpand={noop} onDismiss={noop} />);
+    expect(el.textContent).toContain("Expert reviewer: Vera");
+    expect(el.textContent).toContain("Reviewer cannot run; repair routing");
+    expect(el.textContent).not.toContain("Approve");
+  });
   it("renders an inline approval resolver when expanded", () => {
     const el = render(
       <AttentionQueueRow
@@ -563,6 +573,44 @@ describe("AttentionQueueRow", () => {
     expect(approvalsApi.approve).toHaveBeenCalledWith("approval-1");
     expect(onToggleExpand).not.toHaveBeenCalled();
     expect(container?.textContent).toContain("Approval approved");
+  });
+
+  it.each(["pointer", "keyboard"])("opens brief detail before compact confirmation via %s activation", async (activation) => {
+    const onToggleExpand = vi.fn();
+    vi.mocked(issuesApi.acceptInteraction).mockResolvedValue({} as never);
+    const item = buildItem({ sourceKind: "issue_thread_interaction", subject: { kind: "interaction", id: "interaction-1", companyId: "c1", title: "Review with brief", identifier: null, status: "pending", href: "/PAP/issues/issue-1", metadata: { kind: "request_confirmation", issueId: "issue-1", requiresDetailReview: true } }, decisionVerbs: [{ id: "accept", label: "Confirm", description: null }] });
+    const el = render(<AttentionQueueRow item={item} companyId="c1" expanded={false} onToggleExpand={onToggleExpand} onDismiss={noop} />);
+    const confirm = Array.from(el.querySelectorAll("button")).find((button) => button.textContent === "Confirm");
+    expect(confirm).toBeDefined();
+    // Keyboard-generated button activation emits click with detail=0.
+    act(() => confirm?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: activation === "keyboard" ? 0 : 1 })));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(issuesApi.acceptInteraction).not.toHaveBeenCalled();
+    expect(onToggleExpand).toHaveBeenCalledWith(item);
+  });
+
+  it.each(["personal_fact", "expert_review", "human_risk_decision", "future"] as const)("discloses %s before the normal native confirmation resolver", async (kind) => {
+    const brief = { version: kind === "future" ? 2 : 1, decisionClass: kind === "future" ? "expert_review" : kind, subject: "Exact bounded subject", resolverTarget: { type: "human", reason: "Board knowledge" }, evidenceRefs: [{ source: "Plan", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record bounded choice" }, { optionId: "reject", consequence: "Leave unchanged" }], safeDefault: "Remain pending", ...(kind === "human_risk_decision" ? { purpose: "execution_authorization", reason: "Needed", scope: "One change", excludedScope: "Other changes", risks: "Rollback", preconditions: [], recommendationOptionId: "accept", recommendationReason: "Bounded" } : {}) };
+    const interaction = { ...pendingRequestConfirmationInteraction, id: "interaction-1", issueId: "issue-1", payload: { ...pendingRequestConfirmationInteraction.payload, prompt: "Original explanation", acceptLabel: "Confirm", brief } } as typeof pendingRequestConfirmationInteraction;
+    vi.mocked(issuesApi.listInteractions).mockResolvedValue([interaction]);
+    vi.mocked(issuesApi.acceptInteraction).mockResolvedValue({ ...interaction, status: "accepted" } as never);
+    const item = buildItem({ sourceKind: "issue_thread_interaction", subject: { kind: "interaction", id: interaction.id, companyId: "c1", title: "Review", identifier: null, status: "pending", href: "/PAP/issues/issue-1", metadata: { kind: "request_confirmation", issueId: interaction.issueId, requiresDetailReview: true } }, decisionVerbs: [{ id: "accept", label: "Confirm", description: null }] });
+    function Harness() {
+      const [expanded, setExpanded] = useState(false);
+      return <ThemeProvider><TooltipProvider><AttentionQueueRow item={item} companyId="c1" expanded={expanded} onToggleExpand={() => setExpanded(true)} onDismiss={noop} /></TooltipProvider></ThemeProvider>;
+    }
+    const el = render(<Harness />);
+    const compact = Array.from(el.querySelectorAll("button")).find((button) => button.textContent === "Confirm");
+    act(() => compact?.click());
+    expect(issuesApi.acceptInteraction).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(el.textContent).toContain(kind === "future" ? "invalid or unsupported version" : brief.subject));
+    const explanation = kind === "future" ? el.querySelector('[role="status"]') : el.querySelector('[aria-label="Decision brief"]');
+    const native = Array.from(el.querySelectorAll('[data-decision-disclosure] button')).find((button) => button.textContent?.trim() === "Confirm");
+    expect(Array.from(el.querySelectorAll("button")).map((button) => button.textContent?.trim())).toContain("Confirm");
+    expect(native).toBeDefined();
+    expect(explanation!.compareDocumentPosition(native!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => native?.click());
+    await vi.waitFor(() => expect(issuesApi.acceptInteraction).toHaveBeenCalledWith("issue-1", "interaction-1", expect.any(Object)));
   });
 
   it("renders configured confirmation labels and accepts from the compact action area", async () => {

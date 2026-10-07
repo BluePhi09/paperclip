@@ -149,6 +149,8 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   // Company-level reads used to discover work and context
   { method: "GET", path: /^\/api\/companies\/[^/]+$/ },
   { method: "GET", path: /^\/api\/companies\/[^/]+\/dashboard$/ },
+  // Actor-bound expert reads only; Board attention and Decision effects stay denied.
+  { method: "GET", path: /^\/api\/companies\/[^/]+\/attention\/expert$/ },
   { method: "GET", path: /^\/api\/companies\/[^/]+\/agents$/ },
   { method: "GET", path: /^\/api\/companies\/[^/]+\/issues$/ },
   { method: "GET", path: /^\/api\/companies\/[^/]+\/projects$/ },

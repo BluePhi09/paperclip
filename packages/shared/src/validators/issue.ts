@@ -42,6 +42,7 @@ import {
 } from "./trust-policy.js";
 import { objectWithoutDefaults } from "./partial.js";
 import { questionSetToAskUserQuestionsPayload } from "../question-set.js";
+import { decisionBriefSchema } from "./decision-brief.js";
 
 export const issueBlockedInboxStateSchema = z.enum([
   "needs_attention",
@@ -1257,7 +1258,16 @@ export const askUserQuestionsQuestionOptionSchema = z.object({
     ),
 });
 
+function validateBriefOptions(brief: z.infer<typeof decisionBriefSchema> | undefined, optionIds: string[], ctx: z.RefinementCtx, path: (string | number)[] = []) {
+  if (!brief) return;
+  const ids = brief.selectionConsequences.map((entry) => entry.optionId).sort();
+  if (JSON.stringify(ids) !== JSON.stringify([...optionIds].sort()) || (brief.recommendationOptionId && !ids.includes(brief.recommendationOptionId))) {
+    ctx.addIssue({ code: "custom", path: [...path, "brief", "selectionConsequences"], message: "Brief must describe each available option exactly once" });
+  }
+}
+
 export const askUserQuestionsQuestionSchema = z.object({
+  brief: decisionBriefSchema.optional(),
   id: z.string().trim().min(1).max(160),
   prompt: z.string().trim().min(1).max(4000),
   helpText: z.string().trim().max(4000).nullable().optional(),
@@ -1265,7 +1275,7 @@ export const askUserQuestionsQuestionSchema = z.object({
   required: z.boolean().optional(),
   allowOther: z.boolean().optional(),
   options: z.array(askUserQuestionsQuestionOptionSchema).min(1).max(129),
-});
+}).superRefine((question, ctx) => validateBriefOptions(question.brief, question.options.map((option) => option.id), ctx));
 
 const paperclipQuestionOptionSchema = z.object({
   id: z.string().min(1).max(160),
@@ -1546,6 +1556,7 @@ export const requestConfirmationSecretProposalPayloadSchema = z.object({
 
 export const requestConfirmationPayloadSchema = z.object({
   version: z.literal(1),
+  brief: decisionBriefSchema.optional(),
   prompt: z.string().trim().min(1).max(1000),
   acceptLabel: z.string().trim().min(1).max(80).nullable().optional(),
   rejectLabel: z.string().trim().min(1).max(80).nullable().optional(),
@@ -1564,6 +1575,12 @@ export const requestConfirmationPayloadSchema = z.object({
   target: requestConfirmationTargetSchema.nullable().optional(),
   toolAction: requestConfirmationToolActionPayloadSchema.optional(),
   secretProposal: requestConfirmationSecretProposalPayloadSchema.optional(),
+}).superRefine((payload, ctx) => {
+  if (!payload.brief) return;
+  const ids = payload.brief.selectionConsequences.map((entry) => entry.optionId).sort();
+  if (JSON.stringify(ids) !== JSON.stringify(["accept", "reject"]) || (payload.brief.recommendationOptionId && !ids.includes(payload.brief.recommendationOptionId))) {
+    ctx.addIssue({ code: "custom", path: ["brief", "selectionConsequences"], message: "Confirmation briefs must describe accept and reject exactly once" });
+  }
 });
 
 export const requestCheckboxConfirmationOptionSchema = z.object({
@@ -1574,6 +1591,7 @@ export const requestCheckboxConfirmationOptionSchema = z.object({
 
 export const requestCheckboxConfirmationPayloadSchema = z
   .object({
+    brief: decisionBriefSchema.optional(),
     version: z.literal(1),
     prompt: z.string().trim().min(1).max(1000),
     detailsMarkdown: z.string().max(20000).nullable().optional(),
@@ -1604,6 +1622,7 @@ export const requestCheckboxConfirmationPayloadSchema = z
     target: requestConfirmationTargetSchema.nullable().optional(),
   })
   .superRefine((value, ctx) => {
+    validateBriefOptions(value.brief, [...value.options.map((option) => option.id), "accept", "reject"], ctx);
     const optionIds = new Set<string>();
     for (const [index, option] of value.options.entries()) {
       if (optionIds.has(option.id)) {
@@ -1761,6 +1780,7 @@ export const requestItemVerdictValueSchema = z.enum([
 ]);
 
 export const requestItemVerdictsItemSchema = z.object({
+  brief: decisionBriefSchema.optional(),
   id: z.string().trim().min(1).max(120),
   label: z.string().trim().min(1).max(120),
   description: z.string().trim().max(500).nullable().optional(),
@@ -1797,6 +1817,7 @@ export const requestItemVerdictsPayloadSchema = z
   .superRefine((value, ctx) => {
     const itemIds = new Set<string>();
     for (const [index, item] of value.items.entries()) {
+      validateBriefOptions(item.brief, value.verdicts, ctx, ["items", index]);
       if (itemIds.has(item.id)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

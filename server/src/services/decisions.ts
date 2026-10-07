@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gt, gte, inArray, lte, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { companyMemberships, decisionBundles, decisionEffectExecutions, decisionRetention, decisions, decisionTargetIssues, heartbeatRuns, issueRelations, issues } from "@paperclipai/db";
-import { ATTENTION_SOURCE_KINDS, decisionEffectTargetIssueIds } from "@paperclipai/shared";
+import { ATTENTION_SOURCE_KINDS, decisionBriefSchema, decisionBriefAuthorizesEffects, decisionEffectTargetIssueIds } from "@paperclipai/shared";
 import type { AttentionArchiveManifestEntry, DecisionEffect, DecisionInput, DecisionOption, DecisionStatsCounts, DecisionStatsResponse } from "@paperclipai/shared";
 import { conflict, forbidden, notFound, tooManyRequests, unprocessable } from "../errors.js";
 import { authorizationService, type AuthorizationActor } from "./authorization.js";
@@ -189,6 +189,20 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
   }
 
   async function createInStore(input: CreateInputWithSnapshots, dbOrTx: Db) {
+    if (input.metadata?.brief !== undefined) {
+      const parsed = decisionBriefSchema.safeParse(input.metadata.brief);
+      if (!parsed.success) throw unprocessable("Invalid decision brief", { issues: parsed.error.issues });
+      const brief = parsed.data;
+      if (brief.resolverTarget.type !== "human") throw unprocessable("Standalone Decisions are Board-only; use a native interaction or execution stage for agent review");
+      const optionIds = input.options.map((option) => option.id).sort();
+      const consequenceIds = brief.selectionConsequences.map((entry) => entry.optionId).sort();
+      if (JSON.stringify(optionIds) !== JSON.stringify(consequenceIds) || (brief.recommendationOptionId && !optionIds.includes(brief.recommendationOptionId))) {
+        throw unprocessable("Brief must describe each option exactly once and recommend an existing option");
+      }
+      if (!decisionBriefAuthorizesEffects(brief) && input.options.some((option) => option.effects.length > 0)) {
+        throw unprocessable("Decision effects require an explicit execution-authorization brief");
+      }
+    }
     if (input.idempotencyKey) {
       const lockKey = `decision-create:${input.companyId}:${input.idempotencyKey}`;
       await dbOrTx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);

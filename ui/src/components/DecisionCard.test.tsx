@@ -128,6 +128,15 @@ afterEach(() => {
 });
 
 describe("DecisionCard", () => {
+  it("renders a precise personal fact brief before choices without invented advice", () => {
+    const brief = { version: 1, decisionClass: "personal_fact", subject: "Who used admin-219?", resolverTarget: { type: "human", reason: "Personal observation" }, evidenceRefs: [{ source: "Access record", revision: "7 October" }], selectionConsequences: [{ optionId: "me", consequence: "Record actor only" }], safeDefault: "Unknown; no permissions change" };
+    const el = render({ decision: mkDecision({ metadata: { brief }, options: [{ id: "me", label: "Me", effects: [] }] }) });
+    expect(el.textContent).toContain("Who used admin-219?");
+    expect(el.textContent).toContain("No recommended answer");
+    expect(el.textContent).toContain("Record actor only");
+    expect(el.textContent).toContain("Unknown; no permissions change");
+    expect(el.querySelector('[aria-label="Decision brief"]')).toBeTruthy();
+  });
   it("renders a pending decision with provenance, effect summary and dismiss", () => {
     const el = render({});
     expect(el.textContent).toContain("Pending");

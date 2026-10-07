@@ -1164,6 +1164,7 @@ export interface AskUserQuestionsQuestionOption {
 }
 
 export interface AskUserQuestionsQuestion {
+  brief?: import("../validators/decision-brief.js").DecisionBrief;
   id: string;
   prompt: string;
   helpText?: string | null;
@@ -1392,6 +1393,7 @@ export interface ConnectionIntentResult {
 }
 
 export interface RequestConfirmationPayload {
+  brief?: import("../validators/decision-brief.js").DecisionBrief;
   version: 1;
   prompt: string;
   acceptLabel?: string | null;
@@ -1415,6 +1417,7 @@ export interface RequestCheckboxConfirmationOption {
 }
 
 export interface RequestCheckboxConfirmationPayload {
+  brief?: import("../validators/decision-brief.js").DecisionBrief;
   version: 1;
   prompt: string;
   detailsMarkdown?: string | null;
@@ -1435,6 +1438,7 @@ export interface RequestCheckboxConfirmationPayload {
 export type RequestItemVerdictValue = "approve" | "reject" | "defer";
 
 export interface RequestItemVerdictsItem {
+  brief?: import("../validators/decision-brief.js").DecisionBrief;
   id: string;
   label: string;
   description?: string | null;

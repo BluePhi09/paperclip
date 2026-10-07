@@ -110,6 +110,17 @@ There are two runtime modes Paperclip must support:
 
 Canonical mode design and command expectations live in `doc/DEPLOYMENT-MODES.md`.
 
+## Experimental Decisions audiences
+
+The existing Decisions Desk and queues separate Human decisions, named agent
+reviews, and items that need resolver triage. Human is the initial view. Audience
+labels do not change native authority. Standalone Decisions remain Board-only;
+agent reviewers use their original interaction or execution stage with real run
+identity. Optional versioned briefs explain the subject, resolver, evidence,
+consequences, and authorization scope before action. Human-only and independent
+review restrictions remain enforced. See [Decisions audiences and briefs](DECISIONS-AUDIENCE-BRIEFS.md)
+for the API contract and verification limits.
+
 ## Further Detail
 
 See [SPEC.md](./SPEC.md) for the full technical specification and [TASKS.md](./TASKS.md) for the task management data model.

@@ -379,6 +379,7 @@ export function DecisionCard({
       </p>
 
       {/* Body */}
+      <DecisionBriefSummary value={decision.metadata?.brief} />
       {decision.body?.trim() && (
         <div className="mt-3 text-sm leading-6 text-foreground/90">
           <MarkdownBody>{decision.body}</MarkdownBody>
@@ -625,3 +626,4 @@ export function DecisionCard({
     </div>
   );
 }
+import { DecisionBriefSummary } from "./DecisionBriefSummary";

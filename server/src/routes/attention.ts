@@ -15,6 +15,17 @@ export function attentionRoutes(db: Db) {
   const router = Router();
   const svc = attentionService(db);
 
+  router.get("/companies/:companyId/attention/expert", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    if (req.actor.type !== "agent" || !req.actor.agentId) {
+      res.status(403).json({ error: "Agent context required" });
+      return;
+    }
+    if (Object.keys(req.query).length > 0) throw badRequest("Expert feed is actor-bound and accepts no filters");
+    res.json(await svc.listExpert(companyId, req.actor.agentId));
+  });
+
   router.get("/companies/:companyId/attention", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
@@ -24,6 +35,11 @@ export function attentionRoutes(db: Db) {
       return;
     }
 
+    const audience = optionalQueryString(req.query.audience, "audience");
+    if (audience !== undefined && !["human", "agent", "unclassified", "all"].includes(audience)) {
+      throw badRequest("audience must be human, agent, unclassified, or all");
+    }
+    const resolverAgentId = optionalQueryString(req.query.resolverAgentId, "resolverAgentId");
     const includeDismissed = req.query.includeDismissed === "true";
     const archived = req.query.archived === "true";
     const all = req.query.all === "true";
@@ -40,6 +56,8 @@ export function attentionRoutes(db: Db) {
     if (limit !== undefined && !Number.isInteger(limit)) throw badRequest("limit must be an integer");
     const feed = await svc.list(companyId, {
       userId: req.actor.userId,
+      audience: audience as "human" | "agent" | "unclassified" | "all" | undefined,
+      resolverAgentId,
       includeDismissed,
       archived,
       all,

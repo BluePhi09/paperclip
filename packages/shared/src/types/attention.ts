@@ -82,7 +82,12 @@ export interface AttentionTriageAttribution {
 
 export type AttentionSortMode = "activity" | "decide";
 
+export type AttentionAudience = "human" | "agent" | "unclassified";
+
 export interface AttentionFeedQuery {
+  /** Omitted preserves the legacy Board projection. */
+  audience?: AttentionAudience | "all";
+  resolverAgentId?: string;
   includeDismissed?: boolean;
   archived?: boolean;
   /** Return the complete filtered snapshot in one response. */
@@ -219,6 +224,10 @@ export interface AttentionResolverAudience {
 }
 
 export interface AttentionItem {
+  audience?: AttentionAudience;
+  resolverAgentId?: string | null;
+  resolverLabel?: string;
+  routingBlocker?: string | null;
   id: string;
   companyId: string;
   sourceKind: AttentionSourceKind;

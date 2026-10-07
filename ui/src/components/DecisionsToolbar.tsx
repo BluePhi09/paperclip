@@ -25,6 +25,8 @@ const SEVERITY_LABELS: Record<string, string> = {
 };
 
 interface DecisionsToolbarProps {
+  audience?: "human" | "agent" | "unclassified" | "all";
+  onAudienceChange?: (next: "human" | "agent" | "unclassified" | "all") => void;
   /** Number of decisions currently shown, for the count pill. */
   visibleCount: number;
   filterOptions: ReturnType<typeof buildAttentionFilterOptions>;
@@ -43,6 +45,8 @@ interface DecisionsToolbarProps {
  * plus the filter popover only.
  */
 export function DecisionsToolbar({
+  audience,
+  onAudienceChange,
   visibleCount,
   filterOptions,
   filters,
@@ -54,7 +58,12 @@ export function DecisionsToolbar({
 }: DecisionsToolbarProps) {
   const activeFilterCount = countActiveAttentionFilters(filters);
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
+      {onAudienceChange && <div role="tablist" aria-label="Decision audience" className="flex flex-wrap items-center gap-2">
+        {([["human", "My decisions"], ["agent", "Expert votes"], ["unclassified", "Unclassified"], ["all", "All"]] as const).map(([value, label]) => (
+          <button key={value} type="button" role="tab" aria-selected={audience === value} className={cn("rounded-sm px-2 py-1.5 text-sm", audience === value ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent")} onClick={() => onAudienceChange(value)}>{label}</button>
+        ))}
+      </div>}
       {visibleCount > 0 && (
         <span className="text-sm text-muted-foreground">
           {visibleCount} {visibleCount === 1 ? "decision" : "decisions"}

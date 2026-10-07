@@ -33,6 +33,7 @@ import {
 import { cn, formatDateTime, formatShortDate } from "../lib/utils";
 import { InteractionPreparationNotice } from "./InteractionPreparationNotice";
 import { InteractionAudienceLine } from "./InteractionAudienceLine";
+import { DecisionBriefSummary } from "./DecisionBriefSummary";
 import { MarkdownBody, type MarkdownExternalReferenceMap } from "./MarkdownBody";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -1231,6 +1232,7 @@ function AskUserQuestionsCard({
                 />
               </div>
 
+              <DecisionBriefSummary value={question.brief} />
               <div className="mt-3 space-y-3">
                 <div
                   className="grid gap-3"
@@ -3384,6 +3386,7 @@ function RequestItemVerdictsCard({
               data-item-id={item.id}
               data-item-state={resolved ? "resolved" : applying ? "applying" : draft ? "draft" : "pending"}
             >
+              <DecisionBriefSummary value={item.brief} />
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1 basis-64">
                   <div className="flex flex-wrap items-center gap-2">
@@ -3823,6 +3826,7 @@ export function IssueThreadInteractionCard({
           </Tooltip>
         </div>
 
+        <DecisionBriefSummary value={"brief" in interaction.payload ? interaction.payload.brief : undefined} />
         <div className="mt-5">
           {interaction.kind === "suggest_tasks" ? (
             <SuggestTasksCard

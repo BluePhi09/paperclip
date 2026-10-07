@@ -61,6 +61,7 @@ export {
   type DecisionSpecInput,
 } from "./validators/decision.js";
 
+export { decisionBriefSchema, decisionBriefAuthorizesEffects, type DecisionBrief } from "./validators/decision-brief.js";
 export { decisionEffectTargetIssueIds } from "./types/decision.js";
 
 export type {

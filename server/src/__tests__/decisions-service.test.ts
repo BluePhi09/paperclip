@@ -98,6 +98,42 @@ describePg("decisionService", () => {
   const expireDecisionNow = (id: string) =>
     db.update(decisions).set({ expiresAt: new Date(Date.now() - 1_000) }).where(eq(decisions.id, id));
 
+  it.each([
+    { decisionClass: "internal_detail", purpose: "fact" },
+    { decisionClass: "expert_review" },
+    { decisionClass: "internal_detail", purpose: "internal_detail" },
+  ])("rejects non-authorization briefs with actual effects: %j", async (semantics) => {
+    const brief = { version: 1, ...semantics, subject: "Record only", resolverTarget: { type: "human", reason: "Board" }, evidenceRefs: [{ source: "Plan", revision: "1" }], selectionConsequences: [{ optionId: "yes", consequence: "Record only" }], safeDefault: "No action" };
+    await expect(createCommentDecision("lenient", { metadata: { brief } })).rejects.toMatchObject({ status: 422 });
+    expect(await db.select().from(decisions)).toHaveLength(0);
+  });
+
+  it("permits explicitly scoped internal execution authorization without forcing human-risk classification", async () => {
+    const brief = { version: 1, decisionClass: "internal_detail", purpose: "execution_authorization", subject: "Post routine comment", resolverTarget: { type: "human", reason: "Board" }, evidenceRefs: [{ source: "Plan", revision: "1" }], selectionConsequences: [{ optionId: "yes", consequence: "Post hello on target issue" }], safeDefault: "No comment", reason: "Approved routine", scope: "One comment", excludedScope: "No status change", risks: "Duplicate comment", preconditions: [], recommendationOptionId: "yes", recommendationReason: "Within approved routine" };
+    const created = await createCommentDecision("lenient", { metadata: { brief } });
+    expect(created.metadata.brief).toEqual(brief);
+    await expect(createCommentDecision("lenient", { metadata: { brief: { ...brief, scope: undefined } } })).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("validates opted-in briefs before persistence and retains legacy creation", async () => {
+    await expect(createCommentDecision("lenient", { metadata: { brief: { version: 1, subject: " " } } })).rejects.toMatchObject({ status: 422 });
+    expect(await db.select().from(decisions)).toHaveLength(0);
+    const brief = { version: 1, decisionClass: "personal_fact", subject: "Who used admin?", resolverTarget: { type: "human", reason: "Personal observation" }, evidenceRefs: [{ source: "Access record", revision: "7 October" }], selectionConsequences: [{ optionId: "yes", consequence: "Record fact only" }], safeDefault: "Unknown; no action" };
+    const created = await createCommentDecision("lenient", { metadata: { brief }, options: [{ id: "yes", label: "Me", effects: [] }], continuationPolicy: "none" });
+    expect(created.metadata.brief).toEqual(brief);
+    await expect(createCommentDecision("lenient", { metadata: { brief } })).rejects.toMatchObject({ status: 422 });
+    await expect(createCommentDecision()).resolves.toBeTruthy();
+  });
+
+  it("rejects a brief whose resolver or option consequences contradict the Board decision", async () => {
+    const brief = { version: 1, decisionClass: "expert_review", subject: "Review revision", resolverTarget: { type: "agent", agentId, reason: "Expert" }, evidenceRefs: [{ source: "Plan", revision: "1" }], selectionConsequences: [{ optionId: "yes", consequence: "Record vote" }], safeDefault: "No action" };
+    await expect(createCommentDecision("lenient", { metadata: { brief }, options: [{ id: "yes", label: "Yes", effects: [] }] })).rejects.toMatchObject({ status: 422 });
+    const human = { ...brief, resolverTarget: { type: "human", reason: "Board" } };
+    await expect(createCommentDecision("lenient", { metadata: { brief: { ...human, selectionConsequences: [{ optionId: "missing", consequence: "No action" }] } } })).rejects.toMatchObject({ status: 422 });
+    await expect(createCommentDecision("lenient", { metadata: { brief: { ...human, purpose: "plan_review" } } })).rejects.toMatchObject({ status: 422 });
+    await expect(createCommentDecision("lenient", { metadata: { brief: human }, options: [{ id: "yes", label: "Yes", effects: [] }] })).resolves.toBeTruthy();
+  });
+
   it("returns the existing decision for concurrent idempotent creates", async () => {
     const input = {
       companyId, actor: agentActor(), agentId, runId, title: "Same?", body: "Body", idempotencyKey: "concurrent-create",

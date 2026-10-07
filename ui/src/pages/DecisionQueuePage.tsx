@@ -66,6 +66,7 @@ export function DecisionQueuePage() {
   const params = useParams<{ key: string }>();
   const queueKey = params.key ?? "";
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [audience, setAudience] = useState<"human" | "agent" | "unclassified" | "all">("human");
   const { dismiss, snooze } = useInboxDismissals(selectedCompanyId);
 
   // Toolbar preferences (persisted to localStorage, shared with the desk).
@@ -100,10 +101,11 @@ export function DecisionQueuePage() {
       ...queryKeys.attention(selectedCompanyId!),
       "queue",
       queueKey,
+      audience,
       activityBounds.activitySince ?? null,
       activityBounds.activityUntil ?? null,
     ],
-    queryFn: () => attentionApi.list(selectedCompanyId!, { queue: queueKey, all: true, ...activityBounds }),
+    queryFn: () => attentionApi.list(selectedCompanyId!, { queue: queueKey, audience, all: true, ...activityBounds }),
     enabled: !!selectedCompanyId && !!queueKey,
     refetchOnWindowFocus: true,
   });
@@ -228,6 +230,8 @@ export function DecisionQueuePage() {
           {queue?.description && <p className="mt-0.5 text-sm text-muted-foreground">{queue.description}</p>}
         </div>
         <DecisionsToolbar
+          audience={audience}
+          onAudienceChange={(next) => { setAudience(next); setExpandedId(null); }}
           visibleCount={visibleCount}
           filterOptions={filterOptions}
           filters={filters}
