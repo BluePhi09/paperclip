@@ -54,6 +54,41 @@ beforeAll(async () => {
 afterAll(async () => { await database?.cleanup(); vi.unstubAllEnvs(); if (home) await rm(home, { recursive: true, force: true }); });
 
 describe("managed AI connections", () => {
+  it.each(["personal", "shared"] as const)("hides archived %s accounts regardless of grant status", async (ownership) => {
+    const owner = `archived-${ownership}`;
+    await db.insert(companyMemberships).values({ companyId, principalId: owner, principalType: "user", status: "active", membershipRole: "member" });
+    const archived = await create(owner, `Archived ${ownership}`, ownership);
+    await db.update(toolConnections).set({ status: "archived", enabled: false }).where(eq(toolConnections.id, archived.connectionId));
+
+    for (const status of ["active", "revoked"] as const) {
+      await db.update(connectionGrants).set({ status }).where(eq(connectionGrants.id, archived.grantId));
+      const accounts = await service.list(companyId, owner);
+      expect(accounts.some((account) => account.id === archived.connectionId)).toBe(false);
+    }
+  });
+
+  it("keeps non-archived subscription status and default semantics", async () => {
+    const owner = "non-archived-subscription-owner";
+    await db.insert(companyMemberships).values({ companyId, principalId: owner, principalType: "user", status: "active", membershipRole: "member" });
+    const account = await service.save(companyId, owner, {
+      provider: "anthropic", method: "subscription", ownership: "personal", name: "Active subscription",
+      loginSessionId: "fixture", agentIds: [], allAgents: true,
+    }, "fixture-subscription");
+    for (const [grantStatus, enabled, healthStatus, expectedStatus] of [
+      ["active", true, "ok", "connected"],
+      ["active", false, "ok", "needs_attention"],
+      ["active", true, "error", "needs_attention"],
+      ["needs_reauthorization", true, "ok", "needs_attention"],
+      ["expired", true, "ok", "expired"],
+      ["revoked", true, "ok", "revoked"],
+    ] as const) {
+      await db.update(toolConnections).set({ enabled, healthStatus }).where(eq(toolConnections.id, account.connectionId));
+      await db.update(connectionGrants).set({ status: grantStatus }).where(eq(connectionGrants.id, account.grantId));
+      expect((await service.list(companyId, owner)).find((row) => row.id === account.connectionId)).toMatchObject({
+        grantId: account.grantId, method: "subscription", status: expectedStatus, isDefault: true,
+      });
+    }
+  });
   it.each([
     ["openai", "codex_local", "responses"],
     ["anthropic", "claude_local", "messages"],

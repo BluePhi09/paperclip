@@ -125,6 +125,7 @@ export function aiConnectionService(db: Db) {
           ),
       ]);
     return accounts.flatMap(({ connection, grant }) => {
+      if (connection.status === "archived") return [];
       const metadata = aiConnectionMetadataSchema.safeParse(
         connection.config.ai,
       );
