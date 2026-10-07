@@ -605,7 +605,7 @@ describe("AttentionQueueRow", () => {
     expect(issuesApi.acceptInteraction).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(el.textContent).toContain(kind === "future" ? "invalid or unsupported version" : brief.subject));
     const explanation = kind === "future" ? el.querySelector('[role="status"]') : el.querySelector('[aria-label="Decision brief"]');
-    const native = Array.from(el.querySelectorAll('[data-decision-disclosure] button')).find((button) => button.textContent?.trim() === "Confirm");
+    const native = Array.from(el.querySelectorAll<HTMLButtonElement>('[data-decision-disclosure] button')).find((button) => button.textContent?.trim() === "Confirm");
     expect(Array.from(el.querySelectorAll("button")).map((button) => button.textContent?.trim())).toContain("Confirm");
     expect(native).toBeDefined();
     expect(explanation!.compareDocumentPosition(native!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
