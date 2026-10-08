@@ -2,6 +2,7 @@ import { Router, type Request, type RequestHandler } from "express";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { governanceServices, type Db } from "@paperclipai/db";
+import { governanceCredentialIssueSchema, governanceServiceCreateSchema } from "@paperclipai/shared";
 import { governanceService } from "../services/governance-verification.js";
 import { assertCompanyAccess } from "./authz.js";
 import { forbidden, notFound, unprocessable } from "../errors.js";
@@ -66,7 +67,7 @@ export function governanceOwnerRoutes(db: Db) {
   router.post("/companies/:companyId/governance/services", async (req, res) => {
     const companyId = String(req.params.companyId);
     const ownerUserId = owner(req, companyId);
-    const body = z.object({ nasTarget: z.string().regex(/^[A-Za-z0-9._-]{1,80}$/) }).strict().safeParse(req.body);
+    const body = governanceServiceCreateSchema.safeParse(req.body);
     if (!body.success) throw unprocessable("Invalid service request");
     res.set("Cache-Control", "no-store").status(201).json(await svc.createService({ companyId, ownerUserId, nasTarget: body.data.nasTarget }));
   });
@@ -81,7 +82,7 @@ export function governanceOwnerRoutes(db: Db) {
   });
   router.post("/companies/:companyId/governance/services/:serviceId/credentials", async (req, res) => {
     const scope = await scopedOwner(req);
-    const body = z.object({ expiresAt: z.string().datetime() }).strict().safeParse(req.body);
+    const body = governanceCredentialIssueSchema.safeParse(req.body);
     if (!body.success) throw unprocessable("Invalid credential request");
     res.set("Cache-Control", "no-store").status(201).json(await svc.issueCredential(scope.serviceId, scope.ownerUserId, new Date(body.data.expiresAt)));
   });

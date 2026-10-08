@@ -112,9 +112,10 @@ or writes an intent:
   append-only ledger and foreign keys anchor it). Deleting the owning user is
   likewise blocked by the `governance_services.owner_user_id` foreign key. Audit
   history is never deleted silently; there is no purge path yet.
-- There is no UI and no UI API client for the owner routes, and their
-  request/response shapes are declared inline in the route and OpenAPI document
-  rather than in `packages/shared`. A follow-up change can add both.
+- There is no UI and no UI API client for the owner routes; a follow-up change
+  can add both. Their request and credential response schemas live in
+  `packages/shared` (`governance-verification.ts`) and are used by the route and
+  the OpenAPI document.
 - `governance_invocations.revoked_at` is read (an invocation with it set is
   invalid and cannot be renewed) but nothing sets it yet; it is reserved for a
   future invocation revoke path. The reviewer audit read (`evidence()` in the

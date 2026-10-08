@@ -54,3 +54,17 @@ export const governanceEventSchema = z.object({
   (event.type === "failed" && event.reasonCode === "provider_failed") ||
   (event.type === "unknown" && event.reasonCode === "outcome_unknown"),
 );
+
+// Company-owner lifecycle API (`/api/companies/:companyId/governance/services`).
+export const governanceServiceCreateSchema = z.object({ nasTarget: opaque }).strict();
+export type GovernanceServiceCreateRequest = z.infer<typeof governanceServiceCreateSchema>;
+export const governanceCredentialIssueSchema = z.object({ expiresAt: z.string().datetime() }).strict();
+export type GovernanceCredentialIssueRequest = z.infer<typeof governanceCredentialIssueSchema>;
+/** Returned once at issuance; the token is never stored or shown again. */
+export const governanceIssuedCredentialSchema = z.object({ id: uuid, expiresAt: z.string().datetime(), token: z.string() });
+export type GovernanceIssuedCredential = z.infer<typeof governanceIssuedCredentialSchema>;
+/** Redacted listing: no token and no token hash. */
+export const governanceCredentialMetadataSchema = z.object({
+  id: uuid, expiresAt: z.string().datetime(), revokedAt: z.string().datetime().nullable(), createdAt: z.string().datetime(),
+});
+export type GovernanceCredentialMetadata = z.infer<typeof governanceCredentialMetadataSchema>;

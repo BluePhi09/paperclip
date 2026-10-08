@@ -306,6 +306,10 @@ import {
   resolveChatPublicationSchema,
   replaceChatEndpointResourcesSchema,
   updateChatEndpointSchema,
+  governanceCredentialIssueSchema,
+  governanceCredentialMetadataSchema,
+  governanceIssuedCredentialSchema,
+  governanceServiceCreateSchema,
 } from "@paperclipai/shared";
 import { aggregatorAppsSyncSchema, aggregatorAppsRefreshSchema, arcadeDiscoverySetupSchema } from "@paperclipai/shared/aggregator-apps";
 import { composioAppsSyncSchema, composioAppsRefreshSchema, composioAppSetupSchema, composioAppAccountSchema } from "@paperclipai/shared/composio-app-setup";
@@ -6278,7 +6282,7 @@ registry.registerPath({
   description: "Requires an explicit company owner session; implicit local Board and API keys are rejected.",
   request: {
     params: z.object({ companyId: z.string().uuid() }),
-    body: jsonBody(z.object({ nasTarget: z.string().regex(/^[A-Za-z0-9._-]{1,80}$/) }).strict()),
+    body: jsonBody(governanceServiceCreateSchema),
   },
   responses: {
     201: { ...r.ok(), description: "Created", headers: governanceNoStoreHeaders },
@@ -6304,12 +6308,7 @@ registry.registerPath({
   description: "Returns credential metadata only; secrets are shown once at issuance.",
   request: { params: governanceServiceParams },
   responses: {
-    200: { ...r.ok(z.array(z.object({
-      id: z.string().uuid(),
-      expiresAt: z.string().datetime(),
-      revokedAt: z.string().datetime().nullable(),
-      createdAt: z.string().datetime(),
-    }))), headers: governanceNoStoreHeaders },
+    200: { ...r.ok(z.array(governanceCredentialMetadataSchema)), headers: governanceNoStoreHeaders },
     401: r.unauthorized, 403: r.forbidden, 404: r.notFound,
   },
 });
@@ -6322,10 +6321,10 @@ registry.registerPath({
   description: "The credential lifetime must be positive and at most 24 hours. The token is returned once.",
   request: {
     params: governanceServiceParams,
-    body: jsonBody(z.object({ expiresAt: z.string().datetime() }).strict()),
+    body: jsonBody(governanceCredentialIssueSchema),
   },
   responses: {
-    201: { ...r.ok(z.object({ id: z.string().uuid(), expiresAt: z.string().datetime(), token: z.string() })), description: "Created", headers: governanceNoStoreHeaders },
+    201: { ...r.ok(governanceIssuedCredentialSchema), description: "Created", headers: governanceNoStoreHeaders },
     401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable,
   },
 });
