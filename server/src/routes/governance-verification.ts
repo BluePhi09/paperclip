@@ -10,7 +10,7 @@ const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const consumePath = new RegExp(`^/api/governance/dsm/v1/verifications/(${uuid})/consume$`);
 const eventPath = new RegExp(`^/api/governance/dsm/v1/dispatches/(${uuid})/events$`);
 /** Terminal interception: no machine principal is ever installed in the legacy actor union. */
-export function governanceMachineBoundary(db: Db): RequestHandler {
+export function governanceMachineBoundary(db: Db, opts: { isStandby?: () => boolean } = {}): RequestHandler {
   const svc = governanceService(db);
   return async (req, res, next) => {
     const authorization = req.header("authorization") ?? "";
@@ -18,6 +18,9 @@ export function governanceMachineBoundary(db: Db): RequestHandler {
     const machineBearer = /^bearer\s+pcgov_/i.test(authorization);
     const dedicatedPath = req.path.startsWith("/api/governance/dsm/v1/");
     if (!machineBearer && !dedicatedPath) return next();
+    // Still terminal on an unclaimed warm standby, but before any credential SQL;
+    // mirrors the standby gate's protocol-path response.
+    if (opts.isStandby?.()) { res.status(503).json({ error: "workspace_unclaimed" }); return; }
     const consume = consumePath.exec(req.path);
     const event = eventPath.exec(req.path);
     if (req.method !== "POST" || !(consume || event || req.path === "/api/governance/dsm/v1/verifications")) {

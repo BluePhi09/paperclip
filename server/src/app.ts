@@ -584,7 +584,7 @@ export async function createApp(
 
   // Terminal machine credential boundary precedes all independent ingress and
   // legacy actor resolution (especially local_trusted's implicit Board).
-  app.use(governanceMachineBoundary(db));
+  app.use(governanceMachineBoundary(db, { isStandby: isWarmStandby }));
   app.use(cloudRuntimeIdentityMiddleware(db));
   // A signed claim above commits identity before any normal request can seed
   // company data. Unclaimed probes bypass session resolution as well as SQL.

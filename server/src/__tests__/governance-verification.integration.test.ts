@@ -47,6 +47,29 @@ describe("isolated governance lifecycle", () => {
     expect(calls).toBe(0);
     expect((await request(app).post("/api/governance/dsm/v1/verifications").send({})).status).toBe(401);
   });
+  it("answers machine bearers on an unclaimed warm standby without SQL or legacy fallthrough", async () => {
+    let standby = true, calls = 0;
+    // Any database access on standby would throw and surface as a 500.
+    const unusableDb = new Proxy({}, { get: () => { throw new Error("SQL on unclaimed standby"); } }) as unknown as typeof db;
+    const app = express(); app.use(express.json());
+    app.use(governanceMachineBoundary(unusableDb, { isStandby: () => standby }));
+    app.use((_req, res) => { calls++; res.json({ unsafe: true }); });
+    app.use(errorHandler);
+    const bearer = `Bearer pcgov_${"a".repeat(64)}`;
+    for (const [method, path] of [["post", "/api/governance/dsm/v1/verifications"], ["post", `/api/governance/dsm/v1/verifications/${randomUUID()}/consume`],
+      ["post", `/api/governance/dsm/v1/dispatches/${randomUUID()}/events`], ["get", "/api/companies"]] as const) {
+      const response = await request(app)[method](path).set("Authorization", bearer).send({});
+      expect(response.status, path).toBe(503);
+      expect(response.body.error).toBe("workspace_unclaimed");
+    }
+    expect((await request(app).post("/api/governance/dsm/v1/verifications").send({})).status).toBe(503);
+    expect(calls).toBe(0);
+    // Requests without a machine bearer or dedicated path still reach the standby gate downstream.
+    expect((await request(app).get("/api/health")).status).toBe(200);
+    expect(calls).toBe(1);
+    standby = false;
+    expect((await request(app).get("/api/companies").set("Authorization", bearer)).status).toBe(403);
+  });
   it("mediates real createApp ingress before implicit Board, auth and MCP routes", async () => {
     const app = await createApp(db, {
       uiMode: "none", serverPort: 3100, deploymentMode: "local_trusted", deploymentExposure: "private",
