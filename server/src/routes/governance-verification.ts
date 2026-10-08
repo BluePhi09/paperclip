@@ -48,7 +48,6 @@ function owner(req: Request, companyId: string) {
 export function governanceOwnerRoutes(db: Db) {
   const router = Router();
   const svc = governanceService(db);
-  const base = "/companies/:companyId/governance/services/:serviceId/credentials";
   async function scopedOwner(req: Request) {
     const companyId = String(req.params.companyId);
     const ownerUserId = owner(req, companyId);
@@ -73,17 +72,17 @@ export function governanceOwnerRoutes(db: Db) {
     await svc.revokeService(scope.serviceId, scope.ownerUserId);
     res.status(204).end();
   });
-  router.get(base, async (req, res) => {
+  router.get("/companies/:companyId/governance/services/:serviceId/credentials", async (req, res) => {
     const scope = await scopedOwner(req);
     res.set("Cache-Control", "no-store").json(await svc.listCredentials(scope.serviceId, scope.ownerUserId));
   });
-  router.post(base, async (req, res) => {
+  router.post("/companies/:companyId/governance/services/:serviceId/credentials", async (req, res) => {
     const scope = await scopedOwner(req);
     const body = z.object({ expiresAt: z.string().datetime() }).strict().safeParse(req.body);
     if (!body.success) throw unprocessable("Invalid credential request");
     res.set("Cache-Control", "no-store").status(201).json(await svc.issueCredential(scope.serviceId, scope.ownerUserId, new Date(body.data.expiresAt)));
   });
-  router.delete(`${base}/:credentialId`, async (req, res) => {
+  router.delete("/companies/:companyId/governance/services/:serviceId/credentials/:credentialId", async (req, res) => {
     const scope = await scopedOwner(req);
     const id = z.string().uuid().safeParse(req.params.credentialId);
     if (!id.success) throw notFound("Governance credential not found");

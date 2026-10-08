@@ -6259,6 +6259,86 @@ registry.registerPath({
   },
 });
 
+// ─── Governance service credentials (company owner) ──────────────────────────
+// The machine endpoints under /api/governance/dsm/v1 authenticate with pcgov_
+// bearer credentials in a terminal middleware and are intentionally not part
+// of this board document.
+
+const governanceNoStoreHeaders = {
+  "Cache-Control": { schema: { type: "string", enum: ["no-store"] } },
+};
+const governanceServiceParams = z.object({ companyId: z.string().uuid(), serviceId: z.string().uuid() });
+const governanceCredentialBase = "/api/companies/{companyId}/governance/services/{serviceId}/credentials";
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{companyId}/governance/services",
+  tags: ["governance"],
+  summary: "Register a governance verification service",
+  description: "Requires an explicit company owner session; implicit local Board and API keys are rejected.",
+  request: {
+    params: z.object({ companyId: z.string().uuid() }),
+    body: jsonBody(z.object({ nasTarget: z.string().regex(/^[A-Za-z0-9._-]{1,80}$/) }).strict()),
+  },
+  responses: {
+    201: { ...r.ok(), description: "Created", headers: governanceNoStoreHeaders },
+    401: r.unauthorized, 403: r.forbidden, 422: r.unprocessable,
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/companies/{companyId}/governance/services/{serviceId}",
+  tags: ["governance"],
+  summary: "Revoke a governance verification service",
+  description: "Requires the owning company owner session. Revocation is idempotent and audited.",
+  request: { params: governanceServiceParams },
+  responses: { 204: r.noContent, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound },
+});
+
+registry.registerPath({
+  method: "get",
+  path: governanceCredentialBase,
+  tags: ["governance"],
+  summary: "List governance service credentials",
+  description: "Returns credential metadata only; secrets are shown once at issuance.",
+  request: { params: governanceServiceParams },
+  responses: {
+    200: { ...r.ok(z.array(z.object({
+      id: z.string().uuid(),
+      expiresAt: z.string().datetime(),
+      revokedAt: z.string().datetime().nullable(),
+      createdAt: z.string().datetime(),
+    }))), headers: governanceNoStoreHeaders },
+    401: r.unauthorized, 403: r.forbidden, 404: r.notFound,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: governanceCredentialBase,
+  tags: ["governance"],
+  summary: "Issue a governance service credential",
+  description: "The credential lifetime must be positive and at most 24 hours. The token is returned once.",
+  request: {
+    params: governanceServiceParams,
+    body: jsonBody(z.object({ expiresAt: z.string().datetime() }).strict()),
+  },
+  responses: {
+    201: { ...r.ok(z.object({ id: z.string().uuid(), expiresAt: z.string().datetime(), token: z.string() })), description: "Created", headers: governanceNoStoreHeaders },
+    401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable,
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: `${governanceCredentialBase}/{credentialId}`,
+  tags: ["governance"],
+  summary: "Revoke a governance service credential",
+  request: { params: governanceServiceParams.extend({ credentialId: z.string().uuid() }) },
+  responses: { 204: r.noContent, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound },
+});
+
 // ─── Inbox dismissals ────────────────────────────────────────────────────────
 
 registry.registerPath({
