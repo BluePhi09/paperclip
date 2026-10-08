@@ -626,7 +626,7 @@ describe("issue thread interaction routes", () => {
         expect.objectContaining({ id: "repo", options: [{ id: "paperclip_text_answer", label: "Type an answer", freeText: true }] }),
         expect.objectContaining({ id: "scope", options: questionSet.questions[1].options }),
       ] }),
-    }), expect.anything());
+    }), expect.anything(), { requireHumanDecisionContext: false });
   });
 
   it("does not run historical-comment catch-up or queue recovery from the interaction read path", async () => {
@@ -1582,6 +1582,7 @@ describe("issue thread interaction routes", () => {
         }),
       }),
       expect.anything(),
+      { requireHumanDecisionContext: false },
     );
   });
 
