@@ -35,6 +35,7 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const steerNativeSessionMock = vi.hoisted(() => vi.fn());
 vi.mock("../services/native-runtime/native-session-executor.js", async (importOriginal) => {
@@ -72,7 +73,7 @@ describeEmbeddedPostgres("issue queued-comment routes", () => {
     testProcesses.clear();
     // Each case owns the entire disposable database. Clear the full company
     // graph, including attribution rows and constraints added by migrations.
-    await db.execute(sql`TRUNCATE TABLE companies CASCADE`);
+    await truncateTablesWithDeadlockRetry(db, `TRUNCATE TABLE companies CASCADE`);
   });
 
   afterAll(async () => {

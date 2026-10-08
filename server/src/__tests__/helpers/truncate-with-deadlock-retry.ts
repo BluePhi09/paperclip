@@ -17,6 +17,14 @@ export function errorHasPostgresCode(error: unknown, code: string): boolean {
   return false;
 }
 
+// governance_audit_events is protected by a statement-level append-only trigger
+// that also fires for TRUNCATE ... CASCADE. Fixture cleanup is the one place
+// that must wipe it, so run the cleanup with ordinary triggers disabled. The
+// two statements go out as one simple-protocol query, which Postgres wraps in
+// an implicit transaction, so SET LOCAL reverts when the cleanup finishes and
+// the trigger itself stays untouched in every schema, including production.
+const REPLICA_ROLE_PREFIX = "SET LOCAL session_replication_role = replica; ";
+
 function isLateWriterRace(error: unknown): boolean {
   if (errorHasPostgresCode(error, DEADLOCK_DETECTED_CODE)) return true;
   return error instanceof Error && error.message.includes(LATE_COMMENT_FOREIGN_KEY);
@@ -37,7 +45,7 @@ export async function truncateTablesWithDeadlockRetry(
   const delayMs = opts.delayMs ?? ((attempt: number) => 50 * (attempt + 1));
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      await db.execute(sql.raw(truncateStatement));
+      await db.execute(sql.raw(`${REPLICA_ROLE_PREFIX}${truncateStatement}`));
       return;
     } catch (error) {
       if (!isLateWriterRace(error) || attempt === attempts - 1) {

@@ -8,7 +8,6 @@ import {
   it,
   vi,
 } from "vitest";
-import { sql } from "drizzle-orm";
 import {
   agents,
   companies,
@@ -31,6 +30,7 @@ import {
   unregisterServerAdapter,
 } from "../adapters/index.js";
 import { heartbeatService } from "../services/heartbeat.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported
@@ -101,8 +101,7 @@ describeEmbeddedPostgres("direct adapter native-runner isolation", () => {
     );
     expect(pendingRuns).toEqual([]);
     vi.clearAllMocks();
-    await db.execute(
-      sql.raw(`
+    await truncateTablesWithDeadlockRetry(db, `
       TRUNCATE TABLE
         "native_run_finalizations",
         "status_decisions",
@@ -120,8 +119,7 @@ describeEmbeddedPostgres("direct adapter native-runner isolation", () => {
         "agents",
         "companies"
       RESTART IDENTITY CASCADE
-    `),
-    );
+    `);
   });
 
   afterAll(async () => {

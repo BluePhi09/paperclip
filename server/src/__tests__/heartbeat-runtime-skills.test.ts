@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   agents,
@@ -26,6 +26,7 @@ import { companySkillService } from "../services/company-skills.ts";
 import { heartbeatService } from "../services/heartbeat.ts";
 import { instanceSettingsService } from "../services/instance-settings.ts";
 import { registerServerAdapter, unregisterServerAdapter } from "../adapters/index.ts";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -113,7 +114,7 @@ describeEmbeddedPostgres("heartbeat runtime skill version pins", () => {
     capturedRuns.length = 0;
     await instanceSettingsService(db).updateExperimental({ enableBetaSkills: false });
     await new Promise((resolve) => setTimeout(resolve, 100));
-    await db.execute(sql.raw(`
+    await truncateTablesWithDeadlockRetry(db, `
       TRUNCATE TABLE
         "activity_log",
         "environment_leases",
@@ -127,7 +128,7 @@ describeEmbeddedPostgres("heartbeat runtime skill version pins", () => {
         "agents",
         "companies"
       RESTART IDENTITY CASCADE
-    `));
+    `);
     await Promise.all(Array.from(cleanupDirs, (dir) => fs.rm(dir, { recursive: true, force: true })));
     cleanupDirs.clear();
   });

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   agents,
@@ -16,6 +16,7 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { heartbeatService } from "../services/heartbeat.ts";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -81,7 +82,7 @@ describeEmbeddedPostgres("heartbeat local environment lifecycle", () => {
     // before the TRUNCATE below, or a write that lands after the company row
     // is gone violates heartbeat_run_events' foreign key.
     await heartbeat.drainActiveRunExecutions();
-    await db.execute(sql.raw(`
+    await truncateTablesWithDeadlockRetry(db, `
       TRUNCATE TABLE
         "environment_leases",
         "environments",
@@ -94,7 +95,7 @@ describeEmbeddedPostgres("heartbeat local environment lifecycle", () => {
         "agents",
         "companies"
       RESTART IDENTITY CASCADE
-    `));
+    `);
   });
 
   afterAll(async () => {

@@ -14,6 +14,7 @@ import {
 } from "./helpers/embedded-postgres.js";
 import { heartbeatService } from "../services/heartbeat.ts";
 import { runningProcesses } from "../adapters/index.ts";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const mockAdapterExecute = vi.hoisted(() =>
   vi.fn(async () => ({
@@ -63,7 +64,7 @@ describeEmbeddedPostgres("heartbeat queued-run claim isolation", () => {
     mockAdapterExecute.mockClear();
     runningProcesses.clear();
     // Executed runs write to many company-scoped tables; clear them all.
-    await db.execute(sql`truncate table ${companies} cascade`);
+    await truncateTablesWithDeadlockRetry(db, `truncate table "companies" cascade`);
   });
 
   afterAll(async () => {
