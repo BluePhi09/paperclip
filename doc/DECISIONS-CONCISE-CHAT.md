@@ -37,13 +37,18 @@ The contact, card, subject and linked task must belong to the selected company. 
 
 `nativeChatDraftNavigation` runs only on the explicit click. It carries the stable source kind/ID, company, task ID and available native target revision in router state. For a known user it prepares an empty native tab-scoped composer draft. Existing text and uncertain submissions are never overwritten. If storage is unavailable or another draft exists, the context remains visible separately in the chat. It is ordinary text, not HTML and not authority. Back/forward and reload do not re-import or re-send it. Query strings never import message text. Only the normal explicit first write can create the conversation.
 
-## Read-only backlog inventory and later migration
+## Legacy re-routing (plan, then reviewed apply)
 
-Run `node scripts/decision-text-inventory.mjs SNAPSHOT.jsonl`. The program reads one offline snapshot and writes a deterministic manifest to stdout. It has no database connection, network path or apply mode. Exact duplicate snapshots collapse to one entry; conflicting snapshots for one source identity fail. Truncated source exports are retained as blocked entries, not repaired. Missing company/source identity, status, effective policy, source agent or explicit target binding blocks migration. The output is not evidence that the live backlog was cleaned.
+`pnpm decisions:legacy-routing plan --company <id> [--overrides overrides.json] > plan.json` is read-only. It lists every pending human-facing question, item-verdict and confirmation card and classifies each question, item or confirmation only from structured evidence: a governed tool/secret action, the unit's stored brief (decision class and resolver target), or an operator-reviewed override bound to the exact source hash of the card. Titles and prose are never used.
 
-The parent must separately validate the source fingerprint and preserve status, `human_only`, source/run identity, native target revision and exact effects. Do not use the attention GET endpoint for a strictly read-only snapshot: it can materialize queues. The approved example files are read-only, partially truncated examples, not a complete current inventory.
+- Human approvals, personal facts and governed actions stay with the person.
+- Units whose brief names an expert resolver move to that agent. The card creator is never its own reviewer.
+- Mixed cards are split: one card per expert plus one human card. Confirmations are atomic and are moved or kept whole.
+- Anything without structured evidence stays with the person and is reported as `needs_triage` for review.
 
-Before any text/effect migration, split bundled personal facts, technical expert review and human risk authorization. Do not map a fact answer to authorization for another question. There is no automatic supersession, resolution or old-card approval.
+`pnpm decisions:legacy-routing apply --plan plan.json --yes` re-plans under row locks and executes only `reroute`/`split` entries whose source hash and action still match the reviewed plan. Replacement cards use deterministic idempotency keys and the original is withdrawn (no wake, answer or approval), so re-running is a no-op (`already_applied`). Cards changed after review are `skipped_changed`. Nothing is run automatically; applying to live data needs separate parent authorization after reviewing the plan.
+
+The same split rules apply to the approved wording below. Do not map a fact answer to authorization for another question. There is no automatic supersession, resolution or old-card approval.
 
 Approved wording and boundaries for manual parent review:
 
