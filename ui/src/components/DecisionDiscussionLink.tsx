@@ -16,9 +16,9 @@ export function DecisionDiscussionLink({ item, companyId, agents, userId }: {
   const sameCompany = selectedCompanyId === companyId && item.companyId === companyId &&
     item.subject.companyId === companyId && (!item.relatedIssue || item.relatedIssue.companyId === companyId);
   const target = decisionChatTarget(item, companyId, agents);
-  const reason = !sameCompany ? "Bitte zuerst die Firma dieser Entscheidung öffnen."
-    : !loaded ? "Chat-Verfügbarkeit wird geprüft."
-    : !enabled ? "Agent Chat ist deaktiviert. Die Aufgabe bleibt verfügbar."
+  const reason = !sameCompany ? "Switch to this decision's company to discuss it."
+    : !loaded ? "Checking chat availability…"
+    : !enabled ? "Agent Chat is turned off. The linked task is still available."
     : target.reason;
   return <div className="space-y-2 text-xs">
     {reason ? <p role="status" className="text-muted-foreground">{reason}</p> : <>
@@ -27,11 +27,11 @@ export function DecisionDiscussionLink({ item, companyId, agents, userId }: {
           if (!sameCompany || !target.agent) return;
           const destination = nativeChatDraftNavigation(item, target.agent, companyId, userId);
           navigate(destination.to, { state: destination.state });
-        } catch (cause) { setError(cause instanceof Error ? cause.message : "Chat konnte nicht geöffnet werden."); }
-      }}>Mit {target.agent?.name} besprechen</Button>
-      <p className="text-muted-foreground">{item.audience === "agent" ? "Zuständiger Fachprüfer" : "Quellagent der Frage"}. Öffnet nur den Chat; sendet und entscheidet nichts.</p>
+        } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not open the chat."); }
+      }}>Discuss with {target.agent?.name}</Button>
+      <p className="text-muted-foreground">{item.audience === "agent" ? "Opens a chat with the assigned expert reviewer." : "Opens a chat with the agent who asked."} Nothing is sent or decided.</p>
     </>}
-    {sameCompany && item.relatedIssue && <Link disableIssueQuicklook to={`/issues/${encodeURIComponent(item.relatedIssue.id)}`} className="underline">Verknüpfte Aufgabe öffnen</Link>}
+    {sameCompany && item.relatedIssue && <Link disableIssueQuicklook to={`/issues/${encodeURIComponent(item.relatedIssue.id)}`} className="underline">Open linked task</Link>}
     {error && <p role="alert" className="text-destructive">{error}</p>}
   </div>;
 }

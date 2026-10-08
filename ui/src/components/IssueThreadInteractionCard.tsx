@@ -1233,7 +1233,7 @@ function AskUserQuestionsCard({
                 />
               </div>
 
-              <DecisionBriefSummary value={question.brief} />
+              <DecisionBriefSummary value={question.brief} hintWhenMissing={false} />
               <div className="mt-3 space-y-3">
                 <div
                   className="grid gap-3"
@@ -2638,7 +2638,11 @@ function RequestConfirmationCard({
         <ConfirmationActionRow
           resetKey={`${interaction.id}:${interaction.status}`}
           approveLabel={interaction.payload.acceptLabel ?? CONFIRMATION_APPROVE_LABEL}
-          rejectLabel={interaction.payload.rejectLabel ?? CONFIRMATION_REJECT_LABEL}
+          // Legacy cards keep the canonical "Reject"; a concise brief names the
+          // reject outcome explicitly, so its button must match that label.
+          rejectLabel={decisionBriefSchema.safeParse(interaction.payload.brief).success
+            ? interaction.payload.rejectLabel ?? CONFIRMATION_REJECT_LABEL
+            : CONFIRMATION_REJECT_LABEL}
           approveVariant={isPlan ? "cta" : "default"}
           primaryActionOnRight={primaryActionOnRight}
           allowRevise={allowRevise}
@@ -3391,7 +3395,7 @@ function RequestItemVerdictsCard({
               data-item-id={item.id}
               data-item-state={resolved ? "resolved" : applying ? "applying" : draft ? "draft" : "pending"}
             >
-              <DecisionBriefSummary value={item.brief} />
+              <DecisionBriefSummary value={item.brief} hintWhenMissing={false} />
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1 basis-64">
                   <div className="flex flex-wrap items-center gap-2">

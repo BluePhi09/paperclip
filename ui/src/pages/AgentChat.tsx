@@ -97,9 +97,9 @@ export function AgentChat() {
   const discussion = readDecisionDiscussion(location.state, selectedCompanyId ?? "", agent.id);
   return (
     <>
-      {discussion && <section aria-label="Entscheidung besprechen" className="space-y-2 rounded-lg border border-border p-3 text-sm">
+      {discussion && <section aria-label="Decision discussion" className="space-y-2 rounded-lg border border-border p-3 text-sm">
         <p className="whitespace-pre-wrap">{discussion.context}</p>
-        <p className="text-xs text-muted-foreground">Nur Gesprächskontext, keine Freigabe. {discussion.draftPrepared ? "Der Kontext wurde als ungesendeter Entwurf vorbereitet." : "Ein vorhandener Entwurf bleibt unverändert. Du kannst diesen Kontext in deine Nachricht übernehmen."}</p>
+        <p className="text-xs text-muted-foreground">Conversation context only; it approves nothing. {discussion.draftPrepared ? "It was prepared as an unsent draft below." : "Your existing draft was left unchanged; copy this context into your message if useful."}</p>
       </section>}
       <TaskDetailSurface
         suppressReadReceipt={discussion !== null}

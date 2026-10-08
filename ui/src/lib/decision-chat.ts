@@ -5,15 +5,15 @@ import { loadDraftIfAvailable, loadDraftSubmission, saveDraft } from "./composer
 export function decisionChatTarget(item: AttentionItem, companyId: string, agents: readonly Agent[]) {
   const unavailable = (reason: string) => ({ agent: null, reason });
   if (item.companyId !== companyId || item.subject.companyId !== companyId ||
-    (item.relatedIssue && item.relatedIssue.companyId !== companyId)) return unavailable("Diese Entscheidung gehört nicht zur ausgewählten Firma.");
+    (item.relatedIssue && item.relatedIssue.companyId !== companyId)) return unavailable("This decision belongs to another company.");
   const metadata = item.subject.metadata;
   const id = item.audience === "agent" ? item.resolverAgentId
     : item.sourceKind === "decision" ? metadata?.originAgentId
     : item.sourceKind === "issue_thread_interaction" ? metadata?.createdByAgentId : null;
-  if (typeof id !== "string") return unavailable("Kein eindeutiger Quellagent hinterlegt. Bitte die verknüpfte Aufgabe öffnen.");
+  if (typeof id !== "string") return unavailable("No responsible agent is recorded for this decision. Open the linked task instead.");
   const agent = agents.find((entry) => entry.id === id && entry.companyId === companyId);
-  if (!agent) return unavailable("Der zuständige Agent ist nicht verfügbar. Bitte die verknüpfte Aufgabe öffnen.");
-  if (!["active", "idle", "running", "error"].includes(agent.status)) return unavailable("Der zuständige Agent ist pausiert oder nicht aktiv. Dieser Link startet ihn nicht.");
+  if (!agent) return unavailable("The responsible agent is no longer available. Open the linked task instead.");
+  if (!["active", "idle", "running", "error"].includes(agent.status)) return unavailable("The responsible agent is paused or inactive; this link would not start it.");
   return { agent, reason: null };
 }
 
@@ -30,10 +30,10 @@ export function nativeChatDraftNavigation(item: AttentionItem, agent: Agent, com
   if (!target.agent) throw new Error(target.reason ?? "Agent unavailable");
   const revision = item.subject.metadata?.targetRevisionId;
   const context = [
-    `Bitte besprechen wir diese Entscheidung, ohne sie damit freizugeben: ${item.subject.title ?? "Entscheidung"}`,
-    `Firma: ${companyId}; Quelle: ${item.sourceKind}:${item.subject.id}`,
-    item.relatedIssue ? `Aufgabe: ${item.relatedIssue.identifier ?? item.relatedIssue.id} (${item.relatedIssue.id})` : null,
-    typeof revision === "string" ? `Gebundene Revision: ${revision}` : null,
+    `Let's discuss this decision before I answer it (this message approves nothing): ${item.subject.title ?? "Decision"}`,
+    `Decision: ${item.sourceKind}:${item.subject.id}`,
+    item.relatedIssue ? `Task: ${item.relatedIssue.identifier ?? item.relatedIssue.id} (${item.relatedIssue.id})` : null,
+    typeof revision === "string" ? `Bound revision: ${revision}` : null,
   ].filter(Boolean).join("\n");
   let draftPrepared = false;
   if (userId) {

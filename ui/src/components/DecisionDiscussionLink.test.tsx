@@ -46,9 +46,9 @@ describe("native decision discussion entry", () => {
     const request = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected write/request"));
     try {
       await render();
-      const button = [...host.querySelectorAll("button")].find(b => b.textContent === "Mit Nessa besprechen")!;
+      const button = [...host.querySelectorAll("button")].find(b => b.textContent === "Discuss with Nessa")!;
       button.focus(); expect(document.activeElement).toBe(button);
-      await click("Mit Nessa besprechen"); await ready();
+      await click("Discuss with Nessa"); await ready();
       expect(host.querySelector("output")?.textContent).toBe("/BLU/chats/agent-1");
       expect(host.textContent).toContain("issue_thread_interaction:card-1");
       const draft = loadDraft("paperclip:agent-chat-draft:company-1:user-1:agent-1");
@@ -62,7 +62,7 @@ describe("native decision discussion entry", () => {
     if (kind === "disabled") state.enabled = false;
     if (kind === "foreign") state.company = "other";
     await render(kind === "deleted" ? [] : kind === "paused" ? [{ ...agent, status: "paused" }] : [agent]);
-    expect(host.textContent).not.toContain("Mit Nessa besprechen");
+    expect(host.textContent).not.toContain("Discuss with Nessa");
     expect(host.querySelector('[role="status"]')).not.toBeNull();
     expect(host.querySelector("a") !== null).toBe(kind !== "foreign");
     expect(state.ensure).not.toHaveBeenCalled(); expect(sessionStorage.length).toBe(0);
