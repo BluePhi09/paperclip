@@ -57,6 +57,12 @@ rechecks evidence and expiration after acquiring evidence locks. Intent and
 single dispatch claim commit together. A matching retry returns the existing ID
 with `dispatchAllowed: false`; it does not authorize redispatch.
 
+A Verify idempotency key is unique per credential. Repeating Verify for the same
+invocation with the same key returns the existing reservation; reusing the key
+for another invocation returns 409. On an unclaimed Cloud warm standby instance
+the boundary answers every governance request with 503 `workspace_unclaimed`
+before any credential lookup, and still never falls through to other routes.
+
 Only `POST /api/governance/dsm/v1/dispatches/:dispatchId/events` accepts a retired
 credential for outcome completion. It requires the original dispatch credential,
 company, service, invocation and an immutable committed intent. A replacement
@@ -83,16 +89,70 @@ locked, linked to the same issue, and contain a versioned JSON body:
 ```
 
 Verify allows an operation only if one entry matches its entry id, effect class,
-API, method, API version, and every operation target id is listed. A missing,
-malformed, unversioned or non-matching register denies with `register_invalid`
-or `register_unauthorized`; no intent is written.
+API, method, API version, and every operation target id is listed. Denials use
+these reason codes, checked in this order; none of them reserves a verification
+or writes an intent:
+
+- `revision_stale`: the register document is missing from the company, is not
+  locked, or its latest revision is not the bound `registerRevision`. This is the
+  same code as for a stale operation document, because both describe document
+  state that moved away from the approved binding.
+- `register_invalid`: the bound register revision row is missing or its body
+  differs from the document's latest body, or the register is not linked to the
+  operation issue under the key `dsm-register`.
+- `register_unauthorized`: the bound body is not parseable JSON, does not match
+  the versioned schema (for example unversioned text or unknown fields), or has
+  no entry that authorizes the operation.
 
 ## Open decisions (conservative defaults in this change)
 
 - Invocations can only be created by internal code (`recordInvocation`); there is
   no HTTP issuer, so nothing can dispatch in production until one is built.
-- Company deletion is blocked once a governance service exists (foreign keys and
-  the append-only ledger). Audit history is never deleted silently.
+- Company deletion is refused with 409 once a governance service exists (the
+  append-only ledger and foreign keys anchor it). Deleting the owning user is
+  likewise blocked by the `governance_services.owner_user_id` foreign key. Audit
+  history is never deleted silently; there is no purge path yet.
+- There is no UI and no UI API client for the owner routes, and their
+  request/response shapes are declared inline in the route and OpenAPI document
+  rather than in `packages/shared`. A follow-up change can add both.
+- `governance_invocations.revoked_at` is read (an invocation with it set is
+  invalid and cannot be renewed) but nothing sets it yet; it is reserved for a
+  future invocation revoke path. The reviewer audit read (`evidence()` in the
+  service) is implemented and tested but not exposed on any route.
 - The external Synology MCP source has not been found; no provider API names are
   invented. The register content must come from that source.
 - Migration numbers 0311/0312 must be re-checked if another branch adds migrations.
+
+## Rolling back migrations 0311/0312
+
+There is no down migration. Roll back the application code first, export
+`governance_audit_events` if its history must be kept, and then run in one
+transaction (child tables before parents; the append-only trigger only fires on
+UPDATE, DELETE and TRUNCATE, not on DROP):
+
+```sql
+BEGIN;
+-- 0312
+DROP TRIGGER governance_audit_append_only ON governance_audit_events;
+DROP TABLE governance_audit_events;
+DROP TABLE governance_verifications;
+DROP TABLE governance_invocations;
+DROP FUNCTION governance_audit_append_only();
+-- 0311
+DROP TABLE governance_credentials;
+DROP TABLE governance_services;
+-- Migration history: hash is the SHA-256 of each migration file's content.
+DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ('<sha256 of 0312>', '<sha256 of 0311>');
+COMMIT;
+```
+
+`governance.*` Activity entries stay in `activity_log`; they hold only IDs.
+
+## Test database requirement
+
+`server/src/__tests__/helpers/truncate-with-deadlock-retry.ts` wipes fixtures
+with `SET LOCAL session_replication_role = replica` so the append-only trigger
+does not block cleanup. That setting needs a superuser or, on PostgreSQL 15+,
+`GRANT SET ON PARAMETER session_replication_role` for the test role. The embedded
+test database runs as superuser; an external `DATABASE_URL` test role may need
+the grant.

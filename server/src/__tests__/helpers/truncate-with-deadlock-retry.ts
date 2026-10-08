@@ -23,6 +23,8 @@ export function errorHasPostgresCode(error: unknown, code: string): boolean {
 // two statements go out as one simple-protocol query, which Postgres wraps in
 // an implicit transaction, so SET LOCAL reverts when the cleanup finishes and
 // the trigger itself stays untouched in every schema, including production.
+// Setting session_replication_role needs a superuser or, on PostgreSQL 15+,
+// `GRANT SET ON PARAMETER session_replication_role` for the test role.
 const REPLICA_ROLE_PREFIX = "SET LOCAL session_replication_role = replica; ";
 
 function isLateWriterRace(error: unknown): boolean {

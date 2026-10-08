@@ -409,6 +409,14 @@ run/turn ids, payload digest, attempt/acknowledgement state, and one of `steered
 `issue_thread_interactions.result`. Deleting the interaction cascades its receipt,
 while deleting a referenced run clears that run pointer without deleting history.
 
+## Governance verification tables
+
+`governance_services`, `governance_credentials`, `governance_invocations`,
+`governance_verifications` and the append-only `governance_audit_events` back the
+governance verification boundary (migrations 0311/0312). Lifecycle, company and
+user deletion behavior, the manual rollback order and the test database
+requirement are in [governance-service-lifecycle.md](governance-service-lifecycle.md).
+
 ## Plugin database namespaces
 
 The plugin runtime tracks plugin-owned database namespaces and migrations in `plugin_database_namespaces` and `plugin_migrations`. Hosted deployments that separate runtime and migration connections should set `DATABASE_MIGRATION_URL`; plugin namespace migration work uses the migration connection when present.
