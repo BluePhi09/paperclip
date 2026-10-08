@@ -2,13 +2,18 @@
 
 New human-facing decision cards must explain the choice without requiring a task or comment lookup. This is a creation contract, not an automatic rewrite of the backlog.
 
-Implementation status: this branch is not ready to merge or deploy. The new preflight fails closed, but native runtime question/plan/review producers, onboarding and MCP elicitation still need complete author-supplied context integration. Existing service regression fixtures also require explicit valid briefs. The current native-chat test replaces the task surface and is not proof of the complete composer request boundary. Passing focused tests does not waive these integration and verification gaps.
+Implementation status (what is and is not covered):
+
+- The mandatory brief gate runs at the agent-authored HTTP boundaries: agent-created issue-thread interactions (`POST /api/issues/:id/interactions`), agent-created Decisions and Decision bundles. Clarifying questions inside an Agent Chat conversation and cards addressed to a named expert agent are exempt.
+- Deterministic native producers attach their own complete brief without the gate: tool-action approvals, secret-binding confirmations, connection-authorization cards, the onboarding opening question (explicitly `human_only`) and the Decisions archive proposal. Generated names and argument summaries are shortened to the brief limits with a visible marker; the complete tool arguments stay in the card details.
+- Not adapted yet: native runtime `request_human_input`, plugin host interaction creation, the native question bridge, remote MCP elicitation and other internal producers create cards without the gate and without a guaranteed brief. Their cards show the conservative "no short summary" hint.
+- The native-chat test replaces the task surface and is not proof of the complete composer request boundary.
 
 ## Authoring contract
 
 Use the existing version 1 brief. `mainSummary` is authored text (maximum 600 characters), not an automatically generated summary. `subject` is a concrete title (maximum 160 characters on new human cards). Explain the subject, what the answer decides, what acceptance permits, and the material risk. The summary is never clipped by the renderer. Scope, exceptions, risks and prerequisites remain visible outside Details even if this repeats something important in the summary.
 
-Each `selectionConsequences` entry has a readable `label` (maximum 80 characters). Native option labels and brief labels must match. Confirmation IDs remain `accept` and `reject`; labels do not change the underlying request. Item-verdict buttons use their per-item brief labels. Questions use their native option labels. A recommendation is optional and requires an option and a reason together. Personal facts must not recommend an answer or authorize effects.
+Each `selectionConsequences` entry has a readable `label` (maximum 80 characters). Native option labels and brief labels must match. Confirmation IDs remain `accept` and `reject`; labels do not change the underlying request. Item-verdict buttons use their per-item brief labels. Questions use their native option labels. A recommendation is optional; new human cards require an option and a reason together (stored briefs with an option but no reason stay readable and keep their resolver behavior). Personal facts must not recommend an answer or authorize effects.
 
 New non-factual human cards must include `scope`, `excludedScope`, `risks` and `preconditions`. `[]` explicitly declares that no prerequisites were identified; an absent array is missing context. An absent recommendation means no recommendation. No permission, effect, risk assessment or factual answer is inferred from omission. Keep evidence and technical history in Details. Do not put a material precondition only in evidence references.
 
@@ -16,7 +21,7 @@ The preflight rejects missing text, reference-only text such as "see task", bare
 
 ## Creation and API behavior
 
-`humanDecisionQualityIssues` is the shared structural preflight. `assertHumanDecisionContext` and `assertHumanInteractionContext` run on the actual service creation paths, before inserts:
+`humanDecisionQualityIssues` is the shared structural preflight. `assertHumanDecisionContext` and `assertHumanInteractionContext` run inside the service creation paths, before inserts, when the caller opts in (the agent-authored HTTP boundaries listed above; native producers build their brief through the same preflight):
 
 - Standalone Decisions and Decision bundles: `metadata.brief`.
 - Native confirmation / checkbox confirmation: `payload.brief`.
@@ -44,9 +49,11 @@ The contact, card, subject and linked task must belong to the selected company. 
 - Human approvals, personal facts and governed actions stay with the person.
 - Units whose brief names an expert resolver move to that agent. The card creator is never its own reviewer.
 - Mixed cards are split: one card per expert plus one human card. Confirmations are atomic and are moved or kept whole.
-- Anything without structured evidence stays with the person and is reported as `needs_triage` for review.
+- Anything without structured evidence stays with the person and is reported as `needs_triage` for review. Re-routing never classifies by title or text: a card without a stored brief only moves with a reviewed override.
+- Only active, idle or running agents receive cards. A paused, pending-approval, errored or terminated resolver keeps the unit with the person as `needs_triage` (`inactive_resolver`) with a warning.
+- Each plan entry lists `warnings` and `replacementChanges`: replacement cards do not keep the original source run or source comment, and the human part of a split card becomes `human_only` (agents can no longer answer it).
 
-`pnpm decisions:legacy-routing apply --plan plan.json --yes` re-plans under row locks and executes only `reroute`/`split` entries whose source hash and action still match the reviewed plan. Replacement cards use deterministic idempotency keys and the original is withdrawn (no wake, answer or approval), so re-running is a no-op (`already_applied`). Cards changed after review are `skipped_changed`. Nothing is run automatically; applying to live data needs separate parent authorization after reviewing the plan.
+`pnpm decisions:legacy-routing apply --plan plan.json --yes` re-plans under row locks and executes only `reroute`/`split` entries whose source hash and action still match the reviewed plan. Replacement cards use deterministic idempotency keys and the original is withdrawn (no wake, answer or approval), so re-running is a no-op (`already_applied`). Cards changed after review are `skipped_changed`. Every applied entry writes one `issue.thread_interaction_rerouted` activity-log entry (replacement IDs, withdrawn original, dropped provenance). Nothing is run automatically; applying to live data needs separate parent authorization after reviewing the plan.
 
 The same split rules apply to the illustrative wording below. Do not map a fact answer to authorization for another question. There is no automatic supersession, resolution or old-card approval.
 
