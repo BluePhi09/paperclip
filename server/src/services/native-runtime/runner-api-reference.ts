@@ -205,7 +205,26 @@ export const runnerApiReference: Record<string, { section: string; description?:
                   "id": "responsibility",
                   "prompt": "What should the new agent be responsible for?",
                   "required": true,
-                  "answerMode": "text"
+                  "answerMode": "text",
+                  "brief": {
+                    "version": 1,
+                    "decisionClass": "personal_fact",
+                    "purpose": "fact",
+                    "subject": "What should the new agent own?",
+                    "mainSummary": "I need the new agent's responsibility to write its role. Your answer only sets the role text; nothing is hired yet.",
+                    "resolverTarget": {
+                      "type": "human",
+                      "reason": "Only you know the intended responsibility."
+                    },
+                    "evidenceRefs": [
+                      {
+                        "source": "task description",
+                        "revision": "{issueId}"
+                      }
+                    ],
+                    "selectionConsequences": [],
+                    "safeDefault": "I keep waiting and hire nobody."
+                  }
                 }
               ]
             }
