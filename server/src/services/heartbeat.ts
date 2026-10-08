@@ -20096,7 +20096,38 @@ export function heartbeatService(
   // (an unverifiable interrupt receipt, a manual wake with no user). Those rows
   // do not change, so the claim fails the same way on every pass and restart.
   function isPermanentClaimRejection(err: unknown): err is HttpError {
-    return err instanceof HttpError && err.status === 403;
+    return err instanceof HttpError && (err.status === 403 || evidenceDenialCode(err) !== null);
+  }
+
+  // An evidence-pack denial is a policy verdict on the current issue state,
+  // not a transient claim conflict. Retrying it every pass would only repeat
+  // the denial; a corrected pack is picked up by a new wake.
+  function evidenceDenialCode(err: unknown): string | null {
+    const code = err instanceof HttpError ? (err.details as { code?: unknown } | undefined)?.code : null;
+    return typeof code === "string" && code.startsWith("evidence_pack_") ? code : null;
+  }
+
+  // Terminal and attributable: no immediate recovery/repair wake, and an
+  // activity entry so the board can see why execution was refused.
+  async function cancelEvidenceDeniedRun(runId: string, code: string) {
+    const cancelled = await cancelRunInternal(runId, "Evidence pack blocks execution", {
+      errorCode: code,
+      suppressImmediateRecovery: true,
+    });
+    if (!cancelled) return;
+    const issueId = readNonEmptyString(parseObject(cancelled.contextSnapshot).issueId) ?? cancelled.nativeIssueId ?? null;
+    await logActivity(db, {
+      companyId: cancelled.companyId,
+      actorType: "system",
+      actorId: "heartbeat",
+      agentId: cancelled.agentId,
+      runId: cancelled.id,
+      issueId,
+      action: "heartbeat.evidence_denied",
+      entityType: "heartbeat_run",
+      entityId: cancelled.id,
+      details: { code, issueId, status: cancelled.status },
+    });
   }
 
   // Other 4xx rejections can clear later (a responsible user gets assigned, a
@@ -20117,6 +20148,11 @@ export function heartbeatService(
         "cancelling queued heartbeat run whose claim was rejected",
       );
       try {
+        const evidenceCode = evidenceDenialCode(err);
+        if (evidenceCode) {
+          await cancelEvidenceDeniedRun(run.id, evidenceCode);
+          continue;
+        }
         await cancelRunInternal(
           run.id,
           `Cancelled because the queued run cannot be claimed: ${err.message}`,
@@ -20405,7 +20441,15 @@ export function heartbeatService(
     if (run.status !== "queued" && run.status !== "running") return;
 
     if (run.status === "queued") {
-      const claimed = await claimQueuedRun(run);
+      let claimed: Awaited<ReturnType<typeof claimQueuedRun>>;
+      try {
+        claimed = await claimQueuedRun(run);
+      } catch (err) {
+        const code = evidenceDenialCode(err);
+        if (!code) throw err;
+        await cancelEvidenceDeniedRun(run.id, code);
+        return;
+      }
       if (!claimed) {
         // claimQueuedRun can also leave the run queued when dependencies are unresolved.
         return;
@@ -20413,17 +20457,13 @@ export function heartbeatService(
       run = claimed;
     }
 
-    const evidenceDenialCode = (err: unknown): string | null => {
-      const code = err instanceof HttpError ? (err.details as { code?: unknown } | undefined)?.code : null;
-      return typeof code === "string" && code.startsWith("evidence_pack_") ? code : null;
-    };
     try {
       await db.transaction(async (tx) => { await admitEvidencePackRun(tx as unknown as Db, run!); });
       run = (await getRun(run.id))!;
     } catch (err) {
       const code = evidenceDenialCode(err);
       if (!code) throw err;
-      await cancelRunInternal(run.id, "Evidence pack blocks execution", { errorCode: code, suppressImmediateRecovery: true });
+      await cancelEvidenceDeniedRun(run.id, code);
       return;
     }
     const instructionCleanupRun = run;
@@ -26528,7 +26568,7 @@ export function heartbeatService(
     } catch (outerErr) {
       const evidenceCode = evidenceDenialCode(outerErr);
       if (evidenceCode) {
-        await cancelRunInternal(run.id, "Evidence pack blocks execution", { errorCode: evidenceCode, suppressImmediateRecovery: true });
+        await cancelEvidenceDeniedRun(run.id, evidenceCode);
       } else if (
         nativeOwnershipHeld ||
         outerErr instanceof NativeRunnerOwnershipUnverifiedError

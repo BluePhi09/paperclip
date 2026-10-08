@@ -201,8 +201,10 @@ describe("evidence pack at the issue execution boundary", () => {
       await heartbeat.drainActiveRunExecutions();
       expect(queued).not.toBeNull();
       expect(execute).not.toHaveBeenCalled();
+      // Terminal, attributable denial; no repair/continuation run follows it.
       const row = await heartbeat.getRun(queued!.id);
-      expect(row?.status).not.toBe("succeeded");
+      expect(row).toMatchObject({ status: "cancelled", errorCode: "evidence_pack_stale" });
+      expect(await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(eq(heartbeatRuns.agentId, f.agentId))).toEqual([{ id: queued!.id }]);
     } finally { await heartbeat.drainActiveRunExecutions(); unregisterServerAdapter("evidence_test"); }
   });
   it.each(["valid", "artifact_changed_after_claim", "policy_removed_after_claim", "executor_changed_after_claim", "runtime_context_mismatch", "context_changed_after_claim", "adapter_changed_during_preparation"])("atomic heartbeat dispatch admission: %s", async (fault) => {
@@ -232,7 +234,11 @@ describe("evidence pack at the issue execution boundary", () => {
       const row = admitted.find((r) => r.runnerProfileJson?.evidenceAdmission);
       expect(row?.runnerProfileJson?.evidenceAdmission).toMatchObject({ revisionId: f.packRef.revisionId, executorAgentId: f.agentId, scope: f.binding.scope, receipts: f.receipts, fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/) });
       if (fault === "valid") expect(execute).toHaveBeenCalledOnce();
-      else { expect(execute).not.toHaveBeenCalled(); expect(provider).not.toHaveBeenCalled(); expect(tool).not.toHaveBeenCalled(); }
+      else {
+        expect(execute).not.toHaveBeenCalled(); expect(provider).not.toHaveBeenCalled(); expect(tool).not.toHaveBeenCalled();
+        // Legacy-adapter dispatch denial is terminal and never schedules a repair run.
+        expect(admitted).toEqual([expect.objectContaining({ id: queued!.id, status: "cancelled", errorCode: expect.stringMatching(/^evidence_pack_/) })]);
+      }
     } finally { await heartbeat.drainActiveRunExecutions(); unregisterServerAdapter("evidence_test"); unregisterServerAdapter("evidence_other"); }
   });
   it.each([null, "native_safe_replacement", "native_provider_overloaded", "resolved_interaction"])("queued heartbeat rechecks a revision changed before start (%s)", async (scheduledRetryReason) => {
@@ -242,12 +248,23 @@ describe("evidence pack at the issue execution boundary", () => {
     await db.update(agents).set({ adapterType: "evidence_test" }).where(eq(agents.id, f.agentId));
     const id = randomUUID();
     await db.insert(heartbeatRuns).values({ id, companyId: f.companyId, agentId: f.agentId, status: "queued", invocationSource: "manual", contextSnapshot: { issueId: f.issueId, ...(scheduledRetryReason === "resolved_interaction" ? { mutation: "interaction", wakeReason: "issue_commented", interactionId: f.receipts[0], interactionStatus: "accepted" } : {}) }, scheduledRetryReason: scheduledRetryReason === "resolved_interaction" ? null : scheduledRetryReason });
+    // A resolved-interaction continuation is only current for in-progress work;
+    // otherwise the staleness gate (not the evidence gate) would cancel it.
+    if (scheduledRetryReason === "resolved_interaction") await db.update(issues).set({ status: "in_progress" }).where(eq(issues.id, f.issueId));
     await documentService(db).upsertIssueDocument({ issueId: f.issueId, key: f.artifact.key, format: "markdown", body: "Changed after queue", baseRevisionId: f.artifact.revisionId });
     const heartbeat = heartbeatService(db);
     try {
       await heartbeat.resumeQueuedRuns(); await heartbeat.drainActiveRunExecutions();
       expect(execute).not.toHaveBeenCalled();
-      expect((await heartbeat.getRun(id))?.status).not.toBe("running");
+      // A claim-time denial is permanent: it must not stay queued for retry.
+      expect(await heartbeat.getRun(id)).toMatchObject({ status: "cancelled", errorCode: "evidence_pack_stale" });
+      await heartbeat.resumeQueuedRuns(); await heartbeat.drainActiveRunExecutions();
+      expect(execute).not.toHaveBeenCalled();
+      expect(await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(eq(heartbeatRuns.agentId, f.agentId))).toEqual([{ id }]);
+      const { activityLog } = await import("@paperclipai/db");
+      expect(await db.select().from(activityLog).where(eq(activityLog.entityId, id))).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: "heartbeat.evidence_denied", entityType: "heartbeat_run", runId: id, details: expect.objectContaining({ code: "evidence_pack_stale", issueId: f.issueId }) }),
+      ]));
     } finally { unregisterServerAdapter("evidence_test"); }
   });
   // Opt-in invariant: runs that never hold the issue execution lock (mentions,
