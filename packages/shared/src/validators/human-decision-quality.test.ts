@@ -37,7 +37,7 @@ describe("new human decision quality preflight", () => {
 
 describe("question brief option coverage", () => {
   const base = { id: "q", prompt: "Who?", selectionMode: "single" as const };
-  const options = [{ id: "household", label: "Only my household" }, { id: "other", label: "Something else", freeText: { required: true } }];
+  const options = [{ id: "household", label: "Only my household" }, { id: "other", label: "Something else", freeText: true }];
   it("lets a brief omit the free-text slot but never a fixed option or an unknown one", async () => {
     const { askUserQuestionsQuestionSchema } = await import("./issue.js");
     expect(askUserQuestionsQuestionSchema.safeParse({ ...base, options, brief }).success).toBe(true);
