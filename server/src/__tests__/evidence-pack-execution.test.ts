@@ -599,6 +599,41 @@ describe("evidence pack at the issue execution boundary", () => {
     // to its ordinary conflict.
     expect(outcome).toBe("Issue checkout conflict");
   });
+  // Opt-in invariant at run start: without evidence state executeRun keeps the
+  // claimed record. No transaction, no reload that could return a fresher row
+  // (or no row) to the legacy path.
+  function countingTransactions() {
+    const calls = { transaction: 0 };
+    const counted = new Proxy(db, { get(target, prop) {
+      const value = Reflect.get(target, prop);
+      if (prop === "transaction") return (...args: unknown[]) => { calls.transaction += 1; return (value as (...a: unknown[]) => unknown).apply(target, args); };
+      return typeof value === "function" ? value.bind(target) : value;
+    } }) as typeof db;
+    return { calls, counted };
+  }
+  it("run-start admission keeps the claimed noPack record without a transaction or reload", async () => {
+    const f = await fixture();
+    await db.update(issues).set({ executionPolicy: null }).where(eq(issues.id, f.issueId));
+    const [run] = await db.insert(heartbeatRuns).values({ id: randomUUID(), companyId: f.companyId, agentId: f.agentId, status: "running", contextSnapshot: { issueId: f.issueId } }).returning();
+    const { admitEvidenceAtRunStart } = await import("../services/evidence-pack.js");
+    const { calls, counted } = countingTransactions();
+    const reload = vi.fn(async () => null);
+    expect(await admitEvidenceAtRunStart(counted, run, reload)).toBe(run);
+    expect(reload).not.toHaveBeenCalled();
+    expect(calls.transaction).toBe(0);
+  });
+  it("run-start admission records an opted-in run and returns its reloaded row (or null if it vanished)", async () => {
+    const f = await reviewedFixture();
+    const [run] = await db.insert(heartbeatRuns).values({ id: randomUUID(), companyId: f.companyId, agentId: f.agentId, status: "running", contextSnapshot: { issueId: f.issueId } }).returning();
+    const { admitEvidenceAtRunStart } = await import("../services/evidence-pack.js");
+    const { calls, counted } = countingTransactions();
+    const reload = vi.fn(async (id: string) => (await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, id)))[0] ?? null);
+    const admitted = await admitEvidenceAtRunStart(counted, run, reload);
+    expect(calls.transaction).toBe(1);
+    expect(reload).toHaveBeenCalledWith(run.id);
+    expect(admitted?.runnerProfileJson?.evidenceAdmission).toMatchObject({ executorAgentId: f.agentId, revisionId: f.packRef.revisionId });
+    expect(await admitEvidenceAtRunStart(db, run, async () => null)).toBeNull();
+  });
   it("blocks a real in_progress update when an opted-in pack is missing", async () => {
     const f = await fixture();
     await expect(issueService(db).update(f.issueId, { status: "in_progress", actorUserId: "local-board" })).rejects.toThrow("Evidence pack");

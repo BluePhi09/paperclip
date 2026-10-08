@@ -210,6 +210,21 @@ export async function runHasEvidenceState(db: Db, run: Pick<typeof heartbeatRuns
   return hasEvidenceState(db, run.companyId, [issueId, ...(nativeIssueId ? [nativeIssueId] : [])], run.id);
 }
 
+/**
+ * Start-of-run admission. Opt-in invariant: without evidence state the claimed
+ * record is returned unchanged — no transaction and no reload, so the legacy
+ * path never sees a fresher (or missing) row. Otherwise the run is admitted
+ * under issue -> run locks and its recorded admission is reloaded; null means
+ * the run row no longer exists.
+ */
+export async function admitEvidenceAtRunStart<R extends typeof heartbeatRuns.$inferSelect>(
+  db: Db, run: R, reload: (runId: string) => Promise<R | null | undefined>,
+): Promise<R | null> {
+  if (!await runHasEvidenceState(db, run)) return run;
+  await db.transaction(async (tx) => { await admitEvidencePackRun(tx as unknown as Db, run); });
+  return (await reload(run.id)) ?? null;
+}
+
 /** Native heartbeat sidecar, not a second artifact store. Issue -> run lock order. */
 export async function admitEvidencePackRun(tx: Db, hint: typeof heartbeatRuns.$inferSelect, dispatch = false, operation = false) {
   // Resolve the same issue the callers lock (context issue first), so this

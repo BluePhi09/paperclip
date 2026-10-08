@@ -426,7 +426,7 @@ import {
   WORKTREE_INSTANCE_ROOT_METADATA_KEY,
 } from "./workspace-instance-cleanup.js";
 import { issueService } from "./issues.js";
-import { admitEvidencePackRun, runHasEvidenceState } from "./evidence-pack.js";
+import { admitEvidenceAtRunStart, admitEvidencePackRun, runHasEvidenceState } from "./evidence-pack.js";
 import {
   blockRunnerGoalRecovery,
   failRunnerGoalAction,
@@ -20458,8 +20458,9 @@ export function heartbeatService(
     }
 
     try {
-      await db.transaction(async (tx) => { await admitEvidencePackRun(tx as unknown as Db, run!); });
-      run = (await getRun(run.id))!;
+      const admitted = await admitEvidenceAtRunStart(db, run, (id) => getRun(id));
+      if (!admitted) return;
+      run = admitted;
     } catch (err) {
       const code = evidenceDenialCode(err);
       if (!code) throw err;
