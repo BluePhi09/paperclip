@@ -349,7 +349,11 @@ export async function settleUnrecoverableExecutions(
       if (!locked || locked.companyId !== candidate.companyId || locked.sourceIssueId !== task.id ||
           locked.evidence.runId !== candidate.evidence.runId) return;
       if (task.executionRunId || task.checkoutRunId ||
-          runs.some(run => ["queued", "running"].includes(run.status)) ||
+          // A queued run is not an owner of the held execution. Only a live run
+          // or a queued retry of the held run itself could still act on it; a
+          // queued run for a new message is exactly what retiring the hold admits.
+          runs.some(run => run.status === "running" ||
+            (run.status === "queued" && run.retryOfRunId === candidate.evidence.runId)) ||
           await getConversationOwnershipBlocker(tx as unknown as Db, candidate.companyId, task.id)) return;
       const [action] = await tx.update(issueRecoveryActions).set({
         status: "resolved",
