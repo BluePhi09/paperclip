@@ -276,6 +276,10 @@ export class CodexAppServerDriver implements HarnessDriver {
       const initialize = await cancellation.wait(this.#initialize(transport));
       const requestedMode =
         this.#options.requestedCollaborationMode ?? "default";
+      // initialize/process ownership may await. Revalidate after them, before
+      // the effectful thread creation (local transport writes synchronously).
+      await input.onOperationAdmission?.();
+      input.signal?.throwIfAborted();
       const response = await cancellation.wait(
         transport.request("thread/start", {
           ...createSecuredCodexThreadParams(

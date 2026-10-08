@@ -30,6 +30,8 @@ export interface NativeSessionBackendDescriptor {
 }
 
 export interface OpenNativeSessionInput {
+  /** Trusted in-process admission; never serialized into provider input. */
+  onOperationAdmission?: () => Promise<void>;
   identity: NativeRunIdentity;
   workingDirectory?: string;
   /**

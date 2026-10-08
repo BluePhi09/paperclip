@@ -49,6 +49,8 @@ export interface NativeRuntimeContextCapabilities {
 }
 
 export interface OpenHarnessSessionInput {
+  /** Trusted control-plane callback, not a provider-supplied capability. */
+  onOperationAdmission?: () => Promise<void>;
   runId: string;
   normalizedSessionId: string;
   workingDirectory: string;

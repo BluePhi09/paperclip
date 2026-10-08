@@ -192,6 +192,11 @@ export interface ExecuteNativeSessionOptions {
   getFreshSessionHandoff?: () => Promise<string | null>;
   /** Durable launch intent, after cleanup admission and before provider calls. */
   onSessionAdmission?: () => Promise<void>;
+  /** Server-owned revalidation after preparation, immediately before session operations.
+   * Backends with asynchronous work inside an effectful operation must additionally
+   * enforce this admission at their provider boundary; this is not an RPC lease.
+   */
+  onOperationAdmission?: () => Promise<void>;
   input: NativeExecutionInput;
   backend: NativeSessionBackend;
   controlPlane: ControlPlanePort;
@@ -2015,7 +2020,9 @@ export async function executeNativeSession(
     const bootstrapInput = {
       identity,
       workingDirectory: input.workspace.cwd,
+      onOperationAdmission: options.onOperationAdmission,
     };
+    await options.onOperationAdmission?.();
     session = await runAbortableOperationWithin({
       timeoutMs: bootstrapTimeoutMs,
       timeoutMessage: `native session bootstrap timed out after ${bootstrapTimeoutMs}ms`,
@@ -2425,6 +2432,7 @@ export async function executeNativeSession(
           if (!(dispositionOnlyRecovery && !effectFreeInitialAcpxTurn) && "requestedSkills" in modelEnvelope && options.backend.preparedTaskConstraints) {
             modelEnvelope.constraints = [...options.backend.preparedTaskConstraints];
           }
+          await options.onOperationAdmission?.();
           await session.startTurn({
             message: { role: "user", text: JSON.stringify(modelEnvelope) },
             ...(recovered && modelEnvelope.schema === "paperclip.native-continuation.v1"
