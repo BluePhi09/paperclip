@@ -141,9 +141,28 @@ if (command.action === "hold") {
     await api(`/issues/${task.id}/interactions`, "POST", {
       kind: "request_confirmation",
       continuationPolicy: "wake_assignee",
+      resolverPolicy: "human_only",
       payload: {
         version: 1,
         prompt: "Hand this plan off to an assigned project task?",
+        brief: {
+          version: 1,
+          decisionClass: "expert_review",
+          purpose: "plan_review",
+          subject: "Hand this plan off to a project task?",
+          mainSummary: "Review the drafted plan. Approving only hands this exact plan revision to an assigned project task; it does not run anything by itself.",
+          resolverTarget: { type: "human", reason: "Only you decide whether the plan is handed off." },
+          evidenceRefs: [{ source: "issue document plan", revision: String(plan.latestRevisionNumber) }],
+          selectionConsequences: [
+            { optionId: "accept", label: "Approve handoff", consequence: "Hand this plan revision to an assigned project task; nothing else is authorized." },
+            { optionId: "reject", label: "Revise", consequence: "Do not hand off; the plan is revised first." },
+          ],
+          safeDefault: "Keep the plan as a draft and hand nothing off.",
+          scope: "Only hand this plan revision to one assigned project task.",
+          excludedScope: "No other plan revision and no execution beyond the handoff.",
+          risks: "The assigned task starts from this plan; a wrong plan costs a revision.",
+          preconditions: [],
+        },
         acceptLabel: "Approve handoff",
         rejectLabel: "Revise",
         rejectRequiresReason: true,

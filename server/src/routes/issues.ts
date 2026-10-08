@@ -12031,12 +12031,16 @@ export function issueRoutes(
               kind: "ask_user_questions",
               idempotencyKey: `onboarding-first-task:${issue.id}:opening-question`,
               continuationPolicy: "wake_assignee",
+              resolverPolicy: "human_only",
               payload: await buildOnboardingFirstTaskOpeningQuestion(),
             },
             { agentId: issue.assigneeAgentId },
           );
         } catch (err) {
-          logger.warn(
+          // Best-effort so issue creation still succeeds, but never silent: the
+          // card is deterministic, so a failure (e.g. a 422 from the brief/policy
+          // contract) is a product defect, not a transient condition.
+          logger.error(
             { err, issueId: issue.id, companyId },
             "failed to seed onboarding first-task opening question",
           );
@@ -15921,6 +15925,7 @@ export function issueRoutes(
           agentId: actor.agentId,
           userId: actor.actorType === "user" ? actor.actorId : null,
         },
+        { requireHumanDecisionContext: req.actor.type === "agent" },
       );
 
       await logActivity(db, {

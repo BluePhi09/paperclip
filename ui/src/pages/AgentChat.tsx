@@ -7,12 +7,14 @@ import { useCompany } from "@/context/CompanyContext";
 import { useAgentChatEnabled } from "@/hooks/useAgentChatEnabled";
 import { recordAgentChatVisit } from "@/lib/recent-agent-chats";
 import { queryKeys } from "@/lib/queryKeys";
-import { useParams } from "@/lib/router";
+import { useLocation, useParams } from "@/lib/router";
+import { readDecisionDiscussion } from "@/lib/decision-chat";
 import { agentRouteRef } from "@/lib/utils";
 import { TaskDetailSurface } from "./IssueDetail";
 import { isUuidLike, type Issue } from "@paperclipai/shared";
 
 export function AgentChat() {
+  const location = useLocation();
   const { agentRef = "" } = useParams<{ agentRef: string }>();
   const { selectedCompanyId } = useCompany();
   const { enabled, loaded } = useAgentChatEnabled();
@@ -92,10 +94,18 @@ export function AgentChat() {
     return (
       <p className="text-sm text-muted-foreground">Loading conversation…</p>
     );
+  const discussion = readDecisionDiscussion(location.state, selectedCompanyId ?? "", agent.id);
   return (
-    <TaskDetailSurface
-      key={`${agent.id}:${userId}`}
-      conversation={{ agent, issue: chat.data ?? null, ensureIssue }}
-    />
+    <>
+      {discussion && <section aria-label="Decision discussion" className="space-y-2 rounded-lg border border-border p-3 text-sm">
+        <p className="whitespace-pre-wrap">{discussion.context}</p>
+        <p className="text-xs text-muted-foreground">Conversation context only; it approves nothing. {discussion.draftPrepared ? "It was prepared as an unsent draft below." : "Your existing draft was left unchanged; copy this context into your message if useful."}</p>
+      </section>}
+      <TaskDetailSurface
+        suppressReadReceipt={discussion !== null}
+        key={`${agent.id}:${userId}`}
+        conversation={{ agent, issue: chat.data ?? null, ensureIssue }}
+      />
+    </>
   );
 }

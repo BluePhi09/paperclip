@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
+import { createIssueThreadInteractionSchema } from "@paperclipai/shared";
+import { assertHumanInteractionContext } from "./human-decision-context.js";
 import {
   ONBOARDING_FIRST_TASK_OPENING_INTERVIEW_OPTION_ID,
   ONBOARDING_FIRST_TASK_OPENING_QUESTION_ID,
@@ -44,6 +46,21 @@ describe("renderOnboardingFirstTaskGreeting", () => {
 });
 
 describe("buildOnboardingFirstTaskOpeningQuestion", () => {
+  it("passes the real human preflight without authorizing execution or inventing risks", async () => {
+    const payload = await buildOnboardingFirstTaskOpeningQuestion();
+    expect(() => assertHumanInteractionContext(
+      createIssueThreadInteractionSchema.parse({ kind: "ask_user_questions", resolverPolicy: "human_only", payload }),
+      "human_only",
+    )).not.toThrow();
+    const brief = payload.questions[0].brief!;
+    expect(brief.decisionClass).toBe("personal_fact");
+    expect(brief.purpose).toBe("fact");
+    expect(brief.mainSummary).toContain("does not approve implementation");
+    expect(brief.recommendationOptionId).toBeUndefined();
+    expect(brief.risks).toBeUndefined();
+    expect(brief.selectionConsequences.map(({ optionId, label }) => ({ id: optionId, label })))
+      .toEqual(payload.questions[0].options.map(({ id, label }) => ({ id, label })));
+  });
   it("builds the two-option opening card with a free-text task option", async () => {
     const payload = await buildOnboardingFirstTaskOpeningQuestion();
     expect(payload.version).toBe(1);

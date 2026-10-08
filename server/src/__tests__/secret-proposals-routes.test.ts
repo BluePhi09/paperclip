@@ -475,6 +475,27 @@ describeEmbeddedPostgres("secret proposal routes", () => {
     ]);
   });
 
+  it("still posts a valid binding card when agent and secret names exceed the brief subject limit", async () => {
+    const fixture = await seedRun();
+    const longAgentName = `Proposer ${"a".repeat(200)}`;
+    const longSecretName = `dev/${"s".repeat(180)}/token`;
+    await db.update(agents).set({ name: longAgentName }).where(eq(agents.id, fixture.agentId));
+    const secretResponse = await request(createAgentApp(fixture))
+      .post("/api/agents/me/secret-proposals")
+      .send({ kind: "secret", name: longSecretName, key: "LONG_TOKEN", value: "long-secret", justification: "Needed by task" });
+    expect(secretResponse.status).toBe(201);
+    const bindingResponse = await request(createAgentApp(fixture))
+      .post("/api/agents/me/secret-proposals")
+      .send({ kind: "binding", secretProposalId: secretResponse.body.id, configPath: "env.LONG_TOKEN", justification: "Inject for the task" });
+    expect(bindingResponse.status).toBe(201);
+    const [confirmation] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.issueId, fixture.issueId));
+    const brief = (confirmation!.payload as { brief: { subject: string; scope: string } }).brief;
+    expect(brief.subject.length).toBeLessThanOrEqual(160);
+    expect(brief.subject.startsWith(`Give ${longAgentName.slice(0, 40)}`)).toBe(true);
+    expect(brief.subject.endsWith("…")).toBe(true);
+    expect(brief.scope).toContain(longSecretName);
+  });
+
   it("approves a binding without cascade after its secret proposal was approved separately", async () => {
     const fixture = await seedRun();
     const agentApp = createAgentApp(fixture);

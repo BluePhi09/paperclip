@@ -1189,6 +1189,7 @@ export interface PaperclipQuestionSetOption {
 }
 
 export interface PaperclipQuestionSetQuestion {
+  brief?: import("../validators/decision-brief.js").DecisionBrief;
   id: string;
   header?: string;
   prompt: string;

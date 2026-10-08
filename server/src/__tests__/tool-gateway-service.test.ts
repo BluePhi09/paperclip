@@ -49,6 +49,25 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 
+// Lets one test make the approval-card insert fail after the formal approval exists.
+const interactionCreateFailure = vi.hoisted(() => ({ error: null as Error | null }));
+vi.mock("../services/issue-thread-interactions.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/issue-thread-interactions.js")>();
+  return {
+    ...actual,
+    issueThreadInteractionService: (...args: Parameters<typeof actual.issueThreadInteractionService>) => {
+      const service = actual.issueThreadInteractionService(...args);
+      return {
+        ...service,
+        create: (async (...createArgs: Parameters<typeof service.create>) => {
+          if (interactionCreateFailure.error) throw interactionCreateFailure.error;
+          return service.create(...createArgs);
+        }) as typeof service.create,
+      };
+    },
+  };
+});
+
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 const testToolActionSigningSecret = "test-tool-action-signing-secret";
@@ -139,14 +158,14 @@ async function createRemoteMcpToolFixture(db: ReturnType<typeof createDb>, compa
   return { application, connection, catalogEntry };
 }
 
-function fakePluginDispatcher(): PluginToolDispatcher {
+function fakePluginDispatcher(displayName = "Delete everything"): PluginToolDispatcher {
   return {
     initialize: async () => {},
     teardown: () => {},
     listToolsForAgent: () => [
       {
         name: "fixture:delete_everything",
-        displayName: "Delete everything",
+        displayName,
         description: "Destructive fixture tool.",
         parametersSchema: { type: "object" },
         pluginId: "fixture-plugin",
@@ -178,6 +197,7 @@ describeEmbeddedPostgres("tool gateway service", () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
+    interactionCreateFailure.error = null;
     await db.delete(activityLog);
     await db.delete(agentWakeupRequests);
     await db.delete(toolGatewaySessions);
@@ -1192,6 +1212,67 @@ describeEmbeddedPostgres("tool gateway service", () => {
     });
     expect(result.status).toBe("completed");
     expect((result.result as { result?: { data?: { target?: string } } }).result?.data?.target).toBe("repo");
+  });
+
+  it("shortens over-long tool names and arguments in the approval brief instead of failing the card", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await db.insert(toolPolicies).values({
+      companyId: company.id,
+      name: "Review destructive tools",
+      policyType: "require_approval",
+      selectors: { toolName: "fixture:delete_everything" },
+    });
+    const longName = `Delete ${"x".repeat(300)}`;
+    const gateway = createTestToolGatewayService(db, { pluginToolDispatcher: fakePluginDispatcher(longName) });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+
+    await expect(gateway.executeTool({
+      sessionToken: session.token,
+      tool: "fixture:delete_everything",
+      parameters: { target: "y".repeat(3000) },
+    })).rejects.toMatchObject({ reasonCode: "approval_required" });
+
+    const [actionRequest] = await db.select().from(toolActionRequests);
+    const [interaction] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, actionRequest.interactionId!));
+    const payload = interaction.payload as {
+      brief: { subject: string; mainSummary: string; scope: string };
+      toolAction: { argumentsSummaryJson: string };
+      detailsMarkdown: string;
+    };
+    expect(payload.brief.subject.length).toBeLessThanOrEqual(160);
+    expect(payload.brief.subject.endsWith("…")).toBe(true);
+    expect(payload.brief.mainSummary.length).toBeLessThanOrEqual(600);
+    expect(payload.brief.scope.length).toBeLessThanOrEqual(2000);
+    expect(payload.brief.scope).toMatch(/shortened; the complete arguments are shown in this approval's details\)$/);
+    // The complete reviewed arguments remain on the card itself.
+    expect(payload.toolAction.argumentsSummaryJson).toContain("y".repeat(2500));
+    expect(payload.detailsMarkdown).toContain("y".repeat(2500));
+    expect(await db.select().from(approvals)).toHaveLength(1);
+    expect(await db.select().from(issueApprovals)).toHaveLength(1);
+  });
+
+  it("removes the formal approval again when the approval card cannot be created", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await db.insert(toolPolicies).values({
+      companyId: company.id,
+      name: "Review destructive tools",
+      policyType: "require_approval",
+      selectors: { toolName: "fixture:delete_everything" },
+    });
+    const gateway = createTestToolGatewayService(db, { pluginToolDispatcher: fakePluginDispatcher() });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    interactionCreateFailure.error = new Error("interaction insert failed");
+
+    await expect(gateway.executeTool({
+      sessionToken: session.token,
+      tool: "fixture:delete_everything",
+      parameters: { target: "repo" },
+    })).rejects.toThrow("interaction insert failed");
+
+    expect(await db.select().from(issueThreadInteractions)).toHaveLength(0);
+    expect(await db.select().from(issueApprovals)).toHaveLength(0);
+    expect(await db.select().from(approvals)).toHaveLength(0);
   });
 
   it("maps remote MCP elicitation to a durable issue interaction", async () => {

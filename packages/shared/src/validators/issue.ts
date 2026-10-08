@@ -1258,10 +1258,19 @@ export const askUserQuestionsQuestionOptionSchema = z.object({
     ),
 });
 
-function validateBriefOptions(brief: z.infer<typeof decisionBriefSchema> | undefined, optionIds: string[], ctx: z.RefinementCtx, path: (string | number)[] = []) {
+/**
+ * A brief explains every visible choice exactly once. Free-text answer slots
+ * (`freeText` options, including the synthetic text-answer option of a
+ * question set) may be explained but are not required.
+ */
+function validateBriefOptions(brief: z.infer<typeof decisionBriefSchema> | undefined, optionIds: string[], ctx: z.RefinementCtx, path: (string | number)[] = [], optionalOptionIds: readonly string[] = []) {
   if (!brief) return;
-  const ids = brief.selectionConsequences.map((entry) => entry.optionId).sort();
-  if (JSON.stringify(ids) !== JSON.stringify([...optionIds].sort()) || (brief.recommendationOptionId && !ids.includes(brief.recommendationOptionId))) {
+  const ids = brief.selectionConsequences.map((entry) => entry.optionId);
+  const required = optionIds.filter((id) => !optionalOptionIds.includes(id));
+  const known = new Set(optionIds);
+  const covered = new Set(ids);
+  if (covered.size !== ids.length || ids.some((id) => !known.has(id)) || required.some((id) => !covered.has(id))
+    || (brief.recommendationOptionId && !covered.has(brief.recommendationOptionId))) {
     ctx.addIssue({ code: "custom", path: [...path, "brief", "selectionConsequences"], message: "Brief must describe each available option exactly once" });
   }
 }
@@ -1275,7 +1284,13 @@ export const askUserQuestionsQuestionSchema = z.object({
   required: z.boolean().optional(),
   allowOther: z.boolean().optional(),
   options: z.array(askUserQuestionsQuestionOptionSchema).min(1).max(129),
-}).superRefine((question, ctx) => validateBriefOptions(question.brief, question.options.map((option) => option.id), ctx));
+}).superRefine((question, ctx) => validateBriefOptions(
+  question.brief,
+  question.options.map((option) => option.id),
+  ctx,
+  [],
+  question.options.filter((option) => option.freeText).map((option) => option.id),
+));
 
 const paperclipQuestionOptionSchema = z.object({
   id: z.string().min(1).max(160),
@@ -1286,6 +1301,8 @@ const paperclipQuestionOptionSchema = z.object({
 
 const paperclipQuestionSchema = z
   .object({
+    /** Concise human context; projected onto the stored compatibility question. */
+    brief: decisionBriefSchema.optional(),
     id: z.string().min(1).max(160),
     header: z.string().max(1000).optional(),
     prompt: z.string().min(1).max(4000),

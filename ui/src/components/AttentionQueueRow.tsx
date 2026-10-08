@@ -32,6 +32,7 @@ import {
 } from "../lib/attention";
 import { cn, relativeTime } from "../lib/utils";
 import { DecisionTriageStrip } from "./DecisionTriageStrip";
+import { DecisionDiscussionLink } from "./DecisionDiscussionLink";
 import { InteractionAudienceLine } from "./InteractionAudienceLine";
 import { StatusGlyph } from "./StatusGlyph";
 import { Button } from "./ui/button";
@@ -332,6 +333,9 @@ export const AttentionQueueRow = memo(function AttentionQueueRow({
         </div>
       </div>
 
+      {(item.sourceKind === "decision" || item.sourceKind === "issue_thread_interaction" || item.audience === "agent") && (
+        <DecisionDiscussionLink item={item} companyId={companyId} agents={agents ?? Array.from(agentMap?.values() ?? [])} userId={currentUserId ?? null} />
+      )}
       {item.resolverLabel && <p className="text-xs font-medium text-muted-foreground">{item.resolverLabel}</p>}
       {item.routingBlocker && <p role="status" className="text-xs text-destructive">{item.routingBlocker}</p>}
 
@@ -548,7 +552,7 @@ function CompactDecisionActions({
           disabled={decision.isPending}
           onClick={(event) => {
             event.stopPropagation();
-            if (item.sourceKind === "issue_thread_interaction" && (action === "reject" || item.subject.metadata?.requiresDetailReview === true)) {
+            if (item.sourceKind === "issue_thread_interaction") {
               onOpen();
               return;
             }

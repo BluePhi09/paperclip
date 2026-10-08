@@ -170,6 +170,8 @@ For an open answer, use a text field. Use a confirmation for a concrete yes/no d
 Omit `addresseeUserId` for ordinary questions.
 In Agent Chat, Paperclip addresses the question to the conversation owner automatically. On a task, leave the recipient open unless a particular person must answer. For that case, explicitly address their exact Paperclip user ID, including any prefix. The server rejects unknown or unauthorized recipients. Do not guess IDs or infer authority from a title. Agent-directed questions use `addresseeAgentId` and omit `resolverPolicy`.
 
+Every question, confirmation or item you send to a person needs a short `brief` so they can decide without opening the task: a concrete `subject`, a 1–3 sentence `mainSummary` (what this is about and what the answer decides), `purpose`, one labeled consequence per visible option, `safeDefault`, and for anything other than a personal fact also `scope`, `excludedScope`, `risks` and `preconditions` (`[]` if none). Without it the server returns 422 `decision_context_missing`; clarify the missing context yourself instead of inventing it. Clarifying questions inside an Agent Chat conversation are exempt. See "Concise briefs" under [Questions and waiting for human input](references/api-reference.md#questions-and-waiting-for-human-input).
+
 ```json
 {
   "kind": "ask_user_questions",
@@ -180,7 +182,18 @@ In Agent Chat, Paperclip addresses the question to the conversation owner automa
     "version": 1,
     "questionSet": {
       "schema": "paperclip.question_set.v1",
-      "questions": [{ "id": "detail", "prompt": "What should I know?", "answerMode": "text", "required": true }]
+      "questions": [{
+        "id": "detail", "prompt": "What should I know?", "answerMode": "text", "required": true,
+        "brief": {
+          "version": 1, "decisionClass": "personal_fact", "purpose": "fact",
+          "subject": "Which audience is the launch note for?",
+          "mainSummary": "I am drafting the launch note and need to know who reads it. Your answer only sets the audience; nothing is published.",
+          "resolverTarget": { "type": "human", "reason": "Only you know the intended readers." },
+          "evidenceRefs": [{ "source": "task description", "revision": "{issueId}" }],
+          "selectionConsequences": [],
+          "safeDefault": "I keep waiting and publish nothing."
+        }
+      }]
     }
   }
 }

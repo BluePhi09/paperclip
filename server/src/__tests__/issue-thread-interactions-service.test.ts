@@ -224,6 +224,51 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     expect(JSON.stringify(created.payload)).toContain(brief.subject);
   });
 
+  it("enforces the mandatory brief gate only at opted-in agent boundaries, after replay, and exempts chat and expert cards", async () => {
+    const { companyId, issueId, agentId, runId } = await seedSourceQuestionFixture({});
+    const issue = { id: issueId, companyId };
+    const input = { ...questionCreateInput(runId), resolverPolicy: "human_only" as const, idempotencyKey: "gate:1" };
+    const gate = { requireHumanDecisionContext: true };
+    // Deterministic native producers do not opt in and stay unblocked.
+    const native = await interactionsSvc.create(issue, { ...input, idempotencyKey: "gate:native" }, { agentId, runId });
+    expect(native.status).toBe("pending");
+    // Agent boundary: missing brief is a field-specific 422, nothing persisted.
+    await expect(interactionsSvc.create(issue, input, { agentId, runId }, gate)).rejects.toMatchObject({
+      status: 422, details: expect.objectContaining({ code: "decision_context_missing" }),
+    });
+    expect((await interactionsSvc.listForIssue(issueId)).filter((row) => row.idempotencyKey === "gate:1")).toHaveLength(0);
+    // Replay of an already stored card keeps its original response even when it has no brief.
+    const replay = await interactionsSvc.create(issue, { ...input, idempotencyKey: "gate:native" }, { agentId, runId }, gate);
+    expect(replay.id).toBe(native.id);
+    // Cards addressed to a named expert agent are not human cards: created without a brief.
+    const expert = await interactionsSvc.create(issue, { kind: "request_confirmation", idempotencyKey: "gate:expert", addresseeAgentId: agentId, resolverPolicy: "anyone", payload: { version: 1, prompt: "Review" } }, { userId: "local-board" }, gate);
+    expect(expert).toMatchObject({ status: "pending", kind: "request_confirmation", addresseeAgentId: agentId, effectiveResolverPolicy: "anyone", createdByUserId: "local-board" });
+    // Open coordination cards stay agent-internal (not "My decisions"): created without a brief.
+    const open = await interactionsSvc.create(issue, { kind: "request_confirmation", idempotencyKey: "gate:open", payload: { version: 1, prompt: "Coordinate" } }, { agentId, runId }, gate);
+    expect(open).toMatchObject({ status: "pending", effectiveResolverPolicy: "anyone", addresseeAgentId: null, addresseeUserId: null });
+    // The same card addressed to the expert but forced to human_only is a human card again.
+    await expect(interactionsSvc.create(issue, { kind: "request_confirmation", idempotencyKey: "gate:expert-human", addresseeAgentId: agentId, resolverPolicy: "human_only", payload: { version: 1, prompt: "Review" } }, { userId: "local-board" }, gate)).rejects.toMatchObject({
+      status: 422, details: expect.objectContaining({ code: "decision_context_missing" }),
+    });
+  });
+
+  it("exempts only clarifying questions inside an Agent Chat conversation from the brief gate", async () => {
+    const fixture = await seedChatQuestion();
+    const issue = { id: fixture.issueId, companyId: fixture.companyId };
+    const gate = { requireHumanDecisionContext: true };
+    const question = await interactionsSvc.create(issue, { ...questionCreateInput(fixture.runId), resolverPolicy: "human_only", idempotencyKey: "chat:question" }, { agentId: fixture.agentId, runId: fixture.runId }, gate);
+    expect(question).toMatchObject({ status: "pending", kind: "ask_user_questions", addresseeUserId: fixture.userId, effectiveResolverPolicy: "human_only" });
+    // Confirmations in the same conversation authorize something and still need a brief.
+    await expect(interactionsSvc.create(issue, { kind: "request_confirmation", resolverPolicy: "human_only", idempotencyKey: "chat:confirm", payload: { version: 1, prompt: "Deploy now?" } }, { agentId: fixture.agentId, runId: fixture.runId }, gate)).rejects.toMatchObject({
+      status: 422, details: expect.objectContaining({ code: "decision_context_missing" }),
+    });
+    // The same question on an ordinary task (no conversation) is gated.
+    await db.update(issues).set({ conversationAgentId: null, conversationUserId: null, conversationState: null }).where(eq(issues.id, fixture.issueId));
+    await expect(interactionsSvc.create(issue, { ...questionCreateInput(fixture.runId), resolverPolicy: "human_only", idempotencyKey: "chat:ordinary" }, { agentId: fixture.agentId, runId: fixture.runId }, gate)).rejects.toMatchObject({
+      status: 422, details: expect.objectContaining({ code: "decision_context_missing" }),
+    });
+  });
+
   it.each(["expert_review", "internal_detail"] as const)("rejects governed %s brief without explicit execution authorization", async (decisionClass) => {
     const { companyId, issueId } = await seedConfirmationIssue("Governed brief");
     const brief = { version: 1 as const, decisionClass, subject: "Record only", resolverTarget: { type: "human" as const, reason: "Board" }, evidenceRefs: [{ source: "Document", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record only" }, { optionId: "reject", consequence: "Leave unchanged" }], safeDefault: "No execution" };
@@ -258,6 +303,18 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     expect(await interactionsSvc.getById(created.id)).toMatchObject({ status: "pending" });
     const accepted = await interactionsSvc.acceptInteraction(issue, created.id, {}, { userId: "reviewer" });
     expect(accepted.interaction).toMatchObject({ status: "accepted", createdByUserId: "writer", resolvedByUserId: "reviewer" });
+  });
+
+  it("keeps a stored expert_review brief with a recommendation but no reason creator-excluded", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Stored recommendation without reason");
+    const brief = { version: 1, decisionClass: "expert_review", purpose: "plan_review", subject: "Independent review", resolverTarget: { type: "human", reason: "Independent Board reviewer" }, evidenceRefs: [{ source: "Plan", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record review" }, { optionId: "reject", consequence: "Revise" }], safeDefault: "No execution", recommendationOptionId: "accept" };
+    const id = randomUUID();
+    await db.insert(issueThreadInteractions).values({ id, companyId, issueId, kind: "request_confirmation", status: "pending", requestedResolverPolicy: "human_only", effectiveResolverPolicy: "human_only", createdByUserId: "writer", payload: { version: 1, prompt: "Review", brief } });
+    const issue = { id: issueId, companyId };
+    await expect(interactionsSvc.acceptInteraction(issue, id, {}, { userId: "writer" })).rejects.toMatchObject({ status: 403, details: { code: "interaction_creator_excluded" } });
+    expect(await interactionsSvc.getById(id)).toMatchObject({ status: "pending" });
+    const accepted = await interactionsSvc.acceptInteraction(issue, id, {}, { userId: "reviewer" });
+    expect(accepted.interaction).toMatchObject({ status: "accepted", resolvedByUserId: "reviewer" });
   });
 
   it.each([null, { version: 2 }, { version: 1, subject: "Incomplete" }])("retains invalid/future stored confirmation brief %j for detail fallback", async (brief) => {

@@ -3,12 +3,15 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import {
   createDecisionArchiveProposalSchema,
+  decisionBriefMetadataSchema,
+  decisionBriefSchema,
   decisionInputsSchema,
   decisionOptionsSchema,
   type AttentionArchiveManifestEntry,
   type AttentionArchiveTargetSnapshot,
   type AttentionItem,
   type CreateDecisionArchiveProposalInput,
+  type DecisionBrief,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { decisionService, type DecisionServiceOptions } from "../services/decisions.js";
@@ -28,7 +31,7 @@ const createSchema = z.object({
   expiresAt: z.coerce.date().optional(),
   idempotencyKey: z.string().trim().min(1).max(500).nullable().optional(),
   continuationPolicy: z.enum(["none", "wake_origin_agent"]).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: decisionBriefMetadataSchema.optional(),
 }).strict();
 const bundleSchema = z.object({ title: z.string().trim().min(1).max(500), summary: z.string().max(100_000), decisions: z.array(createSchema).min(1).max(50) }).strict();
 const decideSchema = z.object({ optionId: z.string().trim().min(1).max(120), inputValues: z.record(z.string(), z.string().max(20_000)).optional(), idempotencyKey: z.string().trim().min(1).max(500).nullable().optional() }).strict();
@@ -47,6 +50,34 @@ function agentContext(req: Parameters<typeof getActorInfo>[0]) {
 function boardUserId(req: Parameters<typeof getActorInfo>[0]) {
   assertBoard(req);
   return req.actor.userId ?? "local-implicit-board";
+}
+
+/**
+ * Deterministic brief for the native archive proposal. Archiving is reversible
+ * shelf housekeeping: it neither answers nor deletes the archived items.
+ */
+export function attentionArchiveProposalBrief(manifest: readonly AttentionArchiveManifestEntry[], manifestHash: string): DecisionBrief {
+  const count = manifest.length;
+  const items = count === 1 ? "1 aging item" : `${count} aging items`;
+  return decisionBriefSchema.parse({
+    version: 1,
+    decisionClass: "human_risk_decision",
+    purpose: "execution_authorization",
+    subject: `Archive ${items} from your Decisions list?`,
+    mainSummary: `An agent reviewed ${items} that have been waiting past the retention threshold and proposes moving them to the archive. Archived items leave the active list; they are not answered, approved or deleted, and you can restore them from the archived filter.`,
+    resolverTarget: { type: "human", reason: "Only you decide which of your open items leave your active list." },
+    evidenceRefs: [{ source: "attention-archive-manifest", revision: manifestHash }],
+    selectionConsequences: [
+      { optionId: "archive", label: "Archive reviewed items", consequence: "Move exactly the listed items to the archive if none of them changed since the proposal." },
+      { optionId: "keep", label: "Keep items", consequence: "Leave all listed items in the active list." },
+    ],
+    safeDefault: "Leave all listed items in the active list.",
+    reason: "Aging items crowd out current decisions; each listed item names the agent's reason below.",
+    scope: `Only the ${items} listed below, at their reviewed versions.`,
+    excludedScope: "No item is answered, approved, rejected or deleted, and no other item is archived.",
+    risks: "An archived item no longer appears in the default list until you restore it, so a still-relevant request may be overlooked.",
+    preconditions: ["Every listed item must be unchanged since the proposal; otherwise nothing is archived."],
+  });
 }
 
 export function decisionRoutes(db: Db, options: DecisionServiceOptions) {
@@ -129,8 +160,9 @@ export function decisionRoutes(db: Db, options: DecisionServiceOptions) {
           { id: "archive", label: "Archive reviewed items", style: "destructive", effects: [] },
           { id: "keep", label: "Keep items", effects: [] },
         ],
-        metadata: { kind: "attention_archive_proposal", manifestHash },
+        metadata: { kind: "attention_archive_proposal", manifestHash, brief: attentionArchiveProposalBrief(manifest, manifestHash) },
         additionalTargetSnapshots: targetSnapshots,
+        requireHumanBrief: true,
       });
       res.status(201).json(created);
     },
@@ -138,12 +170,16 @@ export function decisionRoutes(db: Db, options: DecisionServiceOptions) {
   router.post("/companies/:companyId/decisions", validate(createSchema), async (req, res) => {
     const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
     const agent = agentContext(req); if (!agent) { res.status(403).json({ error: "Agent run context required" }); return; }
-    res.status(201).json(await svc.create({ companyId, actor: req.actor, ...agent, ...req.body }));
+    res.status(201).json(await svc.create({ companyId, actor: req.actor, ...agent, ...req.body, requireHumanBrief: true }));
   });
   router.post("/companies/:companyId/decision-bundles", validate(bundleSchema), async (req, res) => {
     const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
     const agent = agentContext(req); if (!agent) { res.status(403).json({ error: "Agent run context required" }); return; }
-    res.status(201).json(await svc.createBundle({ companyId, actor: req.actor, ...agent, ...req.body }));
+    const body = req.body as z.infer<typeof bundleSchema>;
+    res.status(201).json(await svc.createBundle({
+      companyId, actor: req.actor, ...agent, ...body,
+      decisions: body.decisions.map((decision) => ({ ...decision, requireHumanBrief: true })),
+    }));
   });
   router.get("/companies/:companyId/decisions", async (req, res) => {
     const companyId = req.params.companyId as string; assertBoard(req); assertCompanyAccess(req, companyId);

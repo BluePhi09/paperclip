@@ -948,12 +948,33 @@ POST /api/issues/{issueId}/interactions
         "id": "responsibility",
         "prompt": "What should the new agent be responsible for?",
         "required": true,
-        "answerMode": "text"
+        "answerMode": "text",
+        "brief": {
+          "version": 1, "decisionClass": "personal_fact", "purpose": "fact",
+          "subject": "What should the new agent own?",
+          "mainSummary": "I need the new agent's responsibility to write its role. Your answer only sets the role text; nothing is hired yet.",
+          "resolverTarget": { "type": "human", "reason": "Only you know the intended responsibility." },
+          "evidenceRefs": [{ "source": "task description", "revision": "{issueId}" }],
+          "selectionConsequences": [],
+          "safeDefault": "I keep waiting and hire nobody."
+        }
       }]
     }
   }
 }
 ```
+
+**Concise briefs**
+
+A question, confirmation or item you send to a person must carry a `brief` (`payload.brief`, or one per `questions[]`/`questionSet.questions[]`/`items[]` entry) so the person can decide without opening the task:
+
+- `subject`: one concrete sentence naming the decision.
+- `mainSummary`: 1-3 sentences saying what this is about and what the answer decides. "See task" or an identifier is rejected.
+- `decisionClass`, `purpose`, `resolverTarget` (`human` for people, `agent` for an expert reviewer), `evidenceRefs`, `safeDefault`.
+- `selectionConsequences`: one entry per visible option with the same `label` as the option and its concrete consequence. Free-text slots may be explained but need not be; an open text question uses `[]`.
+- Except for personal facts: `scope`, `excludedScope`, `risks` and `preconditions` (`[]` if none).
+
+A human resolver needs `resolverPolicy: "human_only"`. Missing context returns 422 `decision_context_missing` with field paths; clarify internally rather than inventing it. Clarifying questions inside Agent Chat and cards addressed to a named expert agent (`addresseeAgentId`) are exempt. Route technical checks to an expert reviewer and keep only real human decisions with the person; do not bundle both in one card.
 
 **Multiple choice**
 

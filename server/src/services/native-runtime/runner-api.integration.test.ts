@@ -546,6 +546,7 @@ else if(m.id!==undefined) send({id:m.id,result:{}});
         kind: "ask_user_questions",
         idempotencyKey: `stale-source-question-${fixture.runId}`,
         continuationPolicy: "wake_assignee",
+        resolverPolicy: "human_only",
         payload: {
           version: 1,
           title: "One real question",
@@ -555,6 +556,17 @@ else if(m.id!==undefined) send({id:m.id,result:{}});
             selectionMode: "single",
             required: true,
             options: [{ id: "small", label: "Small" }],
+            brief: {
+              version: 1,
+              decisionClass: "personal_fact",
+              purpose: "fact",
+              subject: "Which scope should the work have?",
+              mainSummary: "Pick the scope for this work. Your answer only records the scope; it does not start anything.",
+              resolverTarget: { type: "human", reason: "Only you know the intended scope." },
+              evidenceRefs: [{ source: "runner API integration fixture", revision: "1" }],
+              selectionConsequences: [{ optionId: "small", label: "Small", consequence: "Record a small scope; nothing else is authorized." }],
+              safeDefault: "Keep waiting and change nothing.",
+            },
           }],
         },
       };

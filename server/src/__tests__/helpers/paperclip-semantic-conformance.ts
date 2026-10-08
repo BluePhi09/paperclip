@@ -1,4 +1,5 @@
 import express, { type Application } from "express";
+import { nativeHumanActionBrief } from "../../services/native-human-action-brief.js";
 import request from "supertest";
 import { and, asc, eq } from "drizzle-orm";
 import {
@@ -417,9 +418,22 @@ class PaperclipRouteSemanticPort {
           title: command.title,
           summary: command.prompt,
           continuationPolicy: command.continuationPolicy,
+          resolverPolicy: "human_only",
           payload: {
             version: 1,
             prompt: command.prompt,
+            brief: nativeHumanActionBrief({
+              subject: command.title,
+              summary: command.prompt,
+              scope: "Only record the answer to this confirmation.",
+              excludedScope: "No other action is authorized by this answer.",
+              risks: "None beyond recording the answer.",
+              preconditions: [],
+              source: `semantic:${command.title}`, revision: "1",
+              acceptLabel: "Confirm", rejectLabel: "Request changes",
+              acceptConsequence: "Record the confirmation and wake the assignee.",
+              rejectConsequence: "Record that changes are requested.",
+            }),
             detailsMarkdown: "",
             acceptLabel: "Confirm",
             rejectLabel: "Request changes",

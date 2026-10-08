@@ -626,7 +626,7 @@ describe("issue thread interaction routes", () => {
         expect.objectContaining({ id: "repo", options: [{ id: "paperclip_text_answer", label: "Type an answer", freeText: true }] }),
         expect.objectContaining({ id: "scope", options: questionSet.questions[1].options }),
       ] }),
-    }), expect.anything());
+    }), expect.anything(), { requireHumanDecisionContext: false });
   });
 
   it("does not run historical-comment catch-up or queue recovery from the interaction read path", async () => {
@@ -1582,6 +1582,7 @@ describe("issue thread interaction routes", () => {
         }),
       }),
       expect.anything(),
+      { requireHumanDecisionContext: false },
     );
   });
 
@@ -2346,17 +2347,39 @@ describe("issue thread interaction routes", () => {
       });
 
     expect(res.status).toBe(201);
+    expect(mockInteractionService.create).toHaveBeenCalledTimes(1);
     expect(mockInteractionService.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+      expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", companyId: "company-1" }),
       expect.objectContaining({
         kind: "suggest_tasks",
         idempotencyKey: "interaction:task-1",
         sourceRunId: RUN_1,
+        payload: expect.objectContaining({ tasks: [expect.objectContaining({ clientKey: "task-1", title: "One" })] }),
       }),
       {
         agentId: CREATED_AGENT_ID,
         userId: null,
       },
+      { requireHumanDecisionContext: true },
+    );
+  });
+
+  it("does not require the human brief gate for board-authored cards", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions")
+      .send({ kind: "suggest_tasks", idempotencyKey: "board:task-1", payload: { version: 1, tasks: [{ clientKey: "task-1", title: "One" }] } });
+    expect(res.status).toBe(201);
+    expect(mockInteractionService.create).toHaveBeenCalledTimes(1);
+    expect(mockInteractionService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", companyId: "company-1" }),
+      expect.objectContaining({
+        kind: "suggest_tasks",
+        idempotencyKey: "board:task-1",
+        payload: expect.objectContaining({ tasks: [expect.objectContaining({ clientKey: "task-1", title: "One" })] }),
+      }),
+      { agentId: null, userId: "local-board" },
+      { requireHumanDecisionContext: false },
     );
   });
 

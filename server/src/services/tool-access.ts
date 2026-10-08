@@ -285,6 +285,7 @@ import {
   VercelConnectClientError,
   type VercelConnectClient,
 } from "./vercel-connect.js";
+import { nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";
 
 type ActorInfo = {
   actorType?: "agent" | "user" | "system" | "plugin";
@@ -15038,6 +15039,7 @@ export function toolAccessService(
       const payload = {
         version: 1 as const,
         prompt: `Connect your ${providerName} to continue`,
+        brief: nativeConnectionAuthorizationBrief(providerName, `connection:${connection.id}`, state, `Connect ${providerName}`),
         acceptLabel: `Connect ${providerName}`,
         rejectLabel: "Not now",
         detailsMarkdown:
