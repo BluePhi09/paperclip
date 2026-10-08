@@ -72,6 +72,27 @@ export function stripAiAuthBindings(env: unknown): Record<string, unknown> {
       delete result[key];
   return result;
 }
+export function managedAiProjectAuthFailure(error: unknown, actionUrl: string) {
+  // Never copy an arbitrary error message/details into persisted run evidence.
+  const details = error instanceof HttpError && error.details && typeof error.details === "object"
+    ? error.details as Record<string, unknown> : {};
+  const reasons = ["key_detected", "scanner_failed", "remote_timeout", "remote_execution_failed", "auth_override_argument", "scanner_io_failed"];
+  const reason = typeof details.reason === "string" && reasons.includes(details.reason) ? details.reason : "scanner_failed";
+  const diagnostic = {
+    code: "ai_connection_incompatible", reason,
+    ...(details.phase === "remote_scan" || details.phase === "local_scan" || details.phase === "arguments" ? { phase: details.phase } : {}),
+    ...(details.targetKind === "remote" || details.targetKind === "local" ? { targetKind: details.targetKind } : {}),
+    ...(details.exitCode === null || (typeof details.exitCode === "number" && Number.isSafeInteger(details.exitCode)) ? { exitCode: details.exitCode } : {}),
+    ...(typeof details.timedOut === "boolean" ? { timedOut: details.timedOut } : {}),
+  };
+  return {
+    message: reason === "key_detected" || reason === "auth_override_argument"
+      ? "Project authentication settings conflict with this agent’s managed AI connection"
+      : "Project authentication could not be verified; repair the scanner or execution environment before retrying",
+    resultJson: { configurationIncomplete: { reason: "ai_connection_incompatible", actionUrl, diagnostic } },
+  };
+}
+
 export async function assertManagedAiProjectAuth(
   config: Record<string, unknown>,
   provider: AiConnectionBinding["provider"],
@@ -92,7 +113,7 @@ export async function assertManagedAiProjectAuth(
   ) {
     throw unprocessable(
       "Remove authentication/configuration overrides before selecting a managed AI connection",
-      { code: "ai_connection_incompatible" },
+      { code: "ai_connection_incompatible", reason: "auth_override_argument", phase: "arguments", targetKind: target?.kind ?? "local" },
     );
   }
   const files =
@@ -105,7 +126,9 @@ export async function assertManagedAiProjectAuth(
     "apiKeyHelper|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|model_provider[[:space:]]*=|env_key[[:space:]]*=|experimental_bearer_token|cli_auth_credentials_store";
   if (target?.kind === "remote" && files.length) {
     // Only inspect for conflicting keys; never return configuration or credential values.
-    const result = await runAdapterExecutionTargetProcess(
+    let result: Awaited<ReturnType<typeof runAdapterExecutionTargetProcess>>;
+    try {
+      result = await runAdapterExecutionTargetProcess(
       `ai-auth-check-${Date.now()}`,
       target,
       "sh",
@@ -114,9 +137,15 @@ export async function assertManagedAiProjectAuth(
         `
 directory=$1; pattern=$2; shift 2
 while :; do
+  test -d "$directory" && test -x "$directory" || exit 43
   for relative in "$@"; do
     file="$directory/$relative"
-    if test -f "$file"; then
+    settings_directory=$(dirname "$file") || exit 43
+    if test -e "$settings_directory" || test -L "$settings_directory"; then
+      test -d "$settings_directory" && test -x "$settings_directory" || exit 43
+    fi
+    if test -e "$file" || test -L "$file"; then
+      test -f "$file" && test -r "$file" || exit 43
       grep -Eq "$pattern" "$file"
       result=$?
       if test "$result" -eq 0; then exit 42; fi
@@ -140,10 +169,20 @@ done`,
         onLog: async () => {},
       },
     );
-    if (result.exitCode !== 0)
+    } catch {
+      throw unprocessable("The project authentication scan could not execute; repair the environment before retrying", {
+        code: "ai_connection_incompatible", reason: "remote_execution_failed", phase: "remote_scan", targetKind: "remote",
+      });
+    }
+    if (result.exitCode !== 0 || result.timedOut || result.signal)
       throw unprocessable(
-        "The environment's project authentication settings must be checked before using this AI connection",
-        { code: "ai_connection_incompatible" },
+        result.exitCode === 42 && !result.timedOut && !result.signal
+          ? "Project authentication settings conflict with the selected AI connection"
+          : "The project authentication scan did not complete; repair the environment before retrying",
+        { code: "ai_connection_incompatible", reason: result.timedOut ? "remote_timeout"
+            : result.signal ? "remote_execution_failed" : result.exitCode === 42 ? "key_detected"
+            : result.exitCode === 43 ? "scanner_failed" : "remote_execution_failed",
+          phase: "remote_scan", targetKind: "remote", exitCode: result.exitCode, timedOut: result.timedOut },
       );
     return;
   }
@@ -160,11 +199,15 @@ done`,
         ) {
           throw unprocessable(
             "Project authentication settings conflict with the selected AI connection",
-            { code: "ai_connection_incompatible" },
+            { code: "ai_connection_incompatible", reason: "key_detected", phase: "local_scan", targetKind: "local" },
           );
         }
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        if (error instanceof HttpError) throw error;
+        throw unprocessable("The project authentication scan could not read project settings; repair the workspace before retrying", {
+          code: "ai_connection_incompatible", reason: "scanner_io_failed", phase: "local_scan", targetKind: "local",
+        });
       }
     }
     const parent = path.dirname(directory);
