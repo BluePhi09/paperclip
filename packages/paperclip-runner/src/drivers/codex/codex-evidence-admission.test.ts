@@ -65,4 +65,30 @@ describe("Codex fresh provider operation admission", () => {
       else { expect(outcome.error).toBeNull(); expect(outcome.value).toMatchObject({ recovered: true }); expect(admission).toHaveBeenCalledOnce(); }
     } finally { await outcome.value?.session?.close({ reason: "fixture complete" }); }
   });
+
+  // A pending server admission must not delay cancellation: abort settles the
+  // recovery promptly (bootstrap cleanup) and the effectful resume never runs.
+  it("recovery cancellation does not wait for a pending admission", async () => {
+    const first = new FakeCodexTransport();
+    const second = new FakeCodexTransport();
+    second.readResponse = { thread: { id: "thread-1", sessionId: "provider-session-1", cwd: WORKSPACE, turns: [] } };
+    const close = vi.spyOn(second, "close");
+    const driver = makeDriver([first, second]);
+    const original = await driver.openSession({ runId: "a1-cancel", normalizedSessionId: "a1-cancel", workingDirectory: WORKSPACE });
+    const snapshot = await original.snapshot();
+    await original.close({ reason: "controller lost" });
+    const entered = barrier(), hang = barrier();
+    const admission = vi.fn(async () => { entered.release(); await hang.promise; });
+    const controller = new AbortController();
+    const recovering = driver.recoverSession!(snapshot, { signal: controller.signal, onOperationAdmission: admission })
+      .then(value => ({ value, error: null as unknown }), error => ({ value: null, error }));
+    await entered.promise;
+    controller.abort(new Error("run cancelled"));
+    try {
+      const outcome = await Promise.race([recovering, new Promise<"pending">(resolve => setTimeout(() => resolve("pending"), 1000))]);
+      expect(outcome).not.toBe("pending");
+      expect(second.calls.filter(call => call.method === "thread/resume")).toHaveLength(0);
+      expect(close).toHaveBeenCalled();
+    } finally { hang.release(); await recovering; }
+  });
 });

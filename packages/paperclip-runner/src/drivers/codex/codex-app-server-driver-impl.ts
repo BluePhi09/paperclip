@@ -278,7 +278,8 @@ export class CodexAppServerDriver implements HarnessDriver {
         this.#options.requestedCollaborationMode ?? "default";
       // initialize/process ownership may await. Revalidate after them, before
       // the effectful thread creation (local transport writes synchronously).
-      await input.onOperationAdmission?.();
+      // Under the bootstrap cancellation: a pending admission never delays Stop.
+      await cancellation.wait(Promise.resolve(input.onOperationAdmission?.()));
       input.signal?.throwIfAborted();
       const response = await cancellation.wait(
         transport.request("thread/start", {
@@ -417,12 +418,11 @@ export class CodexAppServerDriver implements HarnessDriver {
       );
       // Process start, initialize and history reads may await. Revalidate
       // after them, before the effectful resume (local writes are synchronous).
-      try {
-        await options.onOperationAdmission?.();
-      } catch (error) {
-        admissionDenial = { error };
-        throw error;
-      }
+      // Under the bootstrap cancellation: a pending admission never delays
+      // Stop. Only the admission's own rejection is an authorization denial.
+      const admission = Promise.resolve(options.onOperationAdmission?.());
+      admission.catch((error: unknown) => { admissionDenial = { error }; });
+      await cancellation.wait(admission);
       options.signal.throwIfAborted();
       const response = await cancellation.wait(
         transport.request("thread/resume", {
