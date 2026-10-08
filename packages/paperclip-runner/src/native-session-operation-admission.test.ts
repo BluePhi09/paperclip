@@ -214,30 +214,52 @@ describe("evidence operation admission before non-fresh provider operations", ()
   it.each(["pause", "clear"] as const)("goal control %s is not evidence-gated after recovery", async (action) => {
     const snapshot = { ...baseCheckpoint, goal: activeGoal };
     const s = scenario(snapshot);
+    const cleared = action === "clear";
+    const settledGoal = cleared ? null : { ...activeGoal, status: "paused" as const };
+    const providerGoal = settledGoal && { objective: settledGoal.objective, status: settledGoal.status, tokenBudget: null, tokensUsed: 0, elapsedSeconds: 0 };
+    // The provider acknowledges the control and settles the goal, so the run
+    // must reach an ordinary successful terminal (not merely avoid the denial).
+    s.goal.mockImplementation(async () => settledGoal);
+    s.session.snapshot = async () => ({ ...structuredClone(baseCheckpoint), goal: settledGoal });
+    s.session.events = async function* () {
+      yield runnerEvent(1, cleared ? "session.goal.cleared" : "session.goal.updated", "turn-old", { requestId: "goal-a1", goal: providerGoal, workingNow: false });
+      yield runnerEvent(2, "turn.completed", "turn-old", { status: "completed" });
+      yield runnerEvent(3, "session.goal.snapshot", "turn-old", { goal: providerGoal, workingNow: false });
+    };
     const recoverSession = vi.fn(async () => { s.invalidate(); return { recovered: true as const, session: s.session }; });
     const outcome = await s.run({
       backend: backendWith({ recoverSession }), persistedSession: snapshot,
       sessionGoalControl: { requestId: "goal-a1", action },
     });
-    // The fixture stream has no goal terminal; only the admission outcome matters.
-    expect(outcome.error).not.toBe(s.denial);
+    expect(outcome.error).toBeNull();
+    expect(outcome.value?.result).toMatchObject({ reportedWorkDisposition: "yielded", completionClaim: { objectiveSatisfied: false } });
     // Only the recovery admission (before recoverSession) ran.
     expect(s.admission).toHaveBeenCalledOnce();
     expect(s.admission.mock.invocationCallOrder[0]).toBeLessThan(recoverSession.mock.invocationCallOrder[0]!);
-    expect(s.goal.mock.calls.map(([operation]) => operation.action)).toContain(action);
+    expect(s.goal).toHaveBeenNthCalledWith(1, { action, requestId: "goal-a1" });
+    expect(s.startTurn).not.toHaveBeenCalled();
   });
 
   it("goal-resume heartbeat only reads a non-active goal after recovery without re-admission", async () => {
     const snapshot = { ...baseCheckpoint, goal: { ...activeGoal, status: "paused" as const } };
     const s = scenario(snapshot);
+    const pausedGoal = { ...activeGoal, status: "paused" as const };
+    const providerGoal = { objective: pausedGoal.objective, status: pausedGoal.status, tokenBudget: null, tokensUsed: 0, elapsedSeconds: 0 };
     s.goal.mockImplementation(async (operation) => {
       if (operation.action !== "get") throw new Error("unexpected goal mutation");
-      void s.close();
-      return { ...activeGoal, status: "paused" };
+      return pausedGoal;
     });
+    // The provider reports the unchanged paused goal; the run reconciles it and
+    // ends successfully without any work-granting operation.
+    s.session.snapshot = async () => structuredClone(snapshot);
+    s.session.events = async function* () {
+      yield runnerEvent(1, "session.goal.snapshot", "turn-old", { goal: providerGoal, workingNow: false });
+      yield runnerEvent(2, "turn.completed", "turn-old", { status: "completed" });
+    };
     const recoverSession = vi.fn(async () => { s.invalidate(); return { recovered: true as const, session: s.session }; });
     const outcome = await s.run({ backend: backendWith({ recoverSession }), persistedSession: snapshot, resumeSessionGoalHeartbeat: true });
-    expect(outcome.error).not.toBe(s.denial);
+    expect(outcome.error).toBeNull();
+    expect(outcome.value?.result).toMatchObject({ reportedWorkDisposition: "yielded" });
     expect(s.admission).toHaveBeenCalledOnce();
     expect(s.goal.mock.calls.map(([operation]) => operation.action)).toContain("get");
     expect(s.goal.mock.calls.filter(([operation]) => operation.action !== "get")).toEqual([]);
