@@ -11527,7 +11527,8 @@ export function issueService(db: Db) {
           )
         : isNull(issues.executionRunId);
       const admittedWrite = async <T>(write: (tx: Db) => Promise<T>): Promise<T> => db.transaction(async (tx) => {
-        const [locked] = await tx.select().from(issues).where(eq(issues.id, id)).for("update");
+        const [locked] = await tx.select().from(issues)
+          .where(and(eq(issues.id, id), eq(issues.companyId, issueCompany.companyId))).for("update");
         if (!locked) throw notFound("Issue not found");
         await assertIssueEvidencePack(tx as unknown as Db, locked, agentId);
         return write(tx as unknown as Db);
@@ -11656,6 +11657,8 @@ export function issueService(db: Db) {
           if (current.status !== "in_progress") {
             adoptionSet.startedAt = now;
           }
+          // Narrowing does not survive into the admitted-write callback.
+          const staleExecutionRunId = current.executionRunId;
           const adopted = await admittedWrite(async (tx) => tx
             .update(issues)
             .set(adoptionSet)
@@ -11663,7 +11666,7 @@ export function issueService(db: Db) {
               and(
                 eq(issues.id, id),
                 inArray(issues.status, expectedStatuses),
-                eq(issues.executionRunId, current.executionRunId),
+                eq(issues.executionRunId, staleExecutionRunId),
                 or(
                   isNull(issues.assigneeAgentId),
                   eq(issues.assigneeAgentId, agentId),
