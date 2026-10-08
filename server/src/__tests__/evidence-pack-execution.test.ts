@@ -433,7 +433,12 @@ describe("evidence pack at the issue execution boundary", () => {
       } else {
         expect(execute).not.toHaveBeenCalled();
         expect(receipt).toMatchObject({ status: "pending", resolvedByRunId: null });
-        if (scenario === "revoked_during_preparation") expect(preparation).toHaveBeenCalledOnce();
+        if (scenario === "revoked_during_preparation") {
+          expect(preparation).toHaveBeenCalledOnce();
+          // The claim-time reviewer admission survives the legacy profile reset:
+          // a revoked reviewer is refused as such, never re-evaluated as executor.
+          expect(await heartbeat.getRun(run!.id)).toMatchObject({ status: "cancelled", errorCode: "evidence_pack_reviewer_assignment_changed" });
+        }
       }
       expect((await heartbeat.getRun(run!.id))?.runnerProfileJson?.evidenceAdmission).toBeUndefined();
     } finally { await heartbeat.drainActiveRunExecutions(); unregisterServerAdapter("evidence_reviewer_test"); }
