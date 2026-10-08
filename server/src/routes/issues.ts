@@ -12031,6 +12031,7 @@ export function issueRoutes(
               kind: "ask_user_questions",
               idempotencyKey: `onboarding-first-task:${issue.id}:opening-question`,
               continuationPolicy: "wake_assignee",
+              resolverPolicy: "human_only",
               payload: await buildOnboardingFirstTaskOpeningQuestion(),
             },
             { agentId: issue.assigneeAgentId },
