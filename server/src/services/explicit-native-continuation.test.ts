@@ -1287,7 +1287,10 @@ const support = await getEmbeddedPostgresTestSupport();
     }).where(eq(heartbeatRuns.id, f.sourceRunId));
     await db.insert(heartbeatRunEvents).values({ companyId: f.companyId, runId: f.sourceRunId,
       agentId: f.agentId, seq: 1, eventType: "adapter.invoke", payload: { adapterType: "claude_local" } });
-    await db.update(issueRecoveryActions).set({ cause: "legacy_execution_requires_reconciliation" })
+    // Mirror the production legacy hold (legacy-execution-recovery.ts): only a
+    // canonical per-run fingerprint is a conversation hold that may be retired.
+    await db.update(issueRecoveryActions).set({ cause: "legacy_execution_requires_reconciliation",
+      fingerprint: `legacy-execution:${f.sourceRunId}` })
       .where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
     const [environment] = await db.insert(environments).values({ name: `Remote ${f.sourceRunId}`, driver: "sandbox" }).returning();
     const identity = { id: randomUUID(), companyId: f.companyId, heartbeatRunId: f.sourceRunId,
