@@ -1923,7 +1923,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     await db.update(heartbeatRuns).set({ resultJson: { conversationContinuation: "continue_conversation_v1" } }).where(eq(heartbeatRuns.id, runId));
     if (withHold) await db.insert(issueRecoveryActions).values({
       companyId, sourceIssueId: issueId, kind: "active_run_watchdog", status: "active", ownerType: "board",
-      cause: "legacy_execution_requires_reconciliation", fingerprint: runId,
+      cause: "legacy_execution_requires_reconciliation", fingerprint: `legacy-execution:${runId}`,
       evidence: { runId, automaticRecovery: { replay: "blocked" } }, nextAction: "Wait for the previous execution to stop.",
     });
     expect(await getExecutionBlocker(db, companyId, issueId)).toMatchObject({ runId, cause: "execution_owner_active" });

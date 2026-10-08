@@ -29,6 +29,7 @@ import { assertWorkspaceManifestDiskSpace, isPathManifest, manifestFileSha256, r
 import { resolvePaperclipInstanceRoot } from "../../home-paths.js";
 import { parseObject } from "../../adapters/utils.js";
 import type { NativeRestartRecoveryClaim } from "./native-restart-recovery.js";
+import { lockAcquisitionRun, readRunAcquisition } from "../environment-acquisition-authority.js";
 
 const LEGACY_DESCRIPTOR_SCHEMA = "paperclip.native-workspace-sync/v1";
 const DESCRIPTOR_SCHEMA = "paperclip.native-workspace-sync/v2";
@@ -82,6 +83,49 @@ export interface NativeWorkspaceSyncReference {
   providerLeaseId: string;
   remoteCwd: string;
   resourceDisposition: NativeWorkspaceResourceDisposition | null;
+}
+
+const TRANSFER_RECEIPT_SCHEMA = "paperclip.native-workspace-transfer-receipt/v1";
+export type NativeWorkspaceTransferOperation = "sync_in" | "sync_out";
+
+/**
+ * Completion proof for one workspace transfer. It is written only after the
+ * remote transfer returned successfully AND, under the issue -> run lock, the
+ * run's acquisition ledger is byte-identical to what was observed before the
+ * transfer started and the lease row still carries the bound provider lease.
+ * `acquisition` is null when the ledger did not publish this lease (legacy or
+ * unreserved acquisition): such a receipt is explicitly not generation-bound.
+ */
+export interface NativeWorkspaceTransferReceipt {
+  schema: typeof TRANSFER_RECEIPT_SCHEMA;
+  operation: NativeWorkspaceTransferOperation;
+  status: "completed";
+  runId: string;
+  companyId: string;
+  workspaceId: string;
+  leaseId: string;
+  providerLeaseId: string;
+  acquisition: { token: string; generation: number } | null;
+  inboundMode: WorkspaceInboundMode | null;
+  /** Host revision the sandbox was seeded from / merged against. */
+  baselineSha256: string;
+  /** Digests of the archives uploaded by sync-in. */
+  seed: NativeWorkspaceSyncDescriptor["seed"];
+  /** Host revision after sync-out merged the sandbox result. */
+  finalHostSha256: string | null;
+  descriptorSha256: string;
+  completedAt: string;
+}
+
+/** Ledger observation taken before a transfer starts (no lock, no RPC in a transaction). */
+interface AcquisitionObservation {
+  canonical: string;
+  ledger: ReturnType<typeof readRunAcquisition>;
+}
+
+function observeAcquisition(runnerProfileJson: unknown): AcquisitionObservation {
+  const ledger = readRunAcquisition({ runnerProfileJson: parseObject(runnerProfileJson) });
+  return { canonical: canonicalJson(ledger ?? null), ledger };
 }
 
 export interface PreparedNativeWorkspaceSync {
@@ -573,30 +617,107 @@ async function readDescriptor(input: {
   };
 }
 
+async function assertAcquisitionGenerationCurrent(
+  db: Db,
+  runId: string,
+  observed: AcquisitionObservation,
+): Promise<void> {
+  const run = await db
+    .select({ runnerProfileJson: heartbeatRuns.runnerProfileJson })
+    .from(heartbeatRuns)
+    .where(eq(heartbeatRuns.id, runId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null);
+  if (!run) throw new Error("native_workspace_sync_run_missing");
+  if (observeAcquisition(run.runnerProfileJson).canonical !== observed.canonical) {
+    throw new Error("native_workspace_transfer_generation_stale");
+  }
+}
+
 async function persistRunReference(
   db: Db,
   runId: string,
   reference: NativeWorkspaceSyncReference,
-): Promise<void> {
-  await db.transaction(async (tx) => {
-    const run = await tx
-      .select({ runnerProfileJson: heartbeatRuns.runnerProfileJson })
+  transfer: {
+    operation: NativeWorkspaceTransferOperation;
+    observed: AcquisitionObservation;
+    descriptor: NativeWorkspaceSyncDescriptor;
+    inboundMode: WorkspaceInboundMode | null;
+  },
+): Promise<NativeWorkspaceTransferReceipt> {
+  return db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Db;
+    const snapshot = await tx
+      .select({ companyId: heartbeatRuns.companyId, nativeIssueId: heartbeatRuns.nativeIssueId, contextSnapshot: heartbeatRuns.contextSnapshot })
       .from(heartbeatRuns)
       .where(eq(heartbeatRuns.id, runId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (!snapshot) throw new Error("native_workspace_sync_run_missing");
+    const binding = transfer.descriptor.binding;
+    if (snapshot.companyId !== binding.companyId) throw new Error("native_workspace_transfer_lease_mismatch");
+    const issueId = snapshot.nativeIssueId ?? (snapshot.contextSnapshot as { issueId?: string } | null)?.issueId ?? null;
+    // Same issue -> run order as acquisition publication, cleanup and retirement.
+    const run = await lockAcquisitionRun(tx, {
+      companyId: snapshot.companyId,
+      heartbeatRunId: runId,
+      issueId: typeof issueId === "string" ? issueId : null,
+      environmentId: "",
+    });
+    if (!run) throw new Error("native_workspace_sync_run_missing");
+    const current = observeAcquisition(run.runnerProfileJson);
+    if (current.canonical !== transfer.observed.canonical) {
+      throw new Error("native_workspace_transfer_generation_stale");
+    }
+    const lease = await tx
+      .select({ companyId: environmentLeases.companyId, providerLeaseId: environmentLeases.providerLeaseId })
+      .from(environmentLeases)
+      .where(eq(environmentLeases.id, binding.leaseId))
       .for("update")
       .limit(1)
       .then((rows) => rows[0] ?? null);
-    if (!run) throw new Error("native_workspace_sync_run_missing");
+    if (!lease || lease.companyId !== binding.companyId || lease.providerLeaseId !== binding.providerLeaseId) {
+      throw new Error("native_workspace_transfer_lease_mismatch");
+    }
+    const ledger = current.ledger;
+    const bound = ledger && ledger.state === "published" && ledger.leaseId === binding.leaseId
+      && typeof ledger.token === "string" && typeof ledger.generation === "number";
+    const receipt: NativeWorkspaceTransferReceipt = {
+      schema: TRANSFER_RECEIPT_SCHEMA,
+      operation: transfer.operation,
+      status: "completed",
+      runId,
+      companyId: binding.companyId,
+      workspaceId: binding.workspaceId,
+      leaseId: binding.leaseId,
+      providerLeaseId: binding.providerLeaseId,
+      acquisition: bound ? { token: ledger!.token, generation: ledger!.generation } : null,
+      inboundMode: transfer.inboundMode,
+      baselineSha256: transfer.descriptor.baselineSha256,
+      seed: transfer.descriptor.seed,
+      finalHostSha256: transfer.descriptor.finalHostSha256,
+      descriptorSha256: reference.descriptorSha256,
+      completedAt: new Date().toISOString(),
+    };
+    const profile = parseObject(run.runnerProfileJson);
+    const receipts = parseObject(profile.nativeWorkspaceTransferReceipts);
+    // A fresh sync-in starts a new transfer pair; never leave an older sync-out
+    // looking like the completion of this inbound transfer.
+    const nextReceipts = transfer.operation === "sync_in"
+      ? { sync_in: receipt }
+      : { ...receipts, sync_out: receipt };
     await tx
       .update(heartbeatRuns)
       .set({
         runnerProfileJson: {
-          ...parseObject(run.runnerProfileJson),
+          ...profile,
           nativeWorkspaceSync: reference,
+          nativeWorkspaceTransferReceipts: nextReceipts,
         },
         updatedAt: new Date(),
       })
       .where(eq(heartbeatRuns.id, runId));
+    return receipt;
   });
 }
 
@@ -788,10 +909,20 @@ async function finalizePreparedRuntime(input: {
   target: Extract<AdapterExecutionTarget, { transport: "sandbox" }>;
   runtime: PreparedAdapterExecutionTargetRuntime;
   descriptor: NativeWorkspaceSyncDescriptor;
+  /** Acquisition ledger observed before this sync-out transfer started. */
+  observed: AcquisitionObservation;
   assertOwnership?: () => Promise<void>;
 }): Promise<NativeWorkspaceSyncReference> {
+  // Lock-free pre-checks keep a stale generation from touching anything: none
+  // before the host merge, and no remote stamp or finalized descriptor after
+  // it. A generation change during the merge itself still leaves the merged
+  // host files behind; persistRunReference re-checks under the issue -> run
+  // lock and refuses the receipt and DB reference. No transaction spans the
+  // transfer.
+  await assertAcquisitionGenerationCurrent(input.db, input.runId, input.observed);
   await input.runtime.restoreWorkspace();
   await input.assertOwnership?.();
+  await assertAcquisitionGenerationCurrent(input.db, input.runId, input.observed);
   const finalSnapshot =
     await import("@paperclipai/adapter-utils/workspace-restore-merge").then(
       ({ captureDirectorySnapshot }) =>
@@ -816,7 +947,12 @@ async function finalizePreparedRuntime(input: {
   };
   await input.assertOwnership?.();
   const reference = await writeDescriptor(finalizedDescriptor);
-  await persistRunReference(input.db, input.runId, reference);
+  await persistRunReference(input.db, input.runId, reference, {
+    operation: "sync_out",
+    observed: input.observed,
+    descriptor: finalizedDescriptor,
+    inboundMode: null,
+  });
   await persistLeaseStamp({
     db: input.db,
     leaseId: input.descriptor.binding.leaseId,
@@ -859,6 +995,8 @@ export async function prepareNativeWorkspaceSync(input: {
   const existingReference = readNativeWorkspaceSyncReference(
     parseObject(run.runnerProfileJson).nativeWorkspaceSync,
   );
+  // Observed before any transfer; both receipts must see this exact ledger.
+  const observed = observeAcquisition(run.runnerProfileJson);
 
   let runtime: PreparedAdapterExecutionTargetRuntime | undefined;
   let descriptor: NativeWorkspaceSyncDescriptor;
@@ -1005,7 +1143,12 @@ export async function prepareNativeWorkspaceSync(input: {
 
   const preparedRuntime = runtime;
   let reference = await writeDescriptor(descriptor);
-  await persistRunReference(input.db, input.runId, reference);
+  await persistRunReference(input.db, input.runId, reference, {
+    operation: "sync_in",
+    observed,
+    descriptor,
+    inboundMode: mode,
+  });
   let restorePromise: Promise<void> | null = null;
   return {
     mode,
@@ -1020,6 +1163,7 @@ export async function prepareNativeWorkspaceSync(input: {
           target,
           runtime: preparedRuntime,
           descriptor,
+          observed,
           assertOwnership,
         })
           .then((finalizedReference) => {
@@ -1091,6 +1235,7 @@ export async function resumeNativeWorkspaceSync(input: {
     });
     return true;
   }
+  const observed = observeAcquisition(run?.runnerProfileJson);
   const runtime = await prepareRuntime({
     runId: input.runId,
     target: input.target,
@@ -1105,6 +1250,7 @@ export async function resumeNativeWorkspaceSync(input: {
     target: input.target,
     runtime,
     descriptor: existing.descriptor,
+    observed,
     assertOwnership: input.assertOwnership,
   });
   return true;

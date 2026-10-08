@@ -79,17 +79,22 @@ function resolveDefaultSpoolDir(): string {
   );
 }
 
-// Build the stable file name for one record. Key on the provider lease id, the
-// value the teardown needs, so a repeated append for the same orphan reuses the
-// same file. A null provider lease id carries no identity, so fall back to a
-// hash of the whole record. The hash keeps the name on the safe file-name
-// charset and hides the raw identifiers from a directory listing.
+// Match the in-process buffer, file name and removal on the full allocation
+// scope. Provider lease IDs are only locally unique (often just "1"). Tokens
+// separate acquisition generations even when a provider reuses an identifier.
+export function orphanCleanupIdentity(record: DeferredOrphanCleanupRecord): string {
+  return JSON.stringify([record.companyId, record.environmentId, record.provider,
+    record.providerLeaseId, record.heartbeatRunId, record.issueId, record.executionWorkspaceId,
+    record.metadata.pluginId ?? null, record.metadata.cleanupConfigHash ?? null,
+    record.metadata.acquisitionCleanup ?? null,
+    // Sandbox records carry their sanitized, recorded provider config here.
+    // Include its digest even for ad-hoc acquisitions without a token/run: a
+    // namespace/account switch must not alias a provider-local lease ID.
+    createHash("sha256").update(JSON.stringify(record.metadata)).digest("hex")]);
+}
+
 function recordFileName(record: DeferredOrphanCleanupRecord): string {
-  const identity =
-    record.providerLeaseId !== null
-      ? `lease:${record.providerLeaseId}`
-      : `record:${JSON.stringify(record)}`;
-  const hash = createHash("sha256").update(identity).digest("hex");
+  const hash = createHash("sha256").update(orphanCleanupIdentity(record)).digest("hex");
   return `${hash}${RECORD_FILE_SUFFIX}`;
 }
 
@@ -193,6 +198,17 @@ export function createSandboxOrphanCleanupSpool(spoolDir?: string): SandboxOrpha
     async remove(record) {
       const absPath = path.join(dir, recordFileName(record));
       await fs.rm(absPath, { force: true }).catch(() => undefined);
+      // Read old-format filenames during rolling recovery, but never erase a
+      // colliding legacy file belonging to another company/provider/generation.
+      const legacyIdentity = record.providerLeaseId !== null
+        ? `lease:${record.providerLeaseId}` : `record:${JSON.stringify(record)}`;
+      const legacyPath = path.join(dir, createHash("sha256").update(legacyIdentity).digest("hex") + RECORD_FILE_SUFFIX);
+      try {
+        const legacy: unknown = JSON.parse(await fs.readFile(legacyPath, "utf8"));
+        if (isDeferredOrphanCleanupRecord(legacy) && orphanCleanupIdentity(legacy) === orphanCleanupIdentity(record)) {
+          await fs.rm(legacyPath, { force: true });
+        }
+      } catch { /* Missing/malformed legacy data cannot authorize removal. */ }
     },
   };
 }

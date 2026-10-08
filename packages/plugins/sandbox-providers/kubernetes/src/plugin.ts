@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { definePlugin } from "@paperclipai/plugin-sdk";
 import { computeBoundedLeaseDeadline } from "./lease-expiry.js";
+import { observeContainerIdentity } from "./container-identity.js";
 import type {
   PluginEnvironmentAcquireLeaseParams,
   PluginEnvironmentDestroyLeaseParams,
@@ -513,8 +514,16 @@ const plugin = definePlugin({
     });
 
     const podName = await orchestrator.findPod(clients, namespace, jobName);
+    const observation = await observeContainerIdentity(clients, {
+      providerLeaseId: jobName, namespace, expectedNamespace: namespace,
+      backend: config.backend, podName, workloadUid: ownerUid, imageRef: image,
+    });
 
     const leaseMetadata: KubernetesLeaseMetadata = {
+      // A selected reference is not a measured container digest.
+      effectiveAdapterType,
+      imageRef: image,
+      ...observation,
       namespace,
       jobName,
       podName,
@@ -611,6 +620,18 @@ const plugin = definePlugin({
     const resumedExpiresAt =
       typeof params.leaseMetadata?.expiresAt === "string" ? params.leaseMetadata.expiresAt : null;
     const leaseMetadata: KubernetesLeaseMetadata = {
+      // Resuming does not select a new image/harness. Older leases remain
+      // unknown instead of inheriting today's environment configuration.
+      effectiveAdapterType: typeof params.leaseMetadata?.effectiveAdapterType === "string" ? params.leaseMetadata.effectiveAdapterType : null,
+      imageRef: typeof params.leaseMetadata?.imageRef === "string" ? params.leaseMetadata.imageRef : null,
+      ...await observeContainerIdentity(clients, {
+        providerLeaseId: params.providerLeaseId, namespace,
+        expectedNamespace: deriveTenantNamespace(config, params.companyId),
+        backend: leaseBackend, podName: check.podName,
+        workloadUid: typeof params.leaseMetadata?.workloadUid === "string" ? params.leaseMetadata.workloadUid : null,
+        resumeMetadata: params.leaseMetadata ?? {},
+        imageRef: typeof params.leaseMetadata?.imageRef === "string" ? params.leaseMetadata.imageRef : null,
+      }),
       namespace,
       jobName: params.providerLeaseId,
       podName: check.podName,

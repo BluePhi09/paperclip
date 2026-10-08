@@ -41,7 +41,7 @@ import { applyConnectorSkills, prepareConnectorSkillDelivery, resolveConnectorAs
 import { admitExplicitNativeContinuation, admitExplicitContinuationRetry, undeliveredLegacyUserCommentIds } from "./explicit-native-continuation.js";
 import { canRetryStoppedRun, isCancelledNativeStartup } from "./cancelled-native-startup.js";
 import { connectionIntentService } from "./connection-intents.js";
-import { managedAiSessionFingerprintConfig, prepareManagedAiRuntime, assertManagedAiProjectAuth, stripAiAuthBindings, isAiConnectionBusy, AI_AUTH_ENV_KEYS } from "./ai-connection-runtime.js";
+import { managedAiSessionFingerprintConfig, prepareManagedAiRuntime, assertManagedAiProjectAuth, managedAiProjectAuthFailure, stripAiAuthBindings, isAiConnectionBusy, AI_AUTH_ENV_KEYS } from "./ai-connection-runtime.js";
 import { aiConnectionBindingSchema, aiRuntimeConnectionBindingSchema, type AiConnectionRouterSelection } from "@paperclipai/shared";
 import { aiConnectionRouterService, AiConnectionPoolExhausted, applyAiConnectionRouterTaskSettings } from "./ai-connection-router.js";
 import { aiConnectionSessionCompatibilityInputs, managedAiSessionIdentityCompatible } from "./ai-connection-session.js";
@@ -10395,6 +10395,20 @@ export function heartbeatService(
       );
     }
     await acknowledgeRemoteStop(input.runId, input.companyId);
+    // The controller's ownership ends with a confirmed environment release. Until
+    // then a terminal run keeps its (expiring) lease so a successor cannot start
+    // while cleanup is unknown; afterwards it must not hold dispatch for the
+    // remainder of the 60s lease. Only this process's own claim is relinquished,
+    // and only for a terminal run, so a live or foreign controller is untouched.
+    if (releaseResult && !releaseResult.errors.length) {
+      await db.update(heartbeatRuns).set({ controllerBootId: null, controllerLeaseExpiresAt: null }).where(and(
+        eq(heartbeatRuns.id, input.runId), eq(heartbeatRuns.companyId, input.companyId),
+        eq(heartbeatRuns.runtimeMode, "legacy"), eq(heartbeatRuns.controllerBootId, legacyControllerBootId),
+        inArray(heartbeatRuns.status, [...HEARTBEAT_RUN_TERMINAL_STATUSES]),
+      )).catch((err) => {
+        logger.warn({ err, runId: input.runId }, "failed to relinquish legacy controller after environment release");
+      });
+    }
   }
 
   async function acknowledgeRemoteStop(runId: string, companyId: string) {
@@ -22733,6 +22747,7 @@ export function heartbeatService(
           admittedLifecycleMode: persistedNativeExecutionInput?.session.lifecyclePolicy.mode,
           issueId: issueId ?? null,
           heartbeatRunId: run.id,
+          expectedControllerBootId: run.controllerBootId,
           agentId: agent.id,
           persistedExecutionWorkspace,
           executionWorkspaceSettings: environmentExecutionWorkspaceSettings,
@@ -22885,7 +22900,10 @@ export function heartbeatService(
       };
       if (managedAiRuntime && aiBinding) {
         try { await assertManagedAiProjectAuth({ ...resolvedConfig, cwd: executionWorkspace.cwd }, aiBinding.provider, executionTarget); }
-        catch { throw new ConfigurationIncompleteFailure("Project authentication conflicts with this agent’s managed AI connection", { configurationIncomplete: { reason: "ai_connection_incompatible", actionUrl: `/agents/${agent.id}/runtime` } }); }
+        catch (error) {
+          const failure = managedAiProjectAuthFailure(error, `/agents/${agent.id}/runtime`);
+          throw new ConfigurationIncompleteFailure(failure.message, failure.resultJson);
+        }
       }
       const remoteExecution = realizationResult.remoteExecution;
       if (

@@ -63,6 +63,7 @@ export type EnvironmentErrorCode =
   | "environment_inactive"
   | "unsupported_environment"
   | "unsupported_adapter_environment"
+  | "adapter_identity_mismatch"
   | "probe_failed"
   | "lease_acquire_failed"
   | "workspace_realization_failed"
@@ -208,6 +209,7 @@ export function environmentRunOrchestrator(
     issueId: string | null;
     agentId: string;
     heartbeatRunId: string;
+    expectedControllerBootId?: string | null;
     persistedExecutionWorkspace: Pick<ExecutionWorkspace, "id" | "mode"> | null;
     executionWorkspaceSettings: IssueExecutionWorkspaceSettings | null;
     adapterType: string | null;
@@ -270,6 +272,7 @@ export function environmentRunOrchestrator(
     admittedLifecycleMode?: "warm" | "per_turn";
     issueId: string | null;
     heartbeatRunId: string;
+    expectedControllerBootId?: string | null;
     agentId: string;
     persistedExecutionWorkspace: Pick<ExecutionWorkspace, "id" | "mode"> | null;
     executionWorkspaceSettings: IssueExecutionWorkspaceSettings | null;
@@ -292,6 +295,7 @@ export function environmentRunOrchestrator(
       issueId: input.issueId,
       agentId: input.agentId,
       heartbeatRunId: input.heartbeatRunId,
+      expectedControllerBootId: input.expectedControllerBootId,
       persistedExecutionWorkspace: input.persistedExecutionWorkspace,
       executionWorkspaceSettings: input.executionWorkspaceSettings,
       adapterType: input.adapterType ?? null,
@@ -374,6 +378,12 @@ export function environmentRunOrchestrator(
       effectiveExecutionWorkspaceMode,
     } = input;
     let { lease, persistedExecutionWorkspace } = input;
+    const effectiveAdapterType = lease.metadata?.effectiveAdapterType;
+    if (typeof effectiveAdapterType === "string" && effectiveAdapterType.trim() && effectiveAdapterType.trim() !== adapterType) {
+      throw new EnvironmentRunError("adapter_identity_mismatch",
+        "The environment provider confirmed a different adapter; repair its runtime selection before retrying.",
+        { environmentId: environment.id, driver: environment.driver });
+    }
 
     // Step 1: Build workspace realization request
     const workspaceRealizationRequest = buildWorkspaceRealizationRequest({

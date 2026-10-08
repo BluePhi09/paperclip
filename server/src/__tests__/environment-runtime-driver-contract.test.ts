@@ -161,6 +161,8 @@ describeEmbeddedPostgres("environment runtime driver contract", () => {
       agentId,
       invocationSource: "manual",
       status: "running",
+      controllerBootId: randomUUID(),
+      controllerLeaseExpiresAt: new Date(Date.now() + 60_000),
       createdAt: now,
       updatedAt: now,
     });

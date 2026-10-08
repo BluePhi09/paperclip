@@ -8,6 +8,7 @@ import {
   companySecretBindings,
   environmentCustomImageSetupSessions,
   environmentLeases,
+  heartbeatRuns,
   environments,
   executionWorkspaces,
   instanceSettings,
@@ -31,6 +32,7 @@ import {
   type UpdateEnvironment,
 } from "@paperclipai/shared";
 import { conflict, forbidden } from "../errors.js";
+import { acquisitionUnknown, acquisitionAuthorityValid, lockAcquisitionRun, readRunAcquisition, writeRunAcquisition } from "./environment-acquisition-authority.js";
 import { logActivity } from "./activity-log.js";
 import { isCloudManagedInstance } from "./cloud-instance.js";
 import {
@@ -1419,8 +1421,24 @@ export function environmentService(db: Db) {
        * member. All other callers keep the plain, non-transactional insert.
        */
       assertCompanyBinding?: boolean;
+      acquisitionReservationId?: string | null;
     }): Promise<EnvironmentLease> => {
       const now = new Date();
+      if (input.acquisitionReservationId) {
+        // Persist the allocation before fallible publication, but obey issue ->
+        // run even when db is already a transaction (then these locks survive).
+        const rows = await db.transaction(async tx => {
+          await lockAcquisitionRun(tx as unknown as Db, input);
+          return tx.update(heartbeatRuns).set({
+          runnerProfileJson: sql`jsonb_set(${heartbeatRuns.runnerProfileJson}, '{runAcquisition}', ${heartbeatRuns.runnerProfileJson}->'runAcquisition' || ${JSON.stringify({ allocation: { provider: input.provider ?? null, providerLeaseId: input.providerLeaseId ?? null, metadata: input.metadata ?? {}, reusedLeaseId: input.reusesReusableLeaseId ?? input.replacesReusableLeaseId ?? null } })}::jsonb)`,
+          updatedAt: now,
+        }).where(and(eq(heartbeatRuns.id, input.heartbeatRunId!), eq(heartbeatRuns.companyId, input.companyId),
+          sql`${heartbeatRuns.runnerProfileJson}->'runAcquisition'->>'token' = ${input.acquisitionReservationId}`,
+          sql`${heartbeatRuns.runnerProfileJson}->'runAcquisition'->>'state' = 'pending'`,
+        )).returning({ id: heartbeatRuns.id });
+        });
+        if (rows.length !== 1) throw conflict("Acquisition generation was already consumed.");
+      }
       const values = {
         companyId: input.companyId,
         environmentId: input.environmentId,
@@ -1460,10 +1478,25 @@ export function environmentService(db: Db) {
         );
       }
       const row =
+        input.heartbeatRunId ||
         input.assertCompanyBinding ||
         input.replacesReusableLeaseId ||
         input.reusesReusableLeaseId
           ? await db.transaction(async (tx) => {
+              let reservation: ReturnType<typeof readRunAcquisition>;
+              if (input.heartbeatRunId) {
+                const locked = tx as unknown as Db;
+                const run = await lockAcquisitionRun(locked, input);
+                reservation = run ? readRunAcquisition(run) : undefined;
+                if (input.acquisitionReservationId && (!reservation || reservation.token !== input.acquisitionReservationId
+                  || reservation.environmentId !== input.environmentId || reservation.issueId !== (input.issueId ?? null)
+                  || reservation.executionWorkspaceId !== (input.executionWorkspaceId ?? null))) throw conflict("Acquisition reservation binding changed.");
+                const valid = !!run && await acquisitionAuthorityValid(locked, run,
+                  input.acquisitionReservationId ? reservation!.controllerBootId : undefined)
+                  && (!input.acquisitionReservationId || (reservation!.state === "pending"
+                    && reservation!.runtimeMode === run.runtimeMode && reservation!.runnerInstanceId === run.runnerInstanceId));
+                if (!valid) return null;
+              }
               if (input.assertCompanyBinding) {
                 // Lock the environment row first. Managed reconciliation locks the
                 // same sandbox environment rows with `for update` before it writes a
@@ -1596,13 +1629,12 @@ export function environmentService(db: Db) {
                     "Reusable sandbox lease ownership changed during reacquisition.",
                   );
                 }
+                if (input.acquisitionReservationId) await writeRunAcquisition(tx as unknown as Db, input.heartbeatRunId!, { ...reservation!, state: "published", leaseId: reacquired.id });
                 return reacquired;
               }
-              return tx
-                .insert(environmentLeases)
-                .values(values)
-                .returning()
-                .then((rows) => rows[0] ?? null);
+              const [published] = await tx.insert(environmentLeases).values(values).returning();
+              if (input.acquisitionReservationId) await writeRunAcquisition(tx as unknown as Db, input.heartbeatRunId!, { ...reservation!, state: "published", leaseId: published!.id });
+              return published ?? null;
             })
           : await db
               .insert(environmentLeases)
@@ -1610,7 +1642,7 @@ export function environmentService(db: Db) {
               .returning()
               .then((rows) => rows[0] ?? null);
       if (!row) {
-        throw new Error("Failed to acquire environment lease");
+        throw conflict("Environment acquisition controller authority lost.");
       }
       return toEnvironmentLease(row);
     },
@@ -1626,7 +1658,16 @@ export function environmentService(db: Db) {
       },
     ) => {
       const now = new Date();
-      const row = await db
+      const release = async (tx: Db) => {
+      // Take issue -> run before the cleanup row, just like publication/retirement.
+      // The lease transition and ledger completion must commit together: otherwise
+      // a lost ledger write leaves an expired row that the sweep never revisits.
+      const [snapshot] = await tx.select().from(environmentLeases).where(eq(environmentLeases.id, id));
+      const identity = snapshot?.metadata?.acquisitionCleanup as { token?: unknown; environmentId?: unknown } | undefined;
+      const run = snapshot?.heartbeatRunId && typeof identity?.token === "string" && typeof identity.environmentId === "string"
+        && status === "expired" && options?.cleanupStatus === "success"
+        ? await lockAcquisitionRun(tx, { ...snapshot, environmentId: identity.environmentId }) : null;
+      const row = await tx
         .update(environmentLeases)
         .set({
           status,
@@ -1647,7 +1688,16 @@ export function environmentService(db: Db) {
           : undefined))
         .returning()
         .then((rows) => rows[0] ?? null);
+      const current = run && readRunAcquisition(run);
+      if (row && run && current && current.token === identity?.token && acquisitionUnknown(current.state)
+        && current.environmentId === identity?.environmentId
+        && current.issueId === row.issueId && current.executionWorkspaceId === row.executionWorkspaceId
+        && row.metadata?.acquisitionCleanup && JSON.stringify(row.metadata.acquisitionCleanup) === JSON.stringify(identity)) {
+        await writeRunAcquisition(tx, run.id, { ...current, state: "cleanup_confirmed", cleanupLeaseId: row.id });
+      }
       return row ? toEnvironmentLease(row) : null;
+      };
+      return db.transaction(tx => release(tx as unknown as Db));
     },
 
     /**

@@ -842,7 +842,7 @@ describeEmbeddedPostgres("run-dispatch postgres adapter", () => {
     const [action] = await db.insert(issueRecoveryActions).values({ companyId, sourceIssueId: issueId,
       kind: "active_run_watchdog", ownerType: "board", cause: "legacy_execution_requires_reconciliation", status,
       evidence: { runId: previousRunId, automaticRecovery: { replay: "blocked", actionOutcome: "unknown" } },
-      fingerprint: previousRunId, nextAction: "Automatic recovery stopped.",
+      fingerprint: `legacy-execution:${previousRunId}`, nextAction: "Automatic recovery stopped.",
     }).returning();
     expect(await getExecutionBlocker(db, companyId, issueId)).toBeNull();
     const adapter = createPostgresRunDispatchAdapter(db);

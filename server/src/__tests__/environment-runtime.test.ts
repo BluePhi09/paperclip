@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   buildSshEnvLabFixtureConfig,
   getSshEnvLabSupport,
@@ -217,17 +217,10 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       await stopSshEnvLabFixture(path.join(root, "state.json")).catch(() => undefined);
       await rm(root, { recursive: true, force: true }).catch(() => undefined);
     }
-    await db.delete(environmentLeases);
-    await db.delete(issues);
-    await db.delete(heartbeatRuns);
-    await db.delete(agents);
-    await db.delete(environments);
-    await db.delete(executionWorkspaces);
-    await db.delete(plugins);
-    await db.delete(companySecretVersions);
-    await db.delete(companySecrets);
-    await db.delete(projects);
-    await db.delete(companies);
+    await db.transaction(async tx => {
+      await tx.execute(sql`set local client_min_messages = warning`);
+      await tx.execute(sql`truncate companies, plugins, environments cascade`);
+    });
   });
 
   afterAll(async () => {
@@ -325,7 +318,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       companyId,
       agentId,
       invocationSource: "manual",
-      status: "running",
+      status: "running", controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -474,6 +467,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     await environmentService(db).update(environment.id, { config: environment.config });
     const issueId = randomUUID();
     await db.insert(issues).values({ id: issueId, companyId: seeded.companyId, title: "Lifecycle switch", status: "in_progress", assigneeAgentId: seeded.agentId });
+    await db.update(heartbeatRuns).set({ contextSnapshot: { issueId } }).where(eq(heartbeatRuns.id, seeded.runId));
     let acquisitions = 0;
     let warmProviderLeaseId = "";
     const call = vi.fn(async (_pluginId: string, method: string, input: any) => {
@@ -501,7 +495,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     await runtime.releaseRunLeases(seeded.runId, "released");
     const warmEnvironment = resolveRunnerEnvironmentForRun(environment, "paperclip_runner", { lifecycleMode: "warm" });
     const warmRunId = randomUUID();
-    await db.insert(heartbeatRuns).values({ id: warmRunId, companyId: seeded.companyId, agentId: seeded.agentId, status: "running" });
+    await db.insert(heartbeatRuns).values({ id: warmRunId, companyId: seeded.companyId, agentId: seeded.agentId, contextSnapshot: { issueId }, status: "running", controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000) });
     const warm = await runtime.acquireRunLease({ ...input, environment: warmEnvironment, heartbeatRunId: warmRunId });
     warmProviderLeaseId = warm.lease.providerLeaseId!;
     expect(warm.lease.leasePolicy).toBe("reuse_by_environment");
@@ -509,7 +503,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     expect((await runtime.resolveCapabilities({ environment: warmEnvironment, lease: warm.lease })).reusableLeases).toBe(true);
     await runtime.releaseRunLeases(warmRunId, "released", undefined, "stop_and_retain");
     const nextRunId = randomUUID();
-    await db.insert(heartbeatRuns).values({ id: nextRunId, companyId: seeded.companyId, agentId: seeded.agentId, status: "running" });
+    await db.insert(heartbeatRuns).values({ id: nextRunId, companyId: seeded.companyId, agentId: seeded.agentId, contextSnapshot: { issueId }, status: "running", controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000) });
     const next = await runtime.acquireRunLease({ ...input, environment: warmEnvironment, heartbeatRunId: nextRunId });
     expect(next.lease.providerLeaseId).toBe(warmProviderLeaseId);
     expect(acquisitions).toBe(2);
@@ -605,7 +599,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
   );
 
   it("reports an unwired manager separately from a stopped sandbox worker", async () => {
-    const { companyId, environment, runId } = await seedReusablePluginSandboxLease();
+    const { companyId, agentId, environment, runId } = await seedReusablePluginSandboxLease();
     const input = {
       companyId,
       environment,
@@ -622,7 +616,10 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       pluginWorkerManager: offlineManager,
       pluginWorkerReadyTimeoutMs: 0,
     });
-    await expect(runtimeWithStoppedWorker.acquireRunLease(input))
+    const offlineRunId = randomUUID();
+    await db.insert(heartbeatRuns).values({ id: offlineRunId, companyId, agentId, status: "running",
+      controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000) });
+    await expect(runtimeWithStoppedWorker.acquireRunLease({ ...input, heartbeatRunId: offlineRunId }))
       .rejects.toThrow("its worker is not running");
     expect(offlineManager.call).not.toHaveBeenCalled();
   });
@@ -712,6 +709,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       id, companyId: seeded.companyId, title: "Projectless chat", status: "in_progress",
       assigneeAgentId: seeded.agentId,
     })));
+    await db.update(heartbeatRuns).set({ contextSnapshot: { issueId } }).where(eq(heartbeatRuns.id, seeded.runId));
     const nextAgentId = scenario === "different agent" ? randomUUID() : seeded.agentId;
     if (nextAgentId !== seeded.agentId) await db.insert(agents).values({
       id: nextAgentId, companyId: seeded.companyId, name: "Other agent", adapterType: "paperclip_runner",
@@ -741,7 +739,8 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     await runtimeWithPlugin.releaseRunLeases(seeded.runId, "released", undefined, "stop_and_retain");
     const nextRunId = randomUUID();
     await db.insert(heartbeatRuns).values({
-      id: nextRunId, companyId: seeded.companyId, agentId: nextAgentId, status: "running",
+      id: nextRunId, companyId: seeded.companyId, agentId: nextAgentId, status: "running", controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000),
+      contextSnapshot: { issueId: scenario === "no task" ? null : scenario === "different task" ? otherIssueId : issueId },
     });
     if (scenario === "different task" || scenario === "different agent") {
       await expect(environmentService(db).acquireLease({
@@ -964,7 +963,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       companyId: seeded.companyId,
       agentId: seeded.agentId,
       invocationSource: "manual",
-      status: "running",
+      status: "running", controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -5911,7 +5910,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       companyId,
       agentId,
       invocationSource: "manual",
-      status: "running",
+      status: "running", controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -6095,7 +6094,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       companyId,
       agentId,
       invocationSource: "manual",
-      status: "running",
+      status: "running", controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -6140,7 +6139,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       companyId,
       agentId,
       invocationSource: "manual",
-      status: "running",
+      status: "running", controllerBootId: randomUUID(), controllerLeaseExpiresAt: new Date(Date.now() + 60000),
       createdAt: new Date(),
       updatedAt: new Date(),
     });

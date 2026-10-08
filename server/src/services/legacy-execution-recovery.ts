@@ -1,7 +1,7 @@
 import { isPreDispatchReviewWaitVerified } from "./pre-dispatch-review-wait.js";
 import { hasWorkspaceRestoreFailure } from "@paperclipai/shared";
 import { normalizeMaxTurnStopReason } from "./heartbeat-stop-metadata.js";
-import { claimedAdapterType, hasConversationContinuationPolicy } from "./conversation-continuation.js";
+import { claimedAdapterType, hasConversationContinuationPolicy, hasRetiredConversationHold } from "./conversation-continuation.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { environmentLeases, heartbeatRuns, issueRecoveryActions, issues, nativeRunFinalizations, type Db } from "@paperclipai/db";
@@ -57,7 +57,9 @@ export function legacyExecutionNeedsReconciliation(
 /** Review-wait receipts are only exempt after retained execution evidence agrees.
  * The synchronous classifier stays conservative for callers without a DB proof. */
 export async function legacyExecutionNeedsReconciliationWithEvidence(db: Db, run: Run): Promise<boolean> {
-  return legacyExecutionNeedsReconciliation(run) && !(await isPreDispatchReviewWaitVerified(db, run));
+  if (!legacyExecutionNeedsReconciliation(run) || await isPreDispatchReviewWaitVerified(db, run)) return false;
+  const issueId = run.nativeIssueId ?? (typeof run.contextSnapshot?.issueId === "string" ? run.contextSnapshot.issueId : null);
+  return !issueId || !(await hasRetiredConversationHold(db, run, issueId));
 }
 
 /** Persist the failed legacy run, owned lock release and operator decision together. */
@@ -144,7 +146,7 @@ export async function terminalizeLegacyExecution(input: {
             ),
           ),
         )).limit(1);
-      if (reconciled) return updated;
+      if (reconciled || await hasRetiredConversationHold(tx as unknown as Db, updated, task.id)) return updated;
       await issueRecoveryActionService(tx as unknown as Db).upsertSourceScoped({
         companyId: run.companyId,
         sourceIssueId: task.id,

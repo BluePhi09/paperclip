@@ -1,6 +1,6 @@
 import { hasWorkspaceRestoreFailure } from "@paperclipai/shared";
 import { randomUUID } from "node:crypto";
-import { claimedAdapterType, conversationRecoveryActionPredicate, getConversationOwnershipBlocker } from "./conversation-continuation.js";
+import { claimedAdapterType, conversationHoldDisposition, conversationRecoveryActionPredicate, getConversationOwnershipBlocker } from "./conversation-continuation.js";
 import { persistActivity } from "./activity-log.js";
 import { appendHeartbeatRunEvent } from "./heartbeat-run-events.js";
 import { logger } from "../middleware/logger.js";
@@ -321,11 +321,43 @@ export async function settleUnrecoverableExecutions(
       sql`${issueRecoveryActions.evidence}->'automaticRecovery'->>'replay' = 'blocked'`,
     ),
   );
-  await db.transaction(async tx => {
-    const foldable = await tx.select().from(issueRecoveryActions).where(obsoleteConversationHold)
-      .limit(25).for("update", { skipLocked: true });
-    for (const candidate of foldable) {
-      if (await getConversationOwnershipBlocker(tx as unknown as Db, candidate.companyId, candidate.sourceIssueId)) continue;
+  // Discover without locking actions. Writers claim/terminalize in issue -> run
+  // order; taking an action first can deadlock with those writers.
+  const foldable = await db.select().from(issueRecoveryActions).where(obsoleteConversationHold)
+    .orderBy(issueRecoveryActions.id).limit(25);
+  for (const candidate of foldable) await db.transaction(async tx => {
+      await tx.execute(sql`select set_config('statement_timeout', '15000', true), set_config('lock_timeout', '1000', true)`);
+      const [task] = await tx.select().from(issues).where(and(
+        eq(issues.companyId, candidate.companyId), eq(issues.id, candidate.sourceIssueId),
+      )).for("update");
+      if (!task) return;
+      // Lock all bound runs, not only currently eligible terminal rows. A
+      // concurrent renewal must be observed after waiting. FOR UPDATE also
+      // prevents new lease FK inserts; existing lease writers serialize below.
+      const runs = await tx.select().from(heartbeatRuns).where(and(
+        eq(heartbeatRuns.companyId, candidate.companyId),
+        sql`coalesce(${heartbeatRuns.nativeIssueId}::text, ${heartbeatRuns.contextSnapshot}->>'issueId') = ${task.id}`,
+      )).orderBy(heartbeatRuns.id).for("update");
+      if (!runs.some(run => run.id === candidate.evidence.runId)) return;
+      if (runs.length) await tx.select({ id: environmentLeases.id }).from(environmentLeases).where(and(
+        eq(environmentLeases.companyId, candidate.companyId),
+        inArray(environmentLeases.heartbeatRunId, runs.map(run => run.id)),
+      )).orderBy(environmentLeases.id).for("update");
+      const [locked] = await tx.select().from(issueRecoveryActions).where(and(
+        obsoleteConversationHold, eq(issueRecoveryActions.id, candidate.id),
+      )).for("update");
+      if (!locked || locked.companyId !== candidate.companyId || locked.sourceIssueId !== task.id ||
+          locked.evidence.runId !== candidate.evidence.runId) return;
+      if (task.executionRunId || task.checkoutRunId ||
+          // A queued run is not an owner of the held execution. Only a live run
+          // or a queued retry of the held run itself could still act on it; a
+          // queued run for a new message is exactly what retiring the hold admits.
+          // Dispatch treats a context-only retryOfRunId as a retry too, so both
+          // sources count here.
+          runs.some(run => run.status === "running" ||
+            (run.status === "queued" && (run.retryOfRunId === candidate.evidence.runId ||
+              (run.contextSnapshot as { retryOfRunId?: unknown } | null)?.retryOfRunId === candidate.evidence.runId))) ||
+          await getConversationOwnershipBlocker(tx as unknown as Db, candidate.companyId, task.id)) return;
       const [action] = await tx.update(issueRecoveryActions).set({
         status: "resolved",
         outcome: "cancelled",
@@ -335,11 +367,11 @@ export async function settleUnrecoverableExecutions(
         resolutionNote: "Conversation continuation does not replay prior tool calls.",
         wakePolicy: null,
         monitorPolicy: null,
-        evidence: sql`case when ${issueRecoveryActions.evidence} ? 'automaticRecovery'
+        evidence: sql`(case when ${issueRecoveryActions.evidence} ? 'automaticRecovery'
           then jsonb_set(${issueRecoveryActions.evidence}, '{automaticRecovery,replay}', '"conversation_continuation"'::jsonb)
-          else ${issueRecoveryActions.evidence} end`,
+          else ${issueRecoveryActions.evidence} end) || ${JSON.stringify({ conversationDisposition: conversationHoldDisposition(candidate) })}::jsonb`,
       }).where(and(obsoleteConversationHold, eq(issueRecoveryActions.id, candidate.id))).returning();
-      if (!action) continue;
+      if (!action) return;
       await persistActivity(tx as unknown as Db, {
         companyId: action.companyId,
         actorType: "system",
@@ -349,7 +381,6 @@ export async function settleUnrecoverableExecutions(
         entityId: action.sourceIssueId,
         details: { recoveryActionId: action.id, outcome: "cancelled", continuation: "conversation" },
       });
-    }
   });
   // Filter eligibility before applying the batch limit. A queue of sessions
   // awaiting replacement must not starve settled incidents behind it.
