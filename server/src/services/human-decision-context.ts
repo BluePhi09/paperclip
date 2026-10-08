@@ -38,13 +38,22 @@ export function isHumanFacingInteraction(data: Pick<CreateIssueThreadInteraction
 }
 
 /**
+ * Whether a new card lands in a person's own Decisions view ("My decisions"):
+ * human-only or addressed to a user. Open coordination cards (`anyone`,
+ * `not_creator`) stay agent-internal and need no brief.
+ */
+export function requiresHumanBrief(data: Pick<CreateIssueThreadInteraction, "addresseeUserId">, effectivePolicy: string) {
+  return effectivePolicy === "human_only" || Boolean(data.addresseeUserId);
+}
+
+/**
  * Mandatory brief gate for agent-authored human cards. Callers opt in at the
  * agent-authored boundaries (HTTP interaction route); deterministic native
  * producers attach their own briefs and are not blocked here.
  * Runs after effective policy, idempotent replay and target freshness checks.
  */
 export function assertHumanInteractionContext(data: CreateIssueThreadInteraction, effectivePolicy: string) {
-  if (!isHumanFacingInteraction(data, effectivePolicy)) return;
+  if (!requiresHumanBrief(data, effectivePolicy)) return;
   if (data.kind === "ask_user_questions") {
     data.payload.questions.forEach((question, index) => assertHumanDecisionContext(
       question.brief,

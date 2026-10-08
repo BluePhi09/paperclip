@@ -23,12 +23,19 @@ describe("human creation path context preflight", () => {
     expect(() => assertHumanInteractionContext(data, "human_only")).not.toThrow();
     expect(() => assertHumanInteractionContext(parse({ ...data, payload: { ...data.payload, acceptLabel: "Approve everything" } }), "human_only")).toThrow();
   });
-  it("does not let a default policy or an agent label bypass human-only preflight", () => {
+  it("does not let an agent label bypass human-only preflight", () => {
     const data = parse({ kind: "request_confirmation", payload: { version: 1, prompt: "see task" } });
-    expect(() => assertHumanInteractionContext(data, "anyone")).toThrow();
     const addressed = { ...data, addresseeAgentId: "11111111-1111-4111-8111-111111111111" };
     expect(() => assertHumanInteractionContext(addressed, "human_only")).toThrow();
     expect(() => assertHumanInteractionContext(addressed, "not_creator")).not.toThrow();
+  });
+  it("keeps open coordination cards agent-internal and brief-free", () => {
+    const data = parse({ kind: "request_confirmation", payload: { version: 1, prompt: "see task" } });
+    expect(() => assertHumanInteractionContext(data, "anyone")).not.toThrow();
+    expect(() => assertHumanInteractionContext(data, "not_creator")).not.toThrow();
+    expect(() => assertHumanInteractionContext(data, "human_only")).toThrow();
+    const userAddressed = { ...data, addresseeUserId: "user-1" };
+    expect(() => assertHumanInteractionContext(userAddressed, "anyone")).toThrow();
   });
   it("requires standalone Decision option labels to match the explanation", () => {
     expect(() => assertHumanDecisionContext(brief, "metadata.brief", brief.selectionConsequences.map(e => ({ id: e.optionId, label: e.label })))).not.toThrow();

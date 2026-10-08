@@ -243,6 +243,9 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     // Cards addressed to a named expert agent are not human cards: created without a brief.
     const expert = await interactionsSvc.create(issue, { kind: "request_confirmation", idempotencyKey: "gate:expert", addresseeAgentId: agentId, resolverPolicy: "anyone", payload: { version: 1, prompt: "Review" } }, { userId: "local-board" }, gate);
     expect(expert).toMatchObject({ status: "pending", kind: "request_confirmation", addresseeAgentId: agentId, effectiveResolverPolicy: "anyone", createdByUserId: "local-board" });
+    // Open coordination cards stay agent-internal (not "My decisions"): created without a brief.
+    const open = await interactionsSvc.create(issue, { kind: "request_confirmation", idempotencyKey: "gate:open", payload: { version: 1, prompt: "Coordinate" } }, { agentId, runId }, gate);
+    expect(open).toMatchObject({ status: "pending", effectiveResolverPolicy: "anyone", addresseeAgentId: null, addresseeUserId: null });
     // The same card addressed to the expert but forced to human_only is a human card again.
     await expect(interactionsSvc.create(issue, { kind: "request_confirmation", idempotencyKey: "gate:expert-human", addresseeAgentId: agentId, resolverPolicy: "human_only", payload: { version: 1, prompt: "Review" } }, { userId: "local-board" }, gate)).rejects.toMatchObject({
       status: 422, details: expect.objectContaining({ code: "decision_context_missing" }),
