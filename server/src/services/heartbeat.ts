@@ -426,7 +426,7 @@ import {
   WORKTREE_INSTANCE_ROOT_METADATA_KEY,
 } from "./workspace-instance-cleanup.js";
 import { issueService } from "./issues.js";
-import { admitEvidencePackRun } from "./evidence-pack.js";
+import { admitEvidencePackRun, runHasEvidenceState } from "./evidence-pack.js";
 import {
   blockRunnerGoalRecovery,
   failRunnerGoalAction,
@@ -22951,10 +22951,32 @@ export function heartbeatService(
           }
           return { dispatched: false };
         }
-        // A run admitted without a pack can opt in during asynchronous setup.
-        // Every issue-bound handoff must observe the current policy under locks.
         if (!issueId) {
           return { dispatched: true, resultPromise: dispatch(() => {}) };
+        }
+        if (
+          !isResolvedInteractionContinuationWakeContext(context) &&
+          !["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? "")
+        ) {
+          // Opt-in invariant: without a pack (and without a recorded evidence
+          // admission) the handoff is exactly the legacy one — no issue lock,
+          // no execution-ownership requirement. Mention and source-scoped
+          // recovery runs never own the issue execution lock.
+          if (!(await runHasEvidenceState(db, run))) {
+            return { dispatched: true, resultPromise: dispatch(() => {}) };
+          }
+          await options.beforeResolvedInteractionContinuationDispatchCheck?.({ runId: run.id, issueId });
+          await options.afterResolvedInteractionContinuationDispatchCheck?.({ runId: run.id, issueId });
+          // A run admitted without a pack can opt in during asynchronous setup:
+          // admit under issue -> run locks and hand off synchronously while
+          // they are held, without awaiting adapter work in the transaction.
+          const handoff = await db.transaction(async (tx) => {
+            await admitEvidencePackRun(tx as unknown as Db, run, true);
+            const resultPromise = dispatch(() => {});
+            void resultPromise.catch(() => {});
+            return { resultPromise };
+          });
+          return { dispatched: true, resultPromise: handoff.resultPromise };
         }
         await options.beforeResolvedInteractionContinuationDispatchCheck?.({
           runId: run.id,

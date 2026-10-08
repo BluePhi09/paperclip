@@ -23,19 +23,21 @@ describe("native evidence operation admission after asynchronous preparation", (
   afterAll(async () => { await database?.cleanup(); });
 
   type Path = "fresh" | "attach" | "recover";
-  const faults = ["no_pack", "valid_pack", "late_opt_in", "removed", "rebound", "artifact", "context", "expiry", "cancelled", "owner_changed"];
+  // Ownership/running-state loss is evidence-gated only for opted-in issues; a
+  // no-pack run keeps its previous behavior (opt-in invariant).
+  const faults = ["no_pack", "valid_pack", "late_opt_in", "removed", "rebound", "artifact", "context", "expiry", "cancelled", "owner_changed", "no_pack_cancelled", "no_pack_owner_changed"];
   it.each(faults)("fresh backend barrier: %s", async fault => { await scenario("fresh", fault); });
   // Retained attach and provider recovery have no fresh openSession; the
   // asynchronous preparation barrier sits in the durable launch callback.
   it.each(faults.flatMap(fault => (["attach", "recover"] as const).map(path => [path, fault] as const)))("%s barrier: %s", async (path, fault) => { await scenario(path, fault); });
 
   async function scenario(path: Path, fault: string) {
-    const invalidate = !["no_pack", "valid_pack"].includes(fault);
+    const invalidate = !["no_pack", "valid_pack", "no_pack_cancelled", "no_pack_owner_changed"].includes(fault);
     const companyId = randomUUID(), issueId = randomUUID(), agentId = randomUUID(), runId = randomUUID();
     await db.insert(companies).values({ id: companyId, name: "A1 isolated", issuePrefix: `A${companyId.slice(0, 6)}` });
     await db.insert(agents).values({ id: agentId, companyId, name: "Executor", role: "engineer", status: "running", adapterType: "paperclip_runner" });
     await db.insert(issues).values({ id: issueId, companyId, title: "A1", status: "in_progress", assigneeAgentId: agentId });
-    const evidence = ["no_pack", "late_opt_in", "cancelled", "owner_changed"].includes(fault) ? null : await nativeEvidenceFixture(db, { companyId, issueId, agentId }, fault === "expiry" ? new Date(Date.now() + 2000).toISOString() : undefined);
+    const evidence = ["no_pack", "late_opt_in", "no_pack_cancelled", "no_pack_owner_changed"].includes(fault) ? null : await nativeEvidenceFixture(db, { companyId, issueId, agentId }, fault === "expiry" ? new Date(Date.now() + 2000).toISOString() : undefined);
     const [run] = await db.insert(heartbeatRuns).values({ id: runId, companyId, agentId, status: "running", runtimeMode: "native", nativeIssueId: issueId,
       contextSnapshot: { paperclipEnvironment: { driver: "local" } }, runnerProfileJson: { adapterDispatch: { adapterType: "paperclip_runner" } } }).returning();
     await db.update(issues).set({ executionRunId: runId }).where(eq(issues.id, issueId));
@@ -89,8 +91,8 @@ describe("native evidence operation admission after asynchronous preparation", (
     try {
       if (fault === "late_opt_in" || fault === "rebound") await db.update(issues).set({ executionPolicy: { evidencePack: { schemaVersion: 1, documentId: randomUUID(), revisionId: randomUUID(), scope: { action: "implement", target: "a1", exclusions: [] }, receipts: [randomUUID()] } } }).where(eq(issues.id, issueId));
       if (fault === "removed") await db.update(issues).set({ executionPolicy: null }).where(eq(issues.id, issueId));
-      if (fault === "cancelled") await db.update(heartbeatRuns).set({ status: "cancelled" }).where(eq(heartbeatRuns.id, runId));
-      if (fault === "owner_changed") await db.update(issues).set({ executionRunId: null }).where(eq(issues.id, issueId));
+      if (fault === "cancelled" || fault === "no_pack_cancelled") await db.update(heartbeatRuns).set({ status: "cancelled" }).where(eq(heartbeatRuns.id, runId));
+      if (fault === "owner_changed" || fault === "no_pack_owner_changed") await db.update(issues).set({ executionRunId: null }).where(eq(issues.id, issueId));
       if (fault === "artifact" || fault === "context") {
         const ref = evidence![fault];
         await documentService(db).upsertIssueDocument({ issueId, key: ref.key, format: "markdown", body: "Changed during setup", baseRevisionId: ref.revisionId });
@@ -113,4 +115,28 @@ describe("native evidence operation admission after asynchronous preparation", (
       expect(completeRun).not.toHaveBeenCalled();
     } else { expect(outcome.error).toBeNull(); expect(completeRun).toHaveBeenCalledOnce(); }
   }
+
+  it("does not lock or deny a no-pack run that does not own the issue execution", async () => {
+    const companyId = randomUUID(), issueId = randomUUID(), agentId = randomUUID(), runId = randomUUID();
+    await db.insert(companies).values({ id: companyId, name: "No pack", issuePrefix: `N${companyId.slice(0, 6)}` });
+    await db.insert(agents).values({ id: agentId, companyId, name: "Mentioned", role: "engineer", status: "running", adapterType: "paperclip_runner" });
+    await db.insert(issues).values({ id: issueId, companyId, title: "No pack", status: "in_progress" });
+    await db.insert(heartbeatRuns).values({ id: runId, companyId, agentId, status: "running", runtimeMode: "native", nativeIssueId: issueId, contextSnapshot: { issueId } });
+    // A concurrent writer holds the issue row: legacy recovery must not wait on it.
+    const held = barrier(), locked = barrier();
+    const writer = db.transaction(async (tx) => {
+      await tx.select().from(issues).where(eq(issues.id, issueId)).for("update");
+      locked.release(); await held.promise;
+    });
+    await locked.promise;
+    try {
+      const outcome = await Promise.race([
+        revalidateEvidenceOperation(db, { companyId, issueId, agentId, runId }).then(() => "admitted", (e: unknown) => e),
+        new Promise((r) => setTimeout(() => r("blocked"), 2000)),
+      ]);
+      expect(outcome).toBe("admitted");
+    } finally { held.release(); await writer; }
+    const [row] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId));
+    expect(row.runnerProfileJson?.evidenceAdmission).toBeUndefined();
+  });
 });

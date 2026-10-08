@@ -250,6 +250,33 @@ describe("evidence pack at the issue execution boundary", () => {
       expect((await heartbeat.getRun(id))?.status).not.toBe("running");
     } finally { unregisterServerAdapter("evidence_test"); }
   });
+  // Opt-in invariant: runs that never hold the issue execution lock (mentions,
+  // source-scoped recovery actions) behave exactly as before without a pack.
+  it.each(["mention", "source_scoped_recovery_action"])("preserves a noPack %s run that does not hold the execution lock", async (kind) => {
+    const f = await fixture();
+    await db.update(issues).set({ executionPolicy: null }).where(eq(issues.id, f.issueId));
+    let runAgentId = f.agentId;
+    if (kind === "mention") {
+      runAgentId = randomUUID();
+      await db.insert(agents).values({ id: runAgentId, companyId: f.companyId, name: "Mentioned", role: "engineer", status: "idle", adapterType: "evidence_test" });
+    }
+    const execute = vi.fn(async (_ctx: { runId: string }) => ({ exitCode: 0, signal: null, timedOut: false }));
+    registerServerAdapter({ type: "evidence_test", supportsLocalAgentJwt: false, execute, testEnvironment: async () => ({ adapterType: "evidence_test", status: "pass", checks: [], testedAt: new Date().toISOString() }) });
+    await db.update(agents).set({ adapterType: "evidence_test" }).where(eq(agents.id, f.agentId));
+    const id = randomUUID();
+    await db.insert(heartbeatRuns).values({ id, companyId: f.companyId, agentId: runAgentId, status: "queued", invocationSource: "on_demand", responsibleUserId: "local-board",
+      contextSnapshot: kind === "mention" ? { issueId: f.issueId, wakeReason: "issue_comment_mentioned", commentId: randomUUID() } : { issueId: f.issueId, wakeReason: "source_scoped_recovery_action" } });
+    const heartbeat = heartbeatService(db);
+    try {
+      await heartbeat.resumeQueuedRuns(); await heartbeat.drainActiveRunExecutions();
+      const row = await heartbeat.getRun(id);
+      expect(row?.errorCode ?? null).toBeNull();
+      expect(row?.status).toBe("succeeded");
+      // Legacy follow-up wakes may run afterwards; this run itself must execute once.
+      expect(execute.mock.calls.filter(([ctx]) => ctx.runId === id)).toHaveLength(1);
+      expect(row?.runnerProfileJson?.evidenceAdmission).toBeUndefined();
+    } finally { await heartbeat.drainActiveRunExecutions(); unregisterServerAdapter("evidence_test"); }
+  });
   it("never treats a completed prerequisite without a native independent receipt as approval", async () => {
     const f = await reviewedFixture();
     const prerequisiteId = randomUUID();

@@ -156,29 +156,75 @@ export async function assertIssueEvidencePack(tx: Db, issue: {
 export async function revalidateEvidenceOperation(db: Db, binding: {
   companyId: string; issueId: string; agentId: string; runId: string;
 }) {
-  await db.transaction(async (tx) => {
+  await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Db;
     const [hint] = await tx.select().from(heartbeatRuns).where(and(
       eq(heartbeatRuns.id, binding.runId), eq(heartbeatRuns.companyId, binding.companyId)));
-    if (!hint || hint.agentId !== binding.agentId ||
-      (hint.nativeIssueId ?? (hint.contextSnapshot as { issueId?: string } | null)?.issueId) !== binding.issueId) {
+    if (!hint || hint.agentId !== binding.agentId || runIssueIds(hint).issueId !== binding.issueId) {
+      // Opt-in: a binding that cannot be matched to its run is only an evidence
+      // failure when the bound issue has evidence state; otherwise no-op.
+      if (!await hasEvidenceState(tx, binding.companyId, [binding.issueId], binding.runId)) return;
       denied("evidence_pack_run_mismatch");
     }
     await admitEvidencePackRun(tx, hint, true, true);
   });
 }
 
+/** The caller's lock helpers key on the context issue; native runs fall back to their native issue. */
+function runIssueIds(run: Pick<typeof heartbeatRuns.$inferSelect, "contextSnapshot" | "nativeIssueId">) {
+  const contextIssueId = (run.contextSnapshot as { issueId?: unknown } | null)?.issueId;
+  const issueId = typeof contextIssueId === "string" && contextIssueId ? contextIssueId : run.nativeIssueId ?? null;
+  return { issueId, nativeIssueId: run.nativeIssueId ?? null };
+}
+
+function hasEvidencePack(executionPolicy: unknown) {
+  return (executionPolicy as { evidencePack?: unknown } | null)?.evidencePack !== undefined;
+}
+
+/**
+ * Lock-free opt-in probe. Issues without an evidence pack and runs without a
+ * recorded evidence admission must behave exactly as before the gate existed:
+ * no extra row locks, ownership checks or denials. A pack committed after this
+ * read is observed by the next admission point (operation admission).
+ */
+async function hasEvidenceState(tx: Db, companyId: string, issueIds: string[], runId: string | null) {
+  // Read the committed run profile, not a caller's possibly stale copy.
+  const [run] = runId ? await tx.select({ runnerProfileJson: heartbeatRuns.runnerProfileJson }).from(heartbeatRuns)
+    .where(and(eq(heartbeatRuns.id, runId), eq(heartbeatRuns.companyId, companyId))) : [];
+  const profile = run?.runnerProfileJson as { evidenceAdmission?: unknown; evidenceReviewerAdmission?: unknown } | null | undefined;
+  if (profile?.evidenceAdmission || profile?.evidenceReviewerAdmission) return true;
+  const ids = [...new Set(issueIds)];
+  if (!ids.length) return false;
+  const rows = await tx.select({ executionPolicy: issues.executionPolicy }).from(issues)
+    .where(and(inArray(issues.id, ids), eq(issues.companyId, companyId)));
+  return rows.some((row) => hasEvidencePack(row.executionPolicy));
+}
+
+/** Lock-free: does this run's issue (or the run itself) participate in evidence gating? */
+export async function runHasEvidenceState(db: Db, run: Pick<typeof heartbeatRuns.$inferSelect, "id" | "companyId" | "contextSnapshot" | "nativeIssueId">) {
+  const { issueId, nativeIssueId } = runIssueIds(run);
+  if (!issueId) return false;
+  return hasEvidenceState(db, run.companyId, [issueId, ...(nativeIssueId ? [nativeIssueId] : [])], run.id);
+}
+
 /** Native heartbeat sidecar, not a second artifact store. Issue -> run lock order. */
 export async function admitEvidencePackRun(tx: Db, hint: typeof heartbeatRuns.$inferSelect, dispatch = false, operation = false) {
-  const context = hint.contextSnapshot as { issueId?: string } | null;
-  const issueId = hint.nativeIssueId ?? context?.issueId;
+  // Resolve the same issue the callers lock (context issue first), so this
+  // never takes a second issue lock out of order.
+  const { issueId, nativeIssueId } = runIssueIds(hint);
   if (!issueId) return;
+  if (!await hasEvidenceState(tx, hint.companyId, [issueId, ...(nativeIssueId ? [nativeIssueId] : [])], hint.id)) return;
   const [issue] = await tx.select().from(issues).where(and(eq(issues.id, issueId), eq(issues.companyId, hint.companyId))).for("update");
   if (!issue) denied("evidence_pack_issue_missing");
   const [run] = await tx.select().from(heartbeatRuns).where(and(eq(heartbeatRuns.id, hint.id), eq(heartbeatRuns.companyId, hint.companyId))).for("update");
-  if (!run || run.agentId !== hint.agentId || (run.nativeIssueId ?? (run.contextSnapshot as { issueId?: string } | null)?.issueId) !== issueId) denied("evidence_pack_run_mismatch");
-  if (operation && (run.status !== "running" || issue.executionRunId !== run.id)) denied("evidence_pack_run_mismatch");
+  if (!run || run.agentId !== hint.agentId || runIssueIds(run).issueId !== issueId) denied("evidence_pack_run_mismatch");
+  // A run bound to two different issues cannot be attributed to one pack.
+  if (run.nativeIssueId && run.nativeIssueId !== issueId) denied("evidence_pack_run_mismatch");
   const profile = run.runnerProfileJson ?? {};
   const previous = profile.evidenceAdmission;
+  const packPresent = hasEvidencePack(issue.executionPolicy);
+  if (!packPresent && !previous && !profile.evidenceReviewerAdmission) return;
+  if (operation && (run.status !== "running" || issue.executionRunId !== run.id)) denied("evidence_pack_run_mismatch");
   // Review participation is a different admission purpose, never an executor
   // grant. Context IDs alone cannot grant it: resolve the native assignment
   // against the current issue, applied decision, source run and addressee.
