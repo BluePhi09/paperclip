@@ -33,8 +33,9 @@ import {
   routineTriggers,
   routineRevisions,
   routines,
+  governanceServices,
 } from "@paperclipai/db";
-import { notFound, unprocessable } from "../errors.js";
+import { conflict, notFound, unprocessable } from "../errors.js";
 import { isCloudManagedInstance } from "./cloud-instance.js";
 import { notifyCloudOfPrimaryCompanyLifecycleChange } from "./cloud-lifecycle-sync.js";
 import {
@@ -537,6 +538,16 @@ export function companyService(db: Db) {
 
     remove: (id: string) =>
       db.transaction(async (tx) => {
+        // Governance services anchor an append-only dispatch audit ledger that is
+        // never deleted silently. Refuse up front instead of failing on the FK.
+        const [governance] = await tx
+          .select({ id: governanceServices.id })
+          .from(governanceServices)
+          .where(eq(governanceServices.companyId, id))
+          .limit(1);
+        if (governance) {
+          throw conflict("Company has governance services; deletion is blocked to preserve the governance audit trail");
+        }
         // Delete from child tables in dependency order
         const companyRunIds = await tx
           .select({ id: heartbeatRuns.id })

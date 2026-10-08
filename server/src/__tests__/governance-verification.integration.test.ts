@@ -14,6 +14,7 @@ import { createDb, companies, companyMemberships, governanceServices, governance
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { governanceService } from "../services/governance-verification.js";
 import { createApp } from "../app.js";
+import { companyService } from "../services/companies.js";
 
 describe("isolated governance lifecycle", () => {
   let temporary: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
@@ -292,6 +293,12 @@ describe("isolated governance lifecycle", () => {
     }
     expect((await f.svc.authenticate(siblingCredential.token)).credentialId).toBe(siblingCredential.id);
     expect((await f.svc.authenticate(f.credential.token)).credentialId).toBe(f.credential.id);
+  });
+  it("refuses company deletion with a clear conflict while a governance service exists", async () => {
+    const f = await fixture();
+    await expect(companyService(db).remove(f.companyId)).rejects.toMatchObject({ status: 409 });
+    expect(await db.select().from(companies).where(eq(companies.id, f.companyId))).toHaveLength(1);
+    expect(await db.select().from(governanceServices).where(eq(governanceServices.companyId, f.companyId))).toHaveLength(1);
   });
   it("denies consume after the service owner loses company authority", async () => {
     const f = await verifiedFixture();
