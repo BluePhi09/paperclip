@@ -1,6 +1,16 @@
 export { composioAppSetupSchema, composioAppsRefreshSchema, composioAppsSyncSchema, composioAppAccountSchema, type ComposioAppSetupInput, type ComposioAppSetupResult, type ComposioAppAccountInput, type ComposioAppAccount, type ComposioAppSnapshot, type ComposioAppSyncState, type ComposioAppsResponse } from "./composio-app-setup.js";
 export { agentAdapterTypeSchema, optionalAgentAdapterTypeSchema } from "./adapter-type.js";
 export {
+  evidenceDocumentRefSchema,
+  evidencePackBindingSchema,
+  evidencePackSchema,
+  evidenceScopeSchema,
+  evidenceTargetContextSchema,
+  type EvidenceDocumentRef,
+  type EvidencePack,
+  type EvidencePackBinding,
+} from "./evidence-pack.js";
+export {
   RUNNER_GOAL_MAX_OBJECTIVE_CHARS,
   runnerGoalAvailabilitySchema,
   runnerGoalCapabilityActionSchema,
