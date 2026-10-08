@@ -1197,7 +1197,10 @@ function createSshEnvironmentDriver(db: Db): EnvironmentRuntimeDriver {
         throw new Error(`Expected SSH environment config for driver "${input.environment.driver}".`);
       }
 
-      input.onAcquisitionEffect?.();
+      // No acquisition effect is reported: SSH allocates no provider resource.
+      // The workspace probe is an idempotent `mkdir -p` on a persistent path,
+      // and the lease is only the DB row that acquireLease publishes atomically
+      // with the ledger, so a failure here is never an unknown allocation.
       const { remoteCwd } = await ensureSshWorkspaceReady(parsed.config);
       return await environmentsSvc.acquireLease({
             acquisitionReservationId: input.acquisitionReservationId,
