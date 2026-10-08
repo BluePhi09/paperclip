@@ -671,6 +671,7 @@ export interface IssueExecutionMonitorPolicy {
 }
 
 export interface IssueExecutionPolicy {
+  evidencePack?: import("../evidence-pack.js").EvidencePackBinding;
   mode: IssueExecutionPolicyMode;
   commentRequired: boolean;
   stages: IssueExecutionStage[];

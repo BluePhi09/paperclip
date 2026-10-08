@@ -9,6 +9,7 @@ import { createdFromIssueCondition } from "./issue-creation-origin.js";
 import { executionProjectionsForRuns } from "./execution-projection.js";
 import type { ExecutionProjection } from "@paperclipai/shared";
 import { Buffer } from "node:buffer";
+import { assertIssueEvidencePack, authorizeEvidencePolicyChange } from "./evidence-pack.js";
 import { createHash, randomUUID } from "node:crypto";
 import { isExplicitContinuationRetryClaim } from "./explicit-continuation-retry-claim.js";
 import { markdownToPlainText, parseMarkdown } from "chat";
@@ -7500,6 +7501,7 @@ export function issueService(db: Db) {
         .select({
           id: issues.id,
           companyId: issues.companyId,
+          executionPolicy: issues.executionPolicy,
           status: issues.status,
           assigneeAgentId: issues.assigneeAgentId,
           checkoutRunId: issues.checkoutRunId,
@@ -7554,6 +7556,7 @@ export function issueService(db: Db) {
           return { adopted: null, latest: lockedIssue };
         }
       }
+      await assertIssueEvidencePack(tx as unknown as Db, lockedIssue, input.actorAgentId);
       const actorLive =
         actorRun && !TERMINAL_HEARTBEAT_RUN_STATUSES.has(actorRun.status);
       if (!stale || !actorLive) {
@@ -10965,6 +10968,18 @@ export function issueService(db: Db) {
           .for("update")
           .then((rows: Array<typeof issues.$inferSelect>) => rows[0] ?? null);
         if (!receiptExisting) return null;
+        await authorizeEvidencePolicyChange(tx, receiptExisting, patch.executionPolicy, {
+          agentId: actorAgentId, userId: actorUserId,
+        });
+        if (patch.status === "in_progress") {
+          // Validate both the stored policy and a replacement: removing/rebinding
+          // a gate in the same request cannot authorize the start retroactively.
+          const lockedExecutor = patch.assigneeAgentId !== undefined ? patch.assigneeAgentId : receiptExisting.assigneeAgentId;
+          await assertIssueEvidencePack(tx, receiptExisting, lockedExecutor ?? null);
+          if (patch.executionPolicy !== undefined) {
+            await assertIssueEvidencePack(tx, { ...receiptExisting, executionPolicy: patch.executionPolicy }, lockedExecutor ?? null);
+          }
+        }
         if (actorAgentId && actorRunId) {
           // Recheck under a run lock: a request admitted before Stop must not
           // commit a late Done after cancellation revoked its credentials.
@@ -11511,7 +11526,13 @@ export function issueService(db: Db) {
             eq(issues.executionRunId, checkoutRunId),
           )
         : isNull(issues.executionRunId);
-      const updated = await db
+      const admittedWrite = async <T>(write: (tx: Db) => Promise<T>): Promise<T> => db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(issues).where(eq(issues.id, id)).for("update");
+        if (!locked) throw notFound("Issue not found");
+        await assertIssueEvidencePack(tx as unknown as Db, locked, agentId);
+        return write(tx as unknown as Db);
+      });
+      const updated = await admittedWrite(async (tx) => tx
         .update(issues)
         .set({
           assigneeAgentId: agentId,
@@ -11531,7 +11552,7 @@ export function issueService(db: Db) {
           ),
         )
         .returning()
-        .then((rows) => rows[0] ?? null);
+        .then((rows) => rows[0] ?? null));
 
       if (updated) {
         const [enriched] = await withIssueLabels(db, [updated]);
@@ -11560,7 +11581,7 @@ export function issueService(db: Db) {
           current.executionRunId === checkoutRunId) &&
         checkoutRunId
       ) {
-        const adopted = await db
+        const adopted = await admittedWrite(async (tx) => tx
           .update(issues)
           .set({
             checkoutRunId,
@@ -11580,7 +11601,7 @@ export function issueService(db: Db) {
             ),
           )
           .returning()
-          .then((rows) => rows[0] ?? null);
+          .then((rows) => rows[0] ?? null));
         if (adopted) return adopted;
       }
 
@@ -11635,7 +11656,7 @@ export function issueService(db: Db) {
           if (current.status !== "in_progress") {
             adoptionSet.startedAt = now;
           }
-          const adopted = await db
+          const adopted = await admittedWrite(async (tx) => tx
             .update(issues)
             .set(adoptionSet)
             .where(
@@ -11650,7 +11671,7 @@ export function issueService(db: Db) {
               ),
             )
             .returning()
-            .then((rows) => rows[0] ?? null);
+            .then((rows) => rows[0] ?? null));
           if (adopted) {
             const [enriched] = await withIssueLabels(db, [adopted]);
             return enriched;

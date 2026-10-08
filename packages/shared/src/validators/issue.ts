@@ -433,7 +433,10 @@ export const issueExecutionMonitorPolicySchema = z.object({
     .default(null),
 });
 
+import { evidencePackBindingSchema } from "../evidence-pack.js";
+
 export const issueExecutionPolicySchema = z.object({
+  evidencePack: evidencePackBindingSchema.optional(),
   mode: z.enum(ISSUE_EXECUTION_POLICY_MODES).optional().default("normal"),
   commentRequired: z.boolean().optional().default(true),
   stages: z.array(issueExecutionStageSchema).default([]),

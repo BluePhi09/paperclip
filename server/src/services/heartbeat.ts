@@ -426,6 +426,7 @@ import {
   WORKTREE_INSTANCE_ROOT_METADATA_KEY,
 } from "./workspace-instance-cleanup.js";
 import { issueService } from "./issues.js";
+import { admitEvidencePackRun } from "./evidence-pack.js";
 import {
   blockRunnerGoalRecovery,
   failRunnerGoalAction,
@@ -17601,6 +17602,7 @@ export function heartbeatService(
       }).from(issues).where(and(
         eq(issues.id, issueId), eq(issues.companyId, run.companyId),
       )).for("update") : [];
+      await admitEvidencePackRun(tx, run);
       const ownsIssue = owner?.assigneeAgentId === run.agentId &&
         context.wakeReason !== "source_scoped_recovery_action";
       if (ownsIssue && ["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? "") &&
@@ -20411,6 +20413,19 @@ export function heartbeatService(
       run = claimed;
     }
 
+    const evidenceDenialCode = (err: unknown): string | null => {
+      const code = err instanceof HttpError ? (err.details as { code?: unknown } | undefined)?.code : null;
+      return typeof code === "string" && code.startsWith("evidence_pack_") ? code : null;
+    };
+    try {
+      await db.transaction(async (tx) => { await admitEvidencePackRun(tx as unknown as Db, run!); });
+      run = (await getRun(run.id))!;
+    } catch (err) {
+      const code = evidenceDenialCode(err);
+      if (!code) throw err;
+      await cancelRunInternal(run.id, "Evidence pack blocks execution", { errorCode: code, suppressImmediateRecovery: true });
+      return;
+    }
     const instructionCleanupRun = run;
     let instructionCleanupDeferred = false;
     const releaseInstructionCopy = async () => {
@@ -22936,11 +22951,9 @@ export function heartbeatService(
           }
           return { dispatched: false };
         }
-        if (
-          !issueId ||
-          (!isResolvedInteractionContinuationWakeContext(context) &&
-            !["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? ""))
-        ) {
+        // A run admitted without a pack can opt in during asynchronous setup.
+        // Every issue-bound handoff must observe the current policy under locks.
+        if (!issueId) {
           return { dispatched: true, resultPromise: dispatch(() => {}) };
         }
         await options.beforeResolvedInteractionContinuationDispatchCheck?.({
@@ -24535,6 +24548,9 @@ export function heartbeatService(
               // row; never copy another run's execution profile.
               runnerProfileJson: sql`(case when ${heartbeatRuns.runnerProfileJson} ? ${CHAT_CONTROL_RECOVERY_ADMISSION_KEY}
                 then jsonb_build_object(${CHAT_CONTROL_RECOVERY_ADMISSION_KEY}::text, ${heartbeatRuns.runnerProfileJson}->${CHAT_CONTROL_RECOVERY_ADMISSION_KEY})
+                else '{}'::jsonb end)
+              || (case when ${heartbeatRuns.runnerProfileJson} ? 'evidenceAdmission'
+                then jsonb_build_object('evidenceAdmission', ${heartbeatRuns.runnerProfileJson}->'evidenceAdmission')
                 else '{}'::jsonb end)
               || (case when ${heartbeatRuns.runnerProfileJson} ? 'adapterDispatch'
                 then jsonb_build_object('adapterDispatch', ${heartbeatRuns.runnerProfileJson}->'adapterDispatch')
@@ -26147,6 +26163,7 @@ export function heartbeatService(
           wasFirstHeartbeat: timerClaimWasFirstHeartbeat(run),
         });
       } catch (err) {
+        if (evidenceDenialCode(err)) throw err;
         if (err instanceof NativeControllerDetachedForRestartError) {
           nativeSessionResumeScheduled = true;
           return;
@@ -26487,7 +26504,10 @@ export function heartbeatService(
         });
       }
     } catch (outerErr) {
-      if (
+      const evidenceCode = evidenceDenialCode(outerErr);
+      if (evidenceCode) {
+        await cancelRunInternal(run.id, "Evidence pack blocks execution", { errorCode: evidenceCode, suppressImmediateRecovery: true });
+      } else if (
         nativeOwnershipHeld ||
         outerErr instanceof NativeRunnerOwnershipUnverifiedError
       ) {
