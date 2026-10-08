@@ -67,8 +67,12 @@ describe("native warm workspace Git history", () => {
         select: () => {
           const query = {
             from: () => query, where: () => query, for: () => query,
-            limit: async () => [{ runnerProfileJson, metadata: lease.metadata }],
+            // One row shape serves the run and lease reads, including the
+            // company/provider-lease binding the transfer receipt verifies.
+            limit: async () => rows(),
+            then: (resolve: (value: unknown[]) => unknown, reject: (reason: unknown) => unknown) => Promise.resolve(rows()).then(resolve, reject),
           };
+          const rows = () => [{ runnerProfileJson, metadata: lease.metadata, companyId: "company", providerLeaseId: lease.providerLeaseId, nativeIssueId: null, contextSnapshot: null }];
           return query;
         },
         update: (table: unknown) => ({
