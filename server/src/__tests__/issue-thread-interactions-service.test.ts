@@ -281,6 +281,18 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     expect(accepted.interaction).toMatchObject({ status: "accepted", createdByUserId: "writer", resolvedByUserId: "reviewer" });
   });
 
+  it("keeps a stored expert_review brief with a recommendation but no reason creator-excluded", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Stored recommendation without reason");
+    const brief = { version: 1, decisionClass: "expert_review", purpose: "plan_review", subject: "Independent review", resolverTarget: { type: "human", reason: "Independent Board reviewer" }, evidenceRefs: [{ source: "Plan", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record review" }, { optionId: "reject", consequence: "Revise" }], safeDefault: "No execution", recommendationOptionId: "accept" };
+    const id = randomUUID();
+    await db.insert(issueThreadInteractions).values({ id, companyId, issueId, kind: "request_confirmation", status: "pending", requestedResolverPolicy: "human_only", effectiveResolverPolicy: "human_only", createdByUserId: "writer", payload: { version: 1, prompt: "Review", brief } });
+    const issue = { id: issueId, companyId };
+    await expect(interactionsSvc.acceptInteraction(issue, id, {}, { userId: "writer" })).rejects.toMatchObject({ status: 403, details: { code: "interaction_creator_excluded" } });
+    expect(await interactionsSvc.getById(id)).toMatchObject({ status: "pending" });
+    const accepted = await interactionsSvc.acceptInteraction(issue, id, {}, { userId: "reviewer" });
+    expect(accepted.interaction).toMatchObject({ status: "accepted", resolvedByUserId: "reviewer" });
+  });
+
   it.each([null, { version: 2 }, { version: 1, subject: "Incomplete" }])("retains invalid/future stored confirmation brief %j for detail fallback", async (brief) => {
     const { companyId, issueId } = await seedConfirmationIssue("Stored brief fallback");
     const id = randomUUID();

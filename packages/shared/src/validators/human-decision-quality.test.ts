@@ -28,6 +28,16 @@ describe("new human decision quality preflight", () => {
     expect(humanDecisionQualityIssues(review).map(e => e.path)).toEqual(expect.arrayContaining(["brief.scope", "brief.excludedScope", "brief.risks", "brief.preconditions"]));
     expect(humanDecisionQualityIssues({ ...review, scope: "Review the restart plan only.", excludedScope: "No restart is permitted yet.", risks: "If implemented, the service is briefly unreachable.", preconditions: [] })).toEqual([]);
   });
+  it("reads stored recommendations without a reason but requires the pair on new human cards", () => {
+    const review = { ...brief, decisionClass: "expert_review", purpose: "plan_review", scope: "Review the restart plan only.", excludedScope: "No restart is permitted yet.", risks: "If implemented, the service is briefly unreachable.", preconditions: [] };
+    const optionOnly = { ...review, recommendationOptionId: "team_only" };
+    const reasonOnly = { ...review, recommendationReason: "Matches the current usage." };
+    expect(decisionBriefSchema.safeParse(optionOnly).success).toBe(true);
+    expect(decisionBriefSchema.safeParse(reasonOnly).success).toBe(true);
+    expect(humanDecisionQualityIssues(optionOnly).map(e => e.path)).toEqual(["brief.recommendationReason"]);
+    expect(humanDecisionQualityIssues(reasonOnly).map(e => e.path)).toEqual(["brief.recommendationOptionId"]);
+    expect(humanDecisionQualityIssues({ ...optionOnly, recommendationReason: "Matches the current usage." })).toEqual([]);
+  });
   it("keeps old stored briefs readable but refuses them as new human cards", () => {
     const legacy = { ...brief, mainSummary: undefined };
     expect(decisionBriefSchema.safeParse(legacy).success).toBe(true);

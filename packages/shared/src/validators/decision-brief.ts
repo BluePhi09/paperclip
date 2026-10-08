@@ -50,9 +50,9 @@ export const decisionBriefSchema = z.object({
   if (brief.decisionClass === "personal_fact" && brief.recommendationOptionId) {
     ctx.addIssue({ code: "custom", path: ["recommendationOptionId"], message: "Personal facts must not have a recommended answer" });
   }
-  if (Boolean(brief.recommendationOptionId) !== Boolean(brief.recommendationReason)) {
-    ctx.addIssue({ code: "custom", path: ["recommendationReason"], message: "A recommendation requires both an option and a reason" });
-  }
+  // No recommendation pair rule here: stored v1 briefs may carry an option without a
+  // reason, and must keep parsing (resolution policy depends on it). New human cards
+  // get the pair rule in humanDecisionQualityIssues.
 });
 
 export const decisionBriefMetadataSchema = z.object({
@@ -100,5 +100,6 @@ export function humanDecisionQualityIssues(value: unknown, path = "brief"): Deci
     });
   }
   if (brief.recommendationOptionId && !readable(brief.recommendationReason)) missing("recommendationReason", "Explain why this option is recommended.");
+  if (brief.recommendationReason && !brief.recommendationOptionId) missing("recommendationOptionId", "Name the recommended option or omit the recommendation reason.");
   return issues;
 }
