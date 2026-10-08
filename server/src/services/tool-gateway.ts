@@ -179,6 +179,7 @@ import {
   verifyToolArgumentsSignature,
 } from "./tool-content-guards.js";
 import { extendApprovedExecutionWaitDeadline } from "./approved-execution-wait.js";
+import { BRIEF_TEXT_LIMITS, clipBriefText, nativeHumanActionBrief, nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";
 
 const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000;
 const MAX_SESSION_TTL_MS = 60 * 60 * 1000;
@@ -11381,4 +11382,3 @@ export function createToolGatewayService(
 }
 
 export type ToolGatewayService = ReturnType<typeof createToolGatewayService>;
-import { BRIEF_TEXT_LIMITS, clipBriefText, nativeHumanActionBrief, nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";

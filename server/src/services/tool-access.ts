@@ -285,6 +285,7 @@ import {
   VercelConnectClientError,
   type VercelConnectClient,
 } from "./vercel-connect.js";
+import { nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";
 
 type ActorInfo = {
   actorType?: "agent" | "user" | "system" | "plugin";
@@ -21157,4 +21158,3 @@ export function toolAccessService(
     },
   };
 }
-import { nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";

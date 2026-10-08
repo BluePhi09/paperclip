@@ -18,6 +18,7 @@ import { getSecretProvider } from "../secrets/provider-registry.js";
 import { agentService } from "./agents.js";
 import { logActivity } from "./activity-log.js";
 import { normalizeSecretKey, secretService } from "./secrets.js";
+import { nativeHumanActionBrief } from "./native-human-action-brief.js";
 
 const CONFIG_PATH_RE = /^(?:env\.[A-Za-z_][A-Za-z0-9_]*|access\.[A-Za-z_][A-Za-z0-9_]*)$/;
 const SECRET_NAME_RE = /^[^/\s]+(?:\/[^/\s]+)*$/;
@@ -887,4 +888,3 @@ export function createSecretProposalsService(db: Db) {
 
   return { getById, view: enrich, createSecret, createBinding, listForAgent, listForBoard, assertBindingSnapshotCurrent, approve, transition, sweepExpired };
 }
-import { nativeHumanActionBrief } from "./native-human-action-brief.js";
