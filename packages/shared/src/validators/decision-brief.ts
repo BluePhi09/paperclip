@@ -27,7 +27,7 @@ export const decisionBriefSchema = z.object({
     z.object({ type: z.literal("agent"), agentId: z.string().guid(), reason: text }),
   ]),
   evidenceRefs: z.array(z.object({ source: text, revision: text })).min(1).max(20),
-  selectionConsequences: z.array(z.object({ optionId: text, label: z.string().trim().min(1).max(80).optional(), consequence: text })).min(1).max(40),
+  selectionConsequences: z.array(z.object({ optionId: text, label: z.string().trim().min(1).max(80).optional(), consequence: text })).max(40),
   safeDefault: text,
   recommendationOptionId: text.optional(),
   recommendationReason: text.optional(),

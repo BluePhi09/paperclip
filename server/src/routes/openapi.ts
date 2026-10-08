@@ -7453,7 +7453,7 @@ registry.registerPath({
   tags: ["issues"],
   summary: "Create an issue thread interaction",
   description:
-    "Resolver policy defaults to canonical anyone. New human-facing questions, confirmations, checkbox confirmations and item verdicts require a concise brief and effective human_only policy. Supply payload.brief or per-question/per-item briefs, mainSummary, explicit purpose, labeled consequences and (except personal facts) scope, excludedScope, risks and preconditions. Missing context returns 422 with details.code decision_context_missing and field paths; clarify internally, do not invent context. Existing stored cards remain readable. Named expert addressees retain native policy. Deprecated board_or_agents and board_only aliases remain accepted.",
+    "Resolver policy defaults to canonical `anyone` for every interaction kind. `not_creator` and `human_only` are opt-in restrictions; deprecated `board_or_agents` and `board_only` inputs are accepted as compatibility aliases. When an agent creates a human-facing question, confirmation, checkbox confirmation or item-verdict card, every question/item/confirmation needs a concise `brief` (human resolver, so use `human_only`): subject, mainSummary, explicit purpose, labeled consequences matching the visible options and, except for personal facts, scope, excludedScope, risks and preconditions. Missing context returns 422 with `details.code = decision_context_missing` and field paths; clarify internally, do not invent context. Clarifying questions inside an Agent Chat conversation and cards addressed to a named expert agent are exempt. Existing stored cards remain readable.",
   request: {
     params: z.object({ id: z.string() }),
     body: jsonBody(createIssueThreadInteractionSchema),

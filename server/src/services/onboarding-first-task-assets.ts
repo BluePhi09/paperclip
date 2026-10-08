@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   askUserQuestionsPayloadSchema,
@@ -115,6 +116,23 @@ export async function buildOnboardingFirstTaskOpeningQuestion(): Promise<AskUser
         selectionMode: "single",
         required: true,
         options: file.options,
+        brief: {
+          version: 1,
+          decisionClass: "personal_fact",
+          purpose: "fact",
+          subject: "Choose how to start working with your first agent",
+          mainSummary: "Choose an interview about your goals or describe a task. The agent will use your answer to propose next steps. This answer does not approve implementation, hiring, or spending.",
+          resolverTarget: { type: "human", reason: "Only you can state your goals and preferred starting point." },
+          evidenceRefs: [{ source: "onboarding:first-task:opening-question", revision: createHash("sha256").update(raw).digest("hex") }],
+          selectionConsequences: file.options.map((option) => ({
+            optionId: option.id,
+            label: option.label,
+            consequence: option.id === ONBOARDING_FIRST_TASK_OPENING_INTERVIEW_OPTION_ID
+              ? "Ask about your goals, then propose a plan and team for your later approval; do not start implementation or hire a team."
+              : "Use your task description to propose how to get it done; do not treat this selection as approval of the future proposal.",
+          })),
+          safeDefault: "Leave the question unanswered until you know how you want to start.",
+        },
       },
     ],
   });

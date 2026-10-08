@@ -123,7 +123,9 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
   let targetSweepCursor: string | null = null;
   type CreateInput = { companyId: string; actor: AuthorizationActor; agentId: string; runId: string; bundleId?: string | null;
     ruleKey?: string | null; title: string; body: string; options: DecisionOption[]; inputs?: DecisionInput[] | null; expiresAt?: Date | null;
-    idempotencyKey?: string | null; continuationPolicy?: "none" | "wake_origin_agent"; metadata?: Record<string, unknown> };
+    idempotencyKey?: string | null; continuationPolicy?: "none" | "wake_origin_agent"; metadata?: Record<string, unknown>;
+    /** Agent-authored HTTP boundary: a new Decision must carry a complete concise brief. */
+    requireHumanBrief?: boolean };
   type CreateInputWithSnapshots = CreateInput & { additionalTargetSnapshots?: Record<string, Snapshot> };
 
   async function origin(companyId: string, agentId: string, runId: string) {
@@ -225,7 +227,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
         return existing;
       }
     }
-    assertHumanDecisionContext(input.metadata?.brief, "metadata.brief", input.options);
+    if (input.requireHumanBrief) assertHumanDecisionContext(input.metadata?.brief, "metadata.brief", input.options);
     const open = await dbOrTx.select({ value: count() }).from(decisions).where(and(eq(decisions.companyId, input.companyId), eq(decisions.originAgentId, input.agentId), eq(decisions.status, "open")));
     const cap = Number(process.env.PAPERCLIP_DECISIONS_OPEN_CAP ?? 50);
     if (Number(open[0]?.value ?? 0) >= cap) throw tooManyRequests("Open decision cap reached");

@@ -2357,6 +2357,17 @@ describe("issue thread interaction routes", () => {
         agentId: CREATED_AGENT_ID,
         userId: null,
       },
+      { requireHumanDecisionContext: true },
+    );
+  });
+
+  it("does not require the human brief gate for board-authored cards", async () => {
+    const app = await createApp();
+    await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions")
+      .send({ kind: "suggest_tasks", payload: { version: 1, tasks: [{ clientKey: "task-1", title: "One" }] } });
+    expect(mockInteractionService.create).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), { requireHumanDecisionContext: false },
     );
   });
 

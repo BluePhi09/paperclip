@@ -224,6 +224,27 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     expect(JSON.stringify(created.payload)).toContain(brief.subject);
   });
 
+  it("enforces the mandatory brief gate only at opted-in agent boundaries, after replay, and exempts chat and expert cards", async () => {
+    const { companyId, issueId, agentId, runId } = await seedSourceQuestionFixture({});
+    const issue = { id: issueId, companyId };
+    const input = { ...questionCreateInput(runId), resolverPolicy: "human_only" as const, idempotencyKey: "gate:1" };
+    const gate = { requireHumanDecisionContext: true };
+    // Deterministic native producers do not opt in and stay unblocked.
+    const native = await interactionsSvc.create(issue, { ...input, idempotencyKey: "gate:native" }, { agentId, runId });
+    expect(native.status).toBe("pending");
+    // Agent boundary: missing brief is a field-specific 422, nothing persisted.
+    await expect(interactionsSvc.create(issue, input, { agentId, runId }, gate)).rejects.toMatchObject({
+      status: 422, details: expect.objectContaining({ code: "decision_context_missing" }),
+    });
+    expect((await interactionsSvc.listForIssue(issueId)).filter((row) => row.idempotencyKey === "gate:1")).toHaveLength(0);
+    // Replay of an already stored card keeps its original response even when it has no brief.
+    const replay = await interactionsSvc.create(issue, { ...input, idempotencyKey: "gate:native" }, { agentId, runId }, gate);
+    expect(replay.id).toBe(native.id);
+    // Cards addressed to a named expert agent are not human cards.
+    const expert = await interactionsSvc.create(issue, { kind: "request_confirmation", idempotencyKey: "gate:expert", addresseeAgentId: agentId, resolverPolicy: "anyone", payload: { version: 1, prompt: "Review" } } as never, { userId: "local-board" }, gate).catch((error) => error);
+    expect(expert).not.toMatchObject({ details: { code: "decision_context_missing" } });
+  });
+
   it.each(["expert_review", "internal_detail"] as const)("rejects governed %s brief without explicit execution authorization", async (decisionClass) => {
     const { companyId, issueId } = await seedConfirmationIssue("Governed brief");
     const brief = { version: 1 as const, decisionClass, subject: "Record only", resolverTarget: { type: "human" as const, reason: "Board" }, evidenceRefs: [{ source: "Document", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record only" }, { optionId: "reject", consequence: "Leave unchanged" }], safeDefault: "No execution" };

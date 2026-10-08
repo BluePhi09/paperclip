@@ -115,6 +115,13 @@ describePg("decisionService", () => {
     await expect(createCommentDecision("lenient", { metadata: { brief: { ...brief, scope: undefined } } })).rejects.toMatchObject({ status: 422 });
   });
 
+  it("requires a complete human brief only at the opted-in agent boundary", async () => {
+    await expect(createCommentDecision("lenient", { requireHumanBrief: true })).rejects.toMatchObject({ status: 422, details: expect.objectContaining({ code: "decision_context_missing" }) });
+    expect(await db.select().from(decisions)).toHaveLength(0);
+    // Internal producers (e.g. retention, native runtime) are not blocked.
+    await expect(createCommentDecision("lenient")).resolves.toBeTruthy();
+  });
+
   it("validates opted-in briefs before persistence and retains legacy creation", async () => {
     await expect(createCommentDecision("lenient", { metadata: { brief: { version: 1, subject: " " } } })).rejects.toMatchObject({ status: 422 });
     expect(await db.select().from(decisions)).toHaveLength(0);

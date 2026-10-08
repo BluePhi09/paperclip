@@ -15921,6 +15921,7 @@ export function issueRoutes(
           agentId: actor.agentId,
           userId: actor.actorType === "user" ? actor.actorId : null,
         },
+        { requireHumanDecisionContext: req.actor.type === "agent" },
       );
 
       await logActivity(db, {

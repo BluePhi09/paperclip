@@ -38,6 +38,7 @@ export function questionSetToAskUserQuestionsPayload(
             }
           : null;
       return {
+        ...(question.brief ? { brief: question.brief } : {}),
         id: question.id,
         prompt: question.prompt,
         ...((question.helpText || question.header) ? { helpText: question.helpText ?? question.header } : {}),

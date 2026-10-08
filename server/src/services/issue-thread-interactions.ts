@@ -166,6 +166,12 @@ async function assertInteractionRunWriteAllowed(tx: Db, issue: { id: string; com
 type CreateInteractionOptions = {
   /** Keep independently owned pending cards actionable. Internal runtime bridges use this. */
   supersedePendingSiblingInteractions?: boolean;
+  /**
+   * Agent-authored boundaries (the HTTP interaction route) require a complete
+   * concise brief on every new human-facing card. Clarifying questions inside
+   * an Agent Chat conversation are exempt: the person sees the conversation.
+   */
+  requireHumanDecisionContext?: boolean;
 };
 
 type InteractionWakeup = (
@@ -3530,8 +3536,6 @@ export function issueThreadInteractionService(
         }
       }
 
-      assertHumanInteractionContext(data, policy.effectiveResolverPolicy);
-
       if (data.sourceCommentId) {
         const sourceComment = await db
           .select({
@@ -3700,6 +3704,14 @@ export function issueThreadInteractionService(
               target: data.payload.target ?? null,
               lockForUpdate: true,
             });
+          }
+          // After replay, closed-issue and stale-target checks so retries and
+          // stale plans keep their established responses.
+          if (
+            options.requireHumanDecisionContext &&
+            !(data.kind === "ask_user_questions" && issueRow.conversationAgentId && issueRow.conversationUserId)
+          ) {
+            assertHumanInteractionContext(data, policy.effectiveResolverPolicy);
           }
           const [row] = await tx
             .insert(issueThreadInteractions)

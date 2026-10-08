@@ -34,3 +34,15 @@ describe("new human decision quality preflight", () => {
     expect(humanDecisionQualityIssues(legacy).length).toBeGreaterThan(0);
   });
 });
+
+describe("question brief option coverage", () => {
+  const base = { id: "q", prompt: "Who?", selectionMode: "single" as const };
+  const options = [{ id: "household", label: "Only my household" }, { id: "other", label: "Something else", freeText: { required: true } }];
+  it("lets a brief omit the free-text slot but never a fixed option or an unknown one", async () => {
+    const { askUserQuestionsQuestionSchema } = await import("./issue.js");
+    expect(askUserQuestionsQuestionSchema.safeParse({ ...base, options, brief }).success).toBe(true);
+    expect(askUserQuestionsQuestionSchema.safeParse({ ...base, options, brief: { ...brief, selectionConsequences: [] } }).success).toBe(false);
+    const unknown = [...brief.selectionConsequences, { optionId: "ghost", label: "Ghost option", consequence: "Does nothing." }];
+    expect(askUserQuestionsQuestionSchema.safeParse({ ...base, options, brief: { ...brief, selectionConsequences: unknown } }).success).toBe(false);
+  });
+});
