@@ -575,9 +575,11 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
     const target = { kind: "remote", transport: "sandbox", remoteCwd: "/workspace/project" } as Parameters<typeof assertManagedAiProjectAuth>[2];
     try {
       execute.mockResolvedValue({ exitCode: 42, stdout: "", stderr: "", signal: null, timedOut: false } as Awaited<ReturnType<typeof executionTarget.runAdapterExecutionTargetProcess>>);
-      await expect(assertManagedAiProjectAuth({}, "openai", target)).rejects.toThrow("project authentication settings");
+      await expect(assertManagedAiProjectAuth({}, "openai", target)).rejects.toThrow("Project authentication settings conflict with the selected AI connection");
       expect(execute.mock.calls[0][3]).toContain("/workspace/project");
       expect(execute.mock.calls[0][3]).toContain(".codex/config.toml");
+      execute.mockResolvedValue({ exitCode: 43, stdout: "", stderr: "", signal: null, timedOut: false } as Awaited<ReturnType<typeof executionTarget.runAdapterExecutionTargetProcess>>);
+      await expect(assertManagedAiProjectAuth({}, "openai", target)).rejects.toThrow("scan did not complete");
       execute.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "", signal: null, timedOut: false } as Awaited<ReturnType<typeof executionTarget.runAdapterExecutionTargetProcess>>);
       await expect(assertManagedAiProjectAuth({}, "openai", target)).resolves.toBeUndefined();
       await expect(assertManagedAiProjectAuth({ args: ["--api-key=override"] }, "xai", target)).rejects.toThrow("overrides");
