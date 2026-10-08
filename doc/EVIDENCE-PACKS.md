@@ -14,19 +14,50 @@ A completed review task is not itself an approval.
 
 ## Opt-in invariant
 
-Issues without `executionPolicy.evidencePack` behave exactly as before. Every
-admission point first runs a lock-free probe (issue policy and the run's own
+Issues without `executionPolicy.evidencePack` behave as before. The heartbeat
+admission points (claim, run start, dispatch/handoff, native operation
+admission) first run a lock-free probe (issue policy and the run's own
 recorded admission). Without a pack and without a recorded
-`evidenceAdmission`/`evidenceReviewerAdmission` it returns immediately: no
-extra row locks, no execution-ownership requirement and no denial. In
-particular, runs that never hold the issue execution lock (mention/comment
+`evidenceAdmission`/`evidenceReviewerAdmission` the probe returns
+immediately: no extra row locks or transactions, no execution-ownership
+requirement and no denial. Run start keeps the claimed run record (no reload).
+
+Checkout and its adoption branches do not use the heartbeat probe. Without a
+pack they run the legacy single `UPDATE`; it carries a guard that makes it a
+no-op when a pack is present, and only then is the write repeated in a
+transaction that takes the issue row lock (`SELECT ... FOR UPDATE`) and
+checks the pack. A row that disappears before a write still returns no row
+to the legacy fallback. The pre-existing cleanup of terminal lock holders
+and the stale-checkout adoption already lock the issue row; they are unchanged
+apart from a pack check that is a no-op without a pack. Productive
+`status: in_progress` updates check the pack inside the existing locked
+update transaction.
+
+Without a pack, runs that never hold the issue execution lock (mention/comment
 runs of a non-assignee, `source_scoped_recovery_action` runs, runs while
 another run holds the lock) dispatch through the unchanged legacy handoff.
 Only resolved-interaction continuations and native retry replacements use the
-staleness/ownership dispatch gate, as before; for opted-in issues other runs
-are admitted under issue -> run locks and handed off synchronously while those
-locks are held. A pack committed after the lock-free probe is observed at the
-next admission point (native operation admission).
+staleness/ownership dispatch gate, as before.
+
+On opted-in issues the claim admission applies to every run of the issue:
+a run of an agent that is not the current assignee (for example a mention
+run) is refused with `evidence_pack_executor_changed` unless it holds a
+current native review assignment (see below); that refusal is a terminal
+denial with an activity entry like any other claim-time denial. Runs that
+pass are admitted under issue -> run locks at dispatch and handed off
+synchronously while those locks are held.
+
+A pack committed after the lock-free probe is observed at the next admission
+point. Only native runtime runs have one after dispatch (the native operation
+admission before provider operations). Legacy adapters and adapters that do
+not run through the native runtime have no further evidence check after the
+dispatch admission.
+
+The pack does not name or bind an executor. Whoever is the assignee at an
+admission point may execute, provided the required reviews are independent
+of that agent: the executor (like the pack and artifact authors) cannot count
+as one of the required reviewers. Authoring the pack or its artifacts does not
+by itself prevent an agent from executing.
 
 ## Denials are terminal
 
@@ -34,8 +65,30 @@ An `evidence_pack_*` denial at claim, at dispatch or in the run's start
 admission cancels the run with that code as `errorCode`, suppresses immediate
 recovery (no repair/continuation run) and records a
 `heartbeat.evidence_denied` activity entry (`entityType: heartbeat_run`,
-`details.code`, `details.issueId`). A claim-time denial is not retried on the
-next queue pass. A corrected pack is picked up by a new wake.
+`details.code`, `details.issueId`). The entry is written only when the denial
+itself cancelled the run. A claim-time denial is not retried on the next
+queue pass; this includes conditions that may clear later
+(`evidence_pack_prerequisite_open`, `evidence_pack_review_missing`,
+`evidence_pack_condition_open`). A corrected pack is picked up by a new wake.
+
+A denial at the native operation admission (after dispatch, before a provider
+operation) is handled differently: the native runtime classifies it as the
+permanent failure code `evidence_pack_denied`. The run ends `failed`, the
+issue is set to `blocked` with a board-owned recovery action, and no
+`heartbeat.evidence_denied` activity is written.
+
+## Native source-scoped recovery-action runs
+
+A native run of the owner woken with `source_scoped_recovery_action` is
+claimed without becoming the issue's execution run (`executionRunId` is not
+set). On an opted-in issue it passes the claim and dispatch admissions and
+records an `evidenceAdmission`. The evidence operation admission would refuse
+it (`evidence_pack_run_mismatch`, because it requires the run to be the
+issue's execution run), but it is not reached today: the native wake-attachment
+staging applies the same execution-run requirement first and fails the run
+(`adapter_failed`, `paperclip_runner_attachment_staging_not_authorized`), with
+or without a pack. Mention runs of other agents on opted-in issues are refused
+at claim (see above). Both are recorded by tests as current behavior.
 
 ## Reviewer versus executor admission
 
