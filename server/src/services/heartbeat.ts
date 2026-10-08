@@ -10395,6 +10395,20 @@ export function heartbeatService(
       );
     }
     await acknowledgeRemoteStop(input.runId, input.companyId);
+    // The controller's ownership ends with a confirmed environment release. Until
+    // then a terminal run keeps its (expiring) lease so a successor cannot start
+    // while cleanup is unknown; afterwards it must not hold dispatch for the
+    // remainder of the 60s lease. Only this process's own claim is relinquished,
+    // and only for a terminal run, so a live or foreign controller is untouched.
+    if (releaseResult && !releaseResult.errors.length) {
+      await db.update(heartbeatRuns).set({ controllerBootId: null, controllerLeaseExpiresAt: null }).where(and(
+        eq(heartbeatRuns.id, input.runId), eq(heartbeatRuns.companyId, input.companyId),
+        eq(heartbeatRuns.runtimeMode, "legacy"), eq(heartbeatRuns.controllerBootId, legacyControllerBootId),
+        inArray(heartbeatRuns.status, [...HEARTBEAT_RUN_TERMINAL_STATUSES]),
+      )).catch((err) => {
+        logger.warn({ err, runId: input.runId }, "failed to relinquish legacy controller after environment release");
+      });
+    }
   }
 
   async function acknowledgeRemoteStop(runId: string, companyId: string) {
