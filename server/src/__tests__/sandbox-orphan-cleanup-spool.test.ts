@@ -1,5 +1,6 @@
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -72,6 +73,41 @@ describe("createSandboxOrphanCleanupSpool", () => {
     const loaded = await spool.load();
     expect(loaded).toHaveLength(1);
     expect(loaded[0]?.providerLeaseId).toBeNull();
+  });
+
+  it("consumes a legacy filename without deleting another scope with the same provider ID", async () => {
+    const old = buildRecord();
+    const other = buildRecord({ companyId: "other-company" });
+    const legacyName = createHash("sha256").update(`lease:${old.providerLeaseId}`).digest("hex") + ".json";
+    await writeFile(path.join(dir, legacyName), JSON.stringify(old));
+    const spool = createSandboxOrphanCleanupSpool(dir);
+    await spool.append(other);
+    await spool.remove(other);
+    expect(await spool.load()).toEqual([old]);
+    await spool.remove(old);
+    expect(await spool.load()).toEqual([]);
+  });
+
+  it("does not remove a legacy filename from another sandbox account", async () => {
+    const old = buildRecord({ heartbeatRunId: null, metadata: { namespace: "account-a" } });
+    const other = buildRecord({ heartbeatRunId: null, metadata: { namespace: "account-b" } });
+    const legacyName = createHash("sha256").update(`lease:${old.providerLeaseId}`).digest("hex") + ".json";
+    await writeFile(path.join(dir, legacyName), JSON.stringify(old));
+    const spool = createSandboxOrphanCleanupSpool(dir);
+    await spool.remove(other);
+    expect(await spool.load()).toEqual([old]);
+    await spool.remove(old);
+    expect(await spool.load()).toEqual([]);
+  });
+
+  it("keeps two reservation generations separate during append and remove", async () => {
+    const first = buildRecord({ metadata: { acquisitionCleanup: { token: "first", environmentId: "environment-1" } } });
+    const second = buildRecord({ metadata: { acquisitionCleanup: { token: "second", environmentId: "environment-1" } } });
+    const spool = createSandboxOrphanCleanupSpool(dir);
+    await spool.append(first); await spool.append(second);
+    expect(await spool.load()).toHaveLength(2);
+    await spool.remove(first);
+    expect(await spool.load()).toEqual([second]);
   });
 
   it("skips a malformed spool file and returns the other records", async () => {

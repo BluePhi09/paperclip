@@ -22733,6 +22733,7 @@ export function heartbeatService(
           admittedLifecycleMode: persistedNativeExecutionInput?.session.lifecyclePolicy.mode,
           issueId: issueId ?? null,
           heartbeatRunId: run.id,
+          expectedControllerBootId: run.controllerBootId,
           agentId: agent.id,
           persistedExecutionWorkspace,
           executionWorkspaceSettings: environmentExecutionWorkspaceSettings,

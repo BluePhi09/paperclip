@@ -270,6 +270,25 @@ describe("environmentRunOrchestrator — realizeForRun", () => {
     );
   });
 
+  it("fails closed before remote commands on provider-confirmed adapter mismatch", async () => {
+    const runtime = makeMockRuntime();
+    const orchestrator = environmentRunOrchestrator(mockDb, { environmentRuntime: runtime });
+    await expect(orchestrator.realizeForRun(makeRealizeInput({
+      lease: makeLease({ metadata: { effectiveAdapterType: "codex_local", requestedAdapterType: "claude_local" } }),
+    }))).rejects.toMatchObject({ code: "adapter_identity_mismatch" });
+    expect(runtime.realizeWorkspace).not.toHaveBeenCalled();
+    expect(runtime.execute).not.toHaveBeenCalled();
+    expect(mockResolveEnvironmentExecutionTarget).not.toHaveBeenCalled();
+  });
+  it("does not interpret legacy environment adapterType as effective attestation", async () => {
+    mockResolveEnvironmentExecutionTarget.mockResolvedValue(null);
+    const runtime = makeMockRuntime();
+    const orchestrator = environmentRunOrchestrator(mockDb, { environmentRuntime: runtime });
+    await expect(orchestrator.realizeForRun(makeRealizeInput({
+      lease: makeLease({ metadata: { adapterType: "codex_local", effectiveAdapterType: null } }),
+    }))).resolves.toBeDefined();
+    expect(runtime.realizeWorkspace).toHaveBeenCalledOnce();
+  });
   it("happy path: returns lease, executionTarget, and remoteExecution on successful realization", async () => {
     const executionTarget = { kind: "local", environmentId: "env-1", leaseId: "lease-1" };
     const remoteExecution = { kind: "local", environmentId: "env-1", leaseId: "lease-1" };
