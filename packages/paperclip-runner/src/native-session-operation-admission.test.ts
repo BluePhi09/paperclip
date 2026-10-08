@@ -207,4 +207,39 @@ describe("evidence operation admission before non-fresh provider operations", ()
     expect(outcome.error).toBe(s.denial);
     expect(s.goal.mock.calls.filter(([operation]) => operation.action !== "get")).toEqual([]);
   });
+
+  // Controls that only reduce or observe provider work are not re-gated after
+  // the run's recovery admission: evidence invalidated during recovery must not
+  // block them (unlike create/edit/replace/resume above).
+  it.each(["pause", "clear"] as const)("goal control %s is not evidence-gated after recovery", async (action) => {
+    const snapshot = { ...baseCheckpoint, goal: activeGoal };
+    const s = scenario(snapshot);
+    const recoverSession = vi.fn(async () => { s.invalidate(); return { recovered: true as const, session: s.session }; });
+    const outcome = await s.run({
+      backend: backendWith({ recoverSession }), persistedSession: snapshot,
+      sessionGoalControl: { requestId: "goal-a1", action },
+    });
+    // The fixture stream has no goal terminal; only the admission outcome matters.
+    expect(outcome.error).not.toBe(s.denial);
+    // Only the recovery admission (before recoverSession) ran.
+    expect(s.admission).toHaveBeenCalledOnce();
+    expect(s.admission.mock.invocationCallOrder[0]).toBeLessThan(recoverSession.mock.invocationCallOrder[0]!);
+    expect(s.goal.mock.calls.map(([operation]) => operation.action)).toContain(action);
+  });
+
+  it("goal-resume heartbeat only reads a non-active goal after recovery without re-admission", async () => {
+    const snapshot = { ...baseCheckpoint, goal: { ...activeGoal, status: "paused" as const } };
+    const s = scenario(snapshot);
+    s.goal.mockImplementation(async (operation) => {
+      if (operation.action !== "get") throw new Error("unexpected goal mutation");
+      void s.close();
+      return { ...activeGoal, status: "paused" };
+    });
+    const recoverSession = vi.fn(async () => { s.invalidate(); return { recovered: true as const, session: s.session }; });
+    const outcome = await s.run({ backend: backendWith({ recoverSession }), persistedSession: snapshot, resumeSessionGoalHeartbeat: true });
+    expect(outcome.error).not.toBe(s.denial);
+    expect(s.admission).toHaveBeenCalledOnce();
+    expect(s.goal.mock.calls.map(([operation]) => operation.action)).toContain("get");
+    expect(s.goal.mock.calls.filter(([operation]) => operation.action !== "get")).toEqual([]);
+  });
 });
