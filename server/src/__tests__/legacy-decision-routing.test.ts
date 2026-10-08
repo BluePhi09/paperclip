@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, issueThreadInteractions, issues } from "@paperclipai/db";
+import { activityLog, agents, companies, createDb, heartbeatRuns, issueComments, issueThreadInteractions, issues } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import {
   applyLegacyDecisionRouting,
@@ -32,7 +32,10 @@ describeEmbeddedPostgres("legacy decision routing", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(issueThreadInteractions);
+    await db.delete(issueComments);
+    await db.delete(heartbeatRuns);
     await db.delete(issues);
     await db.delete(agents);
     await db.delete(companies);
@@ -59,13 +62,23 @@ describeEmbeddedPostgres("legacy decision routing", () => {
       selectionConsequences: [{ optionId: "ok", consequence: "Record the verified range." }],
       safeDefault: "Leave unverified.",
     };
+    const runId = randomUUID();
+    await db.insert(heartbeatRuns).values({ id: runId, companyId, agentId: creatorId, invocationSource: "manual", status: "succeeded", contextSnapshot: { issueId } });
+    const [comment] = await db.insert(issueComments).values({ companyId, issueId, authorAgentId: creatorId, body: "Two questions for you" }).returning();
+    // Distinct creation times keep the plan order (createdAt, id) deterministic.
+    let sequence = 0;
     const legacy = (values: Partial<typeof issueThreadInteractions.$inferInsert> & Pick<typeof issueThreadInteractions.$inferInsert, "kind" | "payload">) => ({
       id: randomUUID(), companyId, issueId, status: "pending", continuationPolicy: "wake_assignee",
-      requestedResolverPolicy: "human_only", effectiveResolverPolicy: "human_only", createdByAgentId: creatorId, ...values,
+      requestedResolverPolicy: "human_only", effectiveResolverPolicy: "human_only", createdByAgentId: creatorId,
+      createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence++)), ...values,
     });
     const mixed = legacy({
       kind: "ask_user_questions",
       title: "Two questions",
+      requestedResolverPolicy: "not_creator",
+      effectiveResolverPolicy: "not_creator",
+      sourceRunId: runId,
+      sourceCommentId: comment!.id,
       payload: { version: 1, questions: [
         { id: "team_only", prompt: "Who uses the shared services?", selectionMode: "single", options: [{ id: "team_only", label: "Only my team" }], brief: factBrief },
         { id: "dhcp", prompt: "Is the DHCP range correct?", selectionMode: "single", options: [{ id: "ok", label: "Correct" }], brief: expertBrief },
@@ -76,7 +89,7 @@ describeEmbeddedPostgres("legacy decision routing", () => {
     const governed = legacy({ kind: "request_confirmation", title: "Approve tool", payload: { version: 1, prompt: "Run tool?", toolAction: { requestId: randomUUID() } } });
     const agentCard = { ...legacy({ kind: "request_confirmation", payload: { version: 1, prompt: "Review" } }), addresseeAgentId: expertId, effectiveResolverPolicy: "anyone", requestedResolverPolicy: "anyone" };
     await db.insert(issueThreadInteractions).values([mixed, untyped, governed, agentCard] as never);
-    return { companyId, issueId, creatorId, expertId, mixed, untyped, governed, agentCard };
+    return { companyId, issueId, creatorId, expertId, runId, commentId: comment!.id, expertBrief, legacy, mixed, untyped, governed, agentCard };
   }
 
   it("plans read-only from structured evidence, never from titles", async () => {
@@ -140,6 +153,69 @@ describeEmbeddedPostgres("legacy decision routing", () => {
     const again = await applyLegacyDecisionRouting(db, plan);
     expect(again.map((result) => result.status)).toEqual(["already_applied", "already_applied"]);
     expect(await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.companyId, fx.companyId))).toHaveLength(rows.length);
+  });
+
+  it("shows dropped provenance and the narrowed human policy in the plan", async () => {
+    const fx = await seed();
+    const plan = await planLegacyDecisionRouting(db, fx.companyId);
+    const mixed = plan.entries.find((entry) => entry.interactionId === fx.mixed.id)!;
+    expect(mixed.replacementChanges).toEqual({
+      droppedSourceRunId: fx.runId,
+      droppedSourceCommentId: fx.commentId,
+      resolverPolicy: [
+        { group: `expert:${fx.expertId}`, from: "not_creator", to: `addressed_agent:${fx.expertId}` },
+        { group: "human", from: "not_creator", to: "human_only" },
+      ],
+    });
+    expect(mixed.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("source run"),
+      expect.stringContaining("source comment"),
+      expect.stringContaining("human_only"),
+    ]));
+    const governed = plan.entries.find((entry) => entry.interactionId === fx.governed.id)!;
+    expect(governed.replacementChanges).toBeNull();
+    expect(governed.warnings).toEqual([]);
+  });
+
+  it.each(["paused", "pending_approval", "error", "terminated"] as const)("never routes to a %s expert and says why", async (status) => {
+    const fx = await seed();
+    await db.update(agents).set({ status }).where(eq(agents.id, fx.expertId));
+    const first = await planLegacyDecisionRouting(db, fx.companyId);
+    const mixed = first.entries.find((entry) => entry.interactionId === fx.mixed.id)!;
+    expect(mixed.action).toEqual({ type: "needs_triage" });
+    expect(mixed.units.find((unit) => unit.unitId === "dhcp")?.route).toEqual({ route: "needs_triage", basis: "inactive_resolver" });
+    expect(mixed.warnings).toEqual(expect.arrayContaining([expect.stringContaining(`${fx.expertId} is ${status}`)]));
+    const hash = first.entries.find((entry) => entry.interactionId === fx.untyped.id)!.sourceHash;
+    const overridden = await planLegacyDecisionRouting(db, fx.companyId, {
+      [fx.untyped.id]: { sourceHash: hash, units: { card: { route: "expert", agentId: fx.expertId } } },
+    });
+    expect(overridden.entries.find((entry) => entry.interactionId === fx.untyped.id)).toMatchObject({
+      action: { type: "needs_triage" }, units: [{ route: { route: "needs_triage", basis: "inactive_resolver" } }],
+    });
+  });
+
+  it("writes one activity entry per applied re-routing and none for a no-op re-run", async () => {
+    const fx = await seed();
+    const initial = await planLegacyDecisionRouting(db, fx.companyId);
+    const plan = await planLegacyDecisionRouting(db, fx.companyId, {
+      [fx.untyped.id]: { sourceHash: initial.entries.find((entry) => entry.interactionId === fx.untyped.id)!.sourceHash, units: { card: { route: "expert", agentId: fx.expertId } } },
+    });
+    const results = await applyLegacyDecisionRouting(db, plan);
+    const activity = await db.select().from(activityLog).where(eq(activityLog.companyId, fx.companyId));
+    expect(activity).toHaveLength(2);
+    const mixedResult = results.find((result) => result.interactionId === fx.mixed.id)!;
+    expect(activity.find((row) => (row.details as { interactionId?: string }).interactionId === fx.mixed.id)).toMatchObject({
+      actorType: "system", actorId: LEGACY_DECISION_ROUTING_VERSION, action: "issue.thread_interaction_rerouted",
+      entityType: "issue", entityId: fx.issueId,
+      details: {
+        interactionId: fx.mixed.id, withdrawn: true, actionType: "split",
+        replacementInteractionIds: mixedResult.replacementInteractionIds,
+        sourceHash: plan.entries.find((entry) => entry.interactionId === fx.mixed.id)!.sourceHash,
+        droppedSourceRunId: fx.runId, droppedSourceCommentId: fx.commentId,
+      },
+    });
+    await applyLegacyDecisionRouting(db, plan);
+    expect(await db.select().from(activityLog).where(eq(activityLog.companyId, fx.companyId))).toHaveLength(2);
   });
 
   it("skips cards that changed after review", async () => {

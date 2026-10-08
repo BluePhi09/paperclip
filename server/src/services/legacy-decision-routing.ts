@@ -14,6 +14,11 @@
  * - Mixed cards are split: one card per expert plus one human card.
  * - Anything without structured evidence stays with the person and is listed
  *   as `needs_triage` for review.
+ * - Only active/idle/running agents receive cards. A paused, pending-approval,
+ *   errored or terminated resolver makes the unit `needs_triage` with a warning.
+ * - The plan lists what a replacement cannot carry over (source run/comment
+ *   provenance) and every resolver-policy change, so the reviewer sees it.
+ * - Every applied re-routing writes one activity-log entry.
  *
  * `plan` is read-only. `apply` re-plans under row locks and executes only the
  * actions whose source hash and action match the reviewed plan. Replacement
@@ -24,6 +29,7 @@ import { createHash } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agents, issueThreadInteractions, issues } from "@paperclipai/db";
+import { logActivity, publishActivity, type ActivityPublication } from "./activity-log.js";
 import { decisionBriefSchema, type CreateIssueThreadInteraction } from "@paperclipai/shared";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import { isHumanFacingInteraction } from "./human-decision-context.js";
@@ -35,7 +41,7 @@ type InteractionRow = typeof issueThreadInteractions.$inferSelect;
 export type LegacyRoute =
   | { route: "human"; basis: "governed_action" | "brief_human_class" | "brief_human_resolver" | "override" }
   | { route: "expert"; agentId: string; basis: "brief_expert_resolver" | "override" }
-  | { route: "needs_triage"; basis: "no_structured_classification" | "invalid_override" | "partially_answered" };
+  | { route: "needs_triage"; basis: "no_structured_classification" | "invalid_override" | "partially_answered" | "inactive_resolver" };
 
 export interface LegacyRoutingOverride {
   /** Hash of the exact card content the reviewer classified. */
@@ -50,6 +56,14 @@ export interface LegacyRoutingPlanEntry {
   sourceHash: string;
   createdByAgentId: string | null;
   units: Array<{ unitId: string; label: string; route: LegacyRoute }>;
+  /** Human-readable review notes: inactive resolvers, dropped provenance, narrowed policy. */
+  warnings: string[];
+  /** What the replacement cards change compared with the original; null when nothing is replaced. */
+  replacementChanges: {
+    droppedSourceRunId: string | null;
+    droppedSourceCommentId: string | null;
+    resolverPolicy: Array<{ group: string; from: string; to: string }>;
+  } | null;
   action:
     | { type: "keep_human" }
     | { type: "needs_triage" }
@@ -112,15 +126,21 @@ function unitsOf(row: InteractionRow): Unit[] {
   return [{ unitId: "card", label: String(payload.prompt ?? row.title ?? row.id), brief: payload.brief }];
 }
 
+/** Agents that can pick up a card now. Everything else must not receive one. */
+const ROUTABLE_AGENT_STATUSES = new Set(["active", "idle", "running"]);
+
+type CompanyAgents = ReadonlyMap<string, string>;
+
 function classifyUnit(unit: Unit, governed: boolean, override: LegacyRoutingOverride["units"][string] | undefined,
-  overrideValid: boolean, creatorAgentId: string | null, companyAgentIds: ReadonlySet<string>): LegacyRoute {
+  overrideValid: boolean, creatorAgentId: string | null, companyAgents: CompanyAgents): LegacyRoute {
   if (governed) return { route: "human", basis: "governed_action" };
   if (override) {
     if (!overrideValid) return { route: "needs_triage", basis: "invalid_override" };
     if (override.route === "human") return { route: "human", basis: "override" };
-    if (override.agentId === creatorAgentId || !companyAgentIds.has(override.agentId)) {
+    if (override.agentId === creatorAgentId || !companyAgents.has(override.agentId)) {
       return { route: "needs_triage", basis: "invalid_override" };
     }
+    if (!ROUTABLE_AGENT_STATUSES.has(companyAgents.get(override.agentId)!)) return { route: "needs_triage", basis: "inactive_resolver" };
     return { route: "expert", agentId: override.agentId, basis: "override" };
   }
   const brief = decisionBriefSchema.safeParse(unit.brief);
@@ -130,28 +150,61 @@ function classifyUnit(unit: Unit, governed: boolean, override: LegacyRoutingOver
   }
   const target = brief.data.resolverTarget;
   if (target.type === "agent") {
-    if (target.agentId === creatorAgentId || !companyAgentIds.has(target.agentId)) {
+    if (target.agentId === creatorAgentId || !companyAgents.has(target.agentId)) {
       return { route: "needs_triage", basis: "no_structured_classification" };
     }
+    if (!ROUTABLE_AGENT_STATUSES.has(companyAgents.get(target.agentId)!)) return { route: "needs_triage", basis: "inactive_resolver" };
     return { route: "expert", agentId: target.agentId, basis: "brief_expert_resolver" };
   }
   return { route: "human", basis: "brief_human_resolver" };
 }
 
-function planEntry(row: InteractionRow, override: LegacyRoutingOverride | undefined, companyAgentIds: ReadonlySet<string>): LegacyRoutingPlanEntry {
+/** Resolver agent a unit names (override first, then brief), for review warnings only. */
+function namedResolverAgentId(unit: Unit, override: LegacyRoutingOverride["units"][string] | undefined): string | null {
+  if (override) return override.route === "expert" ? override.agentId : null;
+  const brief = decisionBriefSchema.safeParse(unit.brief);
+  return brief.success && brief.data.resolverTarget.type === "agent" ? brief.data.resolverTarget.agentId : null;
+}
+
+function planEntry(row: InteractionRow, override: LegacyRoutingOverride | undefined, companyAgents: CompanyAgents): LegacyRoutingPlanEntry {
   const sourceHash = legacyRoutingSourceHash(row);
   const payload = record(row.payload);
   const governed = payload.toolAction !== undefined || payload.secretProposal !== undefined;
   const overrideValid = override?.sourceHash === sourceHash;
   const partiallyAnswered = row.kind === "request_item_verdicts" && (record(row.result).items as unknown[] | undefined)?.length;
-  const units = unitsOf(row).map((unit) => ({
-    unitId: unit.unitId,
-    label: unit.label.slice(0, 200),
-    route: partiallyAnswered && !governed
+  const warnings: string[] = [];
+  const units = unitsOf(row).map((unit) => {
+    const route = partiallyAnswered && !governed
       ? { route: "needs_triage", basis: "partially_answered" } as const
-      : classifyUnit(unit, governed, override?.units[unit.unitId], overrideValid, row.createdByAgentId, companyAgentIds),
-  }));
+      : classifyUnit(unit, governed, override?.units[unit.unitId], overrideValid, row.createdByAgentId, companyAgents);
+    if (route.route === "needs_triage" && route.basis === "inactive_resolver") {
+      const agentId = namedResolverAgentId(unit, override?.units[unit.unitId]);
+      warnings.push(`Unit ${unit.unitId}: resolver agent ${agentId} is ${agentId ? companyAgents.get(agentId) : "unknown"}; it stays with the person until the agent is active again or the unit is re-classified.`);
+    }
+    return { unitId: unit.unitId, label: unit.label.slice(0, 200), route };
+  });
   const base = { interactionId: row.id, issueId: row.issueId, kind: row.kind, sourceHash, createdByAgentId: row.createdByAgentId, units };
+  const withAction = (action: LegacyRoutingPlanEntry["action"]): LegacyRoutingPlanEntry => {
+    const groups = action.type === "reroute"
+      ? [{ key: `expert:${action.agentId}`, route: "expert" as const, agentId: action.agentId }]
+      : action.type === "split" ? action.groups : [];
+    if (groups.length === 0) return { ...base, warnings, replacementChanges: null, action };
+    const resolverPolicy = groups.flatMap((group) => {
+      const to = group.route === "expert" ? `addressed_agent:${group.agentId}` : "human_only";
+      return to === row.effectiveResolverPolicy ? [] : [{ group: group.key, from: row.effectiveResolverPolicy, to }];
+    });
+    // Replacement cards are new cards created by the original author; they do not
+    // inherit the original source run or source comment (both stay on the withdrawn card).
+    if (row.sourceRunId) warnings.push(`Replacement cards will not keep the source run ${row.sourceRunId}; it stays on the withdrawn original.`);
+    if (row.sourceCommentId) warnings.push(`Replacement cards will not keep the source comment ${row.sourceCommentId}; it stays on the withdrawn original.`);
+    for (const change of resolverPolicy) {
+      if (change.to === "human_only") warnings.push(`The human card narrows the resolver policy from ${change.from} to human_only: agents can no longer answer it.`);
+    }
+    return {
+      ...base, warnings, action,
+      replacementChanges: { droppedSourceRunId: row.sourceRunId ?? null, droppedSourceCommentId: row.sourceCommentId ?? null, resolverPolicy },
+    };
+  };
   const expertGroups = new Map<string, string[]>();
   const humanUnits: string[] = [];
   for (const unit of units) {
@@ -159,23 +212,20 @@ function planEntry(row: InteractionRow, override: LegacyRoutingOverride | undefi
     else humanUnits.push(unit.unitId);
   }
   if (expertGroups.size === 0) {
-    return { ...base, action: units.some((unit) => unit.route.route === "needs_triage") ? { type: "needs_triage" } : { type: "keep_human" } };
+    return withAction(units.some((unit) => unit.route.route === "needs_triage") ? { type: "needs_triage" } : { type: "keep_human" });
   }
   if (expertGroups.size === 1 && humanUnits.length === 0) {
-    return { ...base, action: { type: "reroute", agentId: [...expertGroups.keys()][0]! } };
+    return withAction({ type: "reroute", agentId: [...expertGroups.keys()][0]! });
   }
   // Confirmations are one atomic unit, so only questions/items can be split.
-  return {
-    ...base,
-    action: {
+  return withAction({
       type: "split",
       groups: [
         ...[...expertGroups.entries()].sort(([a], [b]) => a.localeCompare(b))
           .map(([agentId, unitIds]) => ({ key: `expert:${agentId}`, route: "expert" as const, agentId, unitIds })),
         ...(humanUnits.length ? [{ key: "human", route: "human" as const, unitIds: humanUnits }] : []),
       ],
-    },
-  };
+  });
 }
 
 async function pendingHumanFacingRows(db: Db, companyId: string) {
@@ -188,14 +238,14 @@ async function pendingHumanFacingRows(db: Db, companyId: string) {
   ));
 }
 
-async function activeCompanyAgentIds(db: Db, companyId: string) {
+async function companyAgentStatuses(db: Db, companyId: string): Promise<CompanyAgents> {
   const rows = await db.select({ id: agents.id, status: agents.status }).from(agents).where(eq(agents.companyId, companyId));
-  return new Set(rows.filter((row) => row.status !== "terminated").map((row) => row.id));
+  return new Map(rows.map((row) => [row.id, row.status]));
 }
 
 /** Read-only: never writes. */
 export async function planLegacyDecisionRouting(db: Db, companyId: string, overrides: Record<string, LegacyRoutingOverride> = {}): Promise<LegacyRoutingPlan> {
-  const [rows, agentIds] = await Promise.all([pendingHumanFacingRows(db, companyId), activeCompanyAgentIds(db, companyId)]);
+  const [rows, agentIds] = await Promise.all([pendingHumanFacingRows(db, companyId), companyAgentStatuses(db, companyId)]);
   return {
     schema: LEGACY_DECISION_ROUTING_VERSION,
     companyId,
@@ -265,10 +315,11 @@ function sameAction(a: LegacyRoutingPlanEntry["action"], b: LegacyRoutingPlanEnt
  */
 export async function applyLegacyDecisionRouting(db: Db, plan: LegacyRoutingPlan): Promise<LegacyRoutingApplyResult[]> {
   if (plan.schema !== LEGACY_DECISION_ROUTING_VERSION) throw new Error("Unsupported legacy decision routing plan");
-  const agentIds = await activeCompanyAgentIds(db, plan.companyId);
+  const agentIds = await companyAgentStatuses(db, plan.companyId);
   const results: LegacyRoutingApplyResult[] = [];
   for (const reviewed of plan.entries) {
     if (reviewed.action.type !== "reroute" && reviewed.action.type !== "split") continue;
+    const publications: ActivityPublication[] = [];
     try {
       results.push(await db.transaction(async (tx) => {
         const txDb = tx as unknown as Db;
@@ -310,8 +361,29 @@ export async function applyLegacyDecisionRouting(db: Db, plan: LegacyRoutingPlan
           { reason: `${LEGACY_DECISION_ROUTING_VERSION}: re-routed to ${replacementIds.join(", ")}` },
           { systemId: LEGACY_DECISION_ROUTING_VERSION },
         );
+        await logActivity(txDb, {
+          companyId: row.companyId,
+          actorType: "system",
+          actorId: LEGACY_DECISION_ROUTING_VERSION,
+          action: "issue.thread_interaction_rerouted",
+          entityType: "issue",
+          entityId: row.issueId,
+          issueId: row.issueId,
+          details: {
+            interactionId: row.id,
+            interactionKind: row.kind,
+            withdrawn: true,
+            actionType: current.action.type,
+            groups: groups.map((group, index) => ({ key: group.key, unitIds: group.unitIds, replacementInteractionId: replacementIds[index] })),
+            replacementInteractionIds: replacementIds,
+            sourceHash: current.sourceHash,
+            droppedSourceRunId: row.sourceRunId ?? null,
+            droppedSourceCommentId: row.sourceCommentId ?? null,
+          },
+        }, publications);
         return { interactionId: row.id, status: "applied", replacementInteractionIds: replacementIds } as const;
       }));
+      for (const publication of publications) publishActivity(publication);
     } catch (error) {
       results.push({ interactionId: reviewed.interactionId, status: "failed", error: error instanceof Error ? error.message : String(error) });
     }
