@@ -24,6 +24,7 @@ import {
   leaseReleaseStatusForRunStatus,
   type HeartbeatEnvironmentRuntime,
 } from "../services/heartbeat.ts";
+import { legacyControllerBootId } from "../services/legacy-controller-lease.ts";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -353,6 +354,79 @@ describeEmbeddedPostgres("heartbeat teardown terminalizes the run before releasi
     await heartbeat.releaseEnvironmentLeasesForRun({ runId, companyId, agentId,
       status: "cancelled", providerResourceDisposition: "destroy" });
     expect(releaseRunLeases).toHaveBeenCalledTimes(provider === "daytona" ? 1 : 0);
+  });
+
+  describe("legacy controller relinquishment after release", () => {
+    async function controllerOf(runId: string) {
+      const [row] = await db.select({ bootId: heartbeatRuns.controllerBootId, expiresAt: heartbeatRuns.controllerLeaseExpiresAt })
+        .from(heartbeatRuns).where(eq(heartbeatRuns.id, runId));
+      return row!;
+    }
+    async function seedControlled(input: { runStatus: string; bootId?: string; runtimeMode?: "legacy" | "native" }) {
+      const seeded = await seed({ issueStatus: "in_progress", runStatus: input.runStatus });
+      await db.update(heartbeatRuns).set({
+        controllerBootId: input.bootId ?? legacyControllerBootId,
+        controllerLeaseExpiresAt: new Date(Date.now() + 60_000),
+        runtimeMode: input.runtimeMode ?? "legacy",
+        ...(input.runStatus === "running" ? {} : { finishedAt: new Date() }),
+      }).where(eq(heartbeatRuns.id, seeded.runId));
+      return seeded;
+    }
+    function release(seeded: { runId: string; companyId: string; agentId: string }, status: string,
+      runtime: Partial<HeartbeatEnvironmentRuntime>, extra: Record<string, unknown> = {}, busy = 0) {
+      return heartbeatService(db, {
+        environmentRuntime: runtime as HeartbeatEnvironmentRuntime,
+        closeWarmNativeSessionsForRun: async () => ({ closed: 0, busy, failed: 0 }),
+      }).releaseEnvironmentLeasesForRun({ runId: seeded.runId, companyId: seeded.companyId, agentId: seeded.agentId, status, ...extra });
+    }
+
+    it.each(["failed", "cancelled", "timed_out", "interrupted", "succeeded"])(
+      "clears this process's controller claim on a terminal %s legacy run after an error-free release",
+      async (status) => {
+        const seeded = await seedControlled({ runStatus: status });
+        await release(seeded, status, { releaseRunLeases: async () => [] });
+        expect(await controllerOf(seeded.runId)).toEqual({ bootId: null, expiresAt: null });
+      },
+    );
+
+    it("keeps a foreign boot's controller claim after release", async () => {
+      const foreign = randomUUID();
+      const seeded = await seedControlled({ runStatus: "failed", bootId: foreign });
+      await release(seeded, "failed", { releaseRunLeases: async () => [] });
+      expect(await controllerOf(seeded.runId)).toMatchObject({ bootId: foreign, expiresAt: expect.any(Date) });
+    });
+
+    it("keeps the controller claim of a run that is still running", async () => {
+      const seeded = await seedControlled({ runStatus: "running" });
+      await release(seeded, "running", { releaseRunLeases: async () => [] });
+      expect(await controllerOf(seeded.runId)).toMatchObject({ bootId: legacyControllerBootId, expiresAt: expect.any(Date) });
+    });
+
+    it("leaves a native run's controller columns untouched", async () => {
+      const seeded = await seedControlled({ runStatus: "failed", runtimeMode: "native" });
+      await release(seeded, "failed", { releaseRunLeases: async () => [] });
+      expect(await controllerOf(seeded.runId)).toMatchObject({ bootId: legacyControllerBootId, expiresAt: expect.any(Date) });
+    });
+
+    it.each(["lease_error", "release_throws"] as const)("keeps the hold when the release did not succeed (%s)", async (mode) => {
+      const seeded = await seedControlled({ runStatus: "failed" });
+      await release(seeded, "failed", {
+        releaseRunLeases: async (_runId: string, _status: string, onError?: (leaseId: string, error: unknown) => void) => {
+          if (mode === "release_throws") throw new Error("synthetic release failure");
+          onError?.(randomUUID(), new Error("synthetic lease failure"));
+          return [];
+        },
+      } as Partial<HeartbeatEnvironmentRuntime>);
+      expect(await controllerOf(seeded.runId)).toMatchObject({ bootId: legacyControllerBootId, expiresAt: expect.any(Date) });
+    });
+
+    it("keeps the hold when destruction is deferred behind a busy warm session", async () => {
+      const seeded = await seedControlled({ runStatus: "failed" });
+      const releaseRunLeases = vi.fn(async () => []);
+      await release(seeded, "failed", { releaseRunLeases }, { providerResourceDisposition: "destroy" }, 1);
+      expect(releaseRunLeases).not.toHaveBeenCalled();
+      expect(await controllerOf(seeded.runId)).toMatchObject({ bootId: legacyControllerBootId, expiresAt: expect.any(Date) });
+    });
   });
 
   it("terminalizes a running run to succeeded before release when the issue reached done", async () => {
