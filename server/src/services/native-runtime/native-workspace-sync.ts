@@ -617,6 +617,23 @@ async function readDescriptor(input: {
   };
 }
 
+async function assertAcquisitionGenerationCurrent(
+  db: Db,
+  runId: string,
+  observed: AcquisitionObservation,
+): Promise<void> {
+  const run = await db
+    .select({ runnerProfileJson: heartbeatRuns.runnerProfileJson })
+    .from(heartbeatRuns)
+    .where(eq(heartbeatRuns.id, runId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null);
+  if (!run) throw new Error("native_workspace_sync_run_missing");
+  if (observeAcquisition(run.runnerProfileJson).canonical !== observed.canonical) {
+    throw new Error("native_workspace_transfer_generation_stale");
+  }
+}
+
 async function persistRunReference(
   db: Db,
   runId: string,
@@ -896,8 +913,16 @@ async function finalizePreparedRuntime(input: {
   observed: AcquisitionObservation;
   assertOwnership?: () => Promise<void>;
 }): Promise<NativeWorkspaceSyncReference> {
+  // Lock-free pre-checks keep a stale generation from touching anything: none
+  // before the host merge, and no remote stamp or finalized descriptor after
+  // it. A generation change during the merge itself still leaves the merged
+  // host files behind; persistRunReference re-checks under the issue -> run
+  // lock and refuses the receipt and DB reference. No transaction spans the
+  // transfer.
+  await assertAcquisitionGenerationCurrent(input.db, input.runId, input.observed);
   await input.runtime.restoreWorkspace();
   await input.assertOwnership?.();
+  await assertAcquisitionGenerationCurrent(input.db, input.runId, input.observed);
   const finalSnapshot =
     await import("@paperclipai/adapter-utils/workspace-restore-merge").then(
       ({ captureDirectorySnapshot }) =>

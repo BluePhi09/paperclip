@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import { captureDirectorySnapshot, directorySnapshotSha256 } from "@paperclipai/
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 
 const transfer = vi.hoisted(() => ({
+  restoreCalls: 0,
   duringSyncIn: null as null | (() => Promise<void>),
   duringSyncOut: null as null | (() => Promise<void>),
   syncOutError: null as null | Error,
@@ -28,6 +29,7 @@ vi.mock("@paperclipai/adapter-utils/execution-target", async (importOriginal) =>
       workspaceSyncSnapshot: { baseline, gitSnapshot: null },
       cleanupWorkspaceSnapshot: async () => {},
       restoreWorkspace: async () => {
+        transfer.restoreCalls += 1;
         await transfer.duringSyncOut?.();
         if (transfer.syncOutError) throw transfer.syncOutError;
         await writeFile(path.join(input.workspaceLocalDir, "result.txt"), "changed in sandbox");
@@ -36,7 +38,7 @@ vi.mock("@paperclipai/adapter-utils/execution-target", async (importOriginal) =>
   }),
 }));
 
-import { prepareNativeWorkspaceSync, resumeNativeWorkspaceSync } from "../services/native-runtime/native-workspace-sync.js";
+import { nativeWorkspaceSyncInternals, prepareNativeWorkspaceSync, resumeNativeWorkspaceSync } from "../services/native-runtime/native-workspace-sync.js";
 import { writeRunAcquisition, type RunAcquisition } from "../services/environment-acquisition-authority.js";
 
 let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
@@ -49,7 +51,7 @@ beforeEach(async () => {
   home = await mkdtemp(path.join(os.tmpdir(), "paperclip-transfer-receipt-"));
   process.env.PAPERCLIP_HOME = home;
   process.env.PAPERCLIP_INSTANCE_ID = "transfer-receipt";
-  transfer.duringSyncIn = null; transfer.duringSyncOut = null; transfer.syncOutError = null;
+  transfer.duringSyncIn = null; transfer.duringSyncOut = null; transfer.syncOutError = null; transfer.restoreCalls = 0;
 });
 afterEach(async () => {
   await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`truncate companies, environments cascade`); });
@@ -128,13 +130,43 @@ it.each(["new_generation", "same_generation_reset"] as const)("rejects a sync-in
   expect(profile.nativeWorkspaceSync).toBeUndefined();
 });
 
+const descriptorFiles = (runId: string) => readdir(path.dirname(nativeWorkspaceSyncInternals.descriptorPath(runId, "0".repeat(64)))).then(names => names.sort());
+async function leaseMetadata(leaseId: string) {
+  const [lease] = await db.select({ metadata: environmentLeases.metadata }).from(environmentLeases).where(eq(environmentLeases.id, leaseId));
+  return lease!.metadata;
+}
+
 it("rejects a sync-out whose acquisition generation changed mid-transfer and keeps the prepared reference", async () => {
   const f = await seed();
   const prepared = await prepare(f);
+  const descriptorsBefore = await descriptorFiles(f.runId);
+  const remoteCallsBefore = f.target.runner.execute.mock.calls.length;
   transfer.duringSyncOut = async () => {
     await writeRunAcquisition(db as never, f.runId, { ...f.ledger, token: randomUUID(), generation: 4, state: "pending", leaseId: undefined });
   };
   await expect(prepared!.restoreWorkspace()).rejects.toThrow("native_workspace_transfer_generation_stale");
+  const profile = await runProfile(f.runId);
+  expect(profile.nativeWorkspaceTransferReceipts.sync_out).toBeUndefined();
+  expect(profile.nativeWorkspaceSync.state).toBe("prepared");
+  // The host merge already ran inside the transfer, but nothing after it is
+  // published: no remote stamp, no finalized descriptor, no lease stamp.
+  expect(f.target.runner.execute.mock.calls.length).toBe(remoteCallsBefore);
+  expect(await descriptorFiles(f.runId)).toEqual(descriptorsBefore);
+  expect(await leaseMetadata(f.leaseId)).toEqual({});
+});
+
+it("does not start a sync-out whose acquisition generation is already stale", async () => {
+  const f = await seed();
+  const prepared = await prepare(f);
+  const descriptorsBefore = await descriptorFiles(f.runId);
+  const remoteCallsBefore = f.target.runner.execute.mock.calls.length;
+  await writeRunAcquisition(db as never, f.runId, { ...f.ledger, token: randomUUID(), generation: 4, state: "pending", leaseId: undefined });
+  await expect(prepared!.restoreWorkspace()).rejects.toThrow("native_workspace_transfer_generation_stale");
+  expect(transfer.restoreCalls).toBe(0);
+  await expect(readFile(path.join(f.workspace, "result.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  expect(f.target.runner.execute.mock.calls.length).toBe(remoteCallsBefore);
+  expect(await descriptorFiles(f.runId)).toEqual(descriptorsBefore);
+  expect(await leaseMetadata(f.leaseId)).toEqual({});
   const profile = await runProfile(f.runId);
   expect(profile.nativeWorkspaceTransferReceipts.sync_out).toBeUndefined();
   expect(profile.nativeWorkspaceSync.state).toBe("prepared");
