@@ -20110,11 +20110,15 @@ export function heartbeatService(
   // Terminal and attributable: no immediate recovery/repair wake, and an
   // activity entry so the board can see why execution was refused.
   async function cancelEvidenceDeniedRun(runId: string, code: string) {
+    const before = await getRun(runId);
     const cancelled = await cancelRunInternal(runId, "Evidence pack blocks execution", {
       errorCode: code,
       suppressImmediateRecovery: true,
     });
-    if (!cancelled) return;
+    // cancelRunInternal returns an already terminal run unchanged (for example
+    // a native run its finalizer already failed). Only a cancellation caused
+    // by this denial is attributed to it.
+    if (!cancelled || before?.status === "cancelled" || cancelled.status !== "cancelled" || cancelled.errorCode !== code) return;
     const issueId = readNonEmptyString(parseObject(cancelled.contextSnapshot).issueId) ?? cancelled.nativeIssueId ?? null;
     await logActivity(db, {
       companyId: cancelled.companyId,
