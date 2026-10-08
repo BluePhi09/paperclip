@@ -82,12 +82,16 @@ describe("isolated governance lifecycle", () => {
     }
   });
   let fixtureNumber = 0;
-  async function fixture(registerOverride?: string) {
-    const companyId = randomUUID(), ownerUserId = randomUUID(), agentId = randomUUID(), reviewerAgentId = randomUUID();
+  type SharedScope = Pick<Awaited<ReturnType<typeof fixture>>, "companyId" | "ownerUserId" | "svc" | "service" | "credential" | "principal">;
+  /** `shared` reuses an existing company, owner, service and credential for a second, independent operation. */
+  async function fixture(registerOverride?: string, shared?: SharedScope) {
+    const companyId = shared?.companyId ?? randomUUID(), ownerUserId = shared?.ownerUserId ?? randomUUID(), agentId = randomUUID(), reviewerAgentId = randomUUID();
     const issueId = randomUUID(), reviewIssueId = randomUUID(), runId = randomUUID(), reviewRunId = randomUUID();
-    await db.insert(companies).values({ id: companyId, name: "fixture", issuePrefix: `G${++fixtureNumber}` });
-    await db.insert(authUsers).values({ id: ownerUserId, name: "Owner", email: `${ownerUserId}@example.test`, createdAt: new Date(), updatedAt: new Date() });
-    await db.insert(companyMemberships).values({ companyId, principalType: "user", principalId: ownerUserId, status: "active", membershipRole: "owner" });
+    if (!shared) {
+      await db.insert(companies).values({ id: companyId, name: "fixture", issuePrefix: `G${++fixtureNumber}` });
+      await db.insert(authUsers).values({ id: ownerUserId, name: "Owner", email: `${ownerUserId}@example.test`, createdAt: new Date(), updatedAt: new Date() });
+      await db.insert(companyMemberships).values({ companyId, principalType: "user", principalId: ownerUserId, status: "active", membershipRole: "owner" });
+    }
     await db.insert(agents).values([agentId, reviewerAgentId].map(id => ({ id, companyId, name: "fixture", status: "active" })));
     await db.insert(issues).values([
       { id: issueId, companyId, title: "secret poison @owner", status: "in_progress", assigneeAgentId: agentId },
@@ -127,10 +131,10 @@ describe("isolated governance lifecycle", () => {
         agentId: human ? null : reviewerAgentId, runId: human ? null : reviewRunId, action: "issue.thread_interaction_accepted", entityType: "issue", entityId: targetIssueId,
         details: { interactionId: id, interactionStatus: "accepted", effectiveResolverPolicy: human ? "human_only" : "not_creator" } });
     }
-    const svc = governanceService(db);
-    const service = await svc.createService({ companyId, ownerUserId, nasTarget: "fixture-nas" });
-    const credential = await svc.issueCredential(service.id, ownerUserId, new Date(Date.now() + 60_000));
-    const principal = await svc.authenticate(credential.token);
+    const svc = shared?.svc ?? governanceService(db);
+    const service = shared?.service ?? await svc.createService({ companyId, ownerUserId, nasTarget: "fixture-nas" });
+    const credential = shared?.credential ?? await svc.issueCredential(service.id, ownerUserId, new Date(Date.now() + 60_000));
+    const principal = shared?.principal ?? await svc.authenticate(credential.token);
     const binding = { serviceId: service.id, issuer: "paperclip-gateway", operation, operationDocumentId, operationRevisionId, reviewIssueId, reviewerAgentId, fpInteractionId, humanInteractionId };
     return { ...binding, companyId, ownerUserId, agentId, issueId, runId, reviewRunId, opHash, svc, service, credential, principal };
   }
@@ -151,8 +155,8 @@ describe("isolated governance lifecycle", () => {
     expect(audit.map(e => e.type)).toEqual(["audit_intent"]);
     expect(JSON.stringify(audit)).not.toContain("secret poison");
   });
-  async function verifiedFixture() {
-    const f = await fixture();
+  async function verifiedFixture(shared?: SharedScope) {
+    const f = await fixture(undefined, shared);
     const invocation = await f.svc.recordInvocation({ serviceId: f.service.id, issuer: f.issuer, operation: f.operation,
       operationDocumentId: f.operationDocumentId, operationRevisionId: f.operationRevisionId, reviewIssueId: f.reviewIssueId,
       reviewerAgentId: f.reviewerAgentId, fpInteractionId: f.fpInteractionId, humanInteractionId: f.humanInteractionId });
@@ -188,6 +192,26 @@ describe("isolated governance lifecycle", () => {
     const verified = await f.svc.verify(f.principal, { invocationId: invocation.id, opHash: f.opHash, idempotencyKey: "verify-register" });
     expect(verified).toMatchObject({ decision: "deny", reasonCode: "register_unauthorized", verificationId: null });
     expect(await db.select().from(governanceAuditEvents).where(eq(governanceAuditEvents.companyId, f.companyId))).toHaveLength(0);
+  });
+  it("maps an idempotency key reused by the same credential for another invocation to 409", async () => {
+    const first = await verifiedFixture();
+    const second = await fixture(undefined, first);
+    const invocation = await second.svc.recordInvocation({ serviceId: second.service.id, issuer: second.issuer, operation: second.operation,
+      operationDocumentId: second.operationDocumentId, operationRevisionId: second.operationRevisionId, reviewIssueId: second.reviewIssueId,
+      reviewerAgentId: second.reviewerAgentId, fpInteractionId: second.fpInteractionId, humanInteractionId: second.humanInteractionId });
+    expect(invocation.id).not.toBe(first.invocation.id);
+    // Same credential, same key, different invocation: a clean conflict, never a 500.
+    await expect(second.svc.verify(second.principal, { invocationId: invocation.id, opHash: second.opHash, idempotencyKey: "verify" }))
+      .rejects.toMatchObject({ status: 409 });
+    const app = express(); app.use(express.json()); app.use(governanceMachineBoundary(db)); app.use(errorHandler);
+    const reused = await request(app).post("/api/governance/dsm/v1/verifications").set("Authorization", `Bearer ${first.credential.token}`)
+      .send({ invocationId: invocation.id, opHash: second.opHash, idempotencyKey: "verify" });
+    expect(reused.status).toBe(409);
+    // The idempotent retry for the original invocation is unchanged.
+    const retry = await first.svc.verify(first.principal, { invocationId: first.invocation.id, opHash: first.opHash, idempotencyKey: "verify" });
+    expect(retry).toMatchObject({ decision: "allow", verificationId: first.verified.verificationId });
+    // A fresh key still verifies the second invocation.
+    expect((await second.svc.verify(second.principal, { invocationId: invocation.id, opHash: second.opHash, idempotencyKey: "verify-2" })).decision).toBe("allow");
   });
   it("denies consume after the service owner loses company authority", async () => {
     const f = await verifiedFixture();

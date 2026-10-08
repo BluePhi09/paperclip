@@ -4,6 +4,7 @@ import { type Db, governanceServices, governanceCredentials, governanceInvocatio
   companyMemberships, issues, heartbeatRuns, agentWakeupRequests, documents, documentRevisions, issueDocuments, issueThreadInteractions, activityLog } from "@paperclipai/db";
 import { and, eq, sql, inArray } from "drizzle-orm";
 import { forbidden, unauthorized, unprocessable, conflict, notFound } from "../errors.js";
+import { isUniqueViolation } from "../db-errors.js";
 
 export interface GovernancePrincipal {
   serviceId: string; credentialId: string; companyId: string; nasTarget: string;
@@ -208,7 +209,12 @@ export function governanceService(db: Db) {
         if (existing && (existing.credentialId !== principal.credentialId || existing.idempotencyKey !== request.idempotencyKey || existing.dispatchId)) throw conflict("Verification already reserved or consumed");
         const verification = existing ?? (await tx.insert(governanceVerifications).values({ invocationId: invocation.id,
           credentialId: principal.credentialId, idempotencyKey: request.idempotencyKey,
-          expiresAt: new Date(Math.min(now.getTime() + 30_000, invocation.expiresAt.getTime())) }).returning())[0]!;
+          expiresAt: new Date(Math.min(now.getTime() + 30_000, invocation.expiresAt.getTime())) }).returning().catch((err: unknown) => {
+          // The key is unique per credential. Reusing it for another invocation is
+          // a client conflict; the identical retry above returns `existing`.
+          if (isUniqueViolation(err, "governance_verifications_key_uq")) throw conflict("Idempotency key already used for another invocation");
+          throw err;
+        }))[0]!;
         if (verification.expiresAt <= finalNow) throw conflict("Verification expired");
         return { decision: "allow" as const, reasonCode: "evidence_valid", checkedAt: finalNow,
           expiresAt: verification.expiresAt, verificationId: verification.id, opHash: invocation.opHash, contractRevision: 1 };
