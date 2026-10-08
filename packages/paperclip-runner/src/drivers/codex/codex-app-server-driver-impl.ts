@@ -393,7 +393,7 @@ export class CodexAppServerDriver implements HarnessDriver {
     // An admission denial is an authorization outcome, not an unrecoverable
     // provider session: propagate it instead of reporting `recovered: false`,
     // which could otherwise open a replacement or be classified as retryable.
-    let admissionDenial: { error: unknown } | null = null;
+    let admissionDenial = null as { error: unknown } | null;
     try {
       await cancellation.wait(this.#persistProcessOwnership(transport));
       const initialize = await cancellation.wait(this.#initialize(transport));
