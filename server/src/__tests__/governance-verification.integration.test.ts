@@ -184,6 +184,7 @@ describe("isolated governance lifecycle", () => {
     ["different api version", JSON.stringify({ version: 1, entries: [{ entryId: "entry-1", effectClass: "NE", api: "SYNO.Fixture", method: "set", apiVersion: 2, targetIds: ["opaque-target"] }] })],
     ["unversioned free text", "fixture register"],
     ["unknown field", JSON.stringify({ version: 1, entries: [], extra: true })],
+    ["unparseable JSON", '{"version":1,"entries":['],
   ])("denies when the bound register does not authorize the operation: %s", async (_name, registerBody) => {
     const f = await fixture(registerBody);
     const invocation = await f.svc.recordInvocation({ serviceId: f.service.id, issuer: f.issuer, operation: f.operation,
@@ -212,6 +213,85 @@ describe("isolated governance lifecycle", () => {
     expect(retry).toMatchObject({ decision: "allow", verificationId: first.verified.verificationId });
     // A fresh key still verifies the second invocation.
     expect((await second.svc.verify(second.principal, { invocationId: invocation.id, opHash: second.opHash, idempotencyKey: "verify-2" })).decision).toBe("allow");
+  });
+  async function registeredFixture(registerOverride?: string) {
+    const f = await fixture(registerOverride);
+    const invocation = await f.svc.recordInvocation({ serviceId: f.service.id, issuer: f.issuer, operation: f.operation,
+      operationDocumentId: f.operationDocumentId, operationRevisionId: f.operationRevisionId, reviewIssueId: f.reviewIssueId,
+      reviewerAgentId: f.reviewerAgentId, fpInteractionId: f.fpInteractionId, humanInteractionId: f.humanInteractionId });
+    return { ...f, invocation };
+  }
+  it.each([
+    ["register is not linked to the operation issue", "register_invalid"],
+    ["bound register revision row is missing", "register_invalid"],
+    ["register document is unlocked", "revision_stale"],
+    ["register document is missing", "revision_stale"],
+  ] as const)("denies when the %s with %s", async (fault, reasonCode) => {
+    const f = await registeredFixture();
+    const registerId = f.operation.registerDocumentId;
+    if (fault === "register is not linked to the operation issue") await db.delete(issueDocuments).where(eq(issueDocuments.documentId, registerId));
+    if (fault === "bound register revision row is missing") await db.delete(documentRevisions).where(eq(documentRevisions.documentId, registerId));
+    if (fault === "register document is unlocked") await db.update(documents).set({ lockedAt: null }).where(eq(documents.id, registerId));
+    if (fault === "register document is missing") {
+      await db.delete(issueDocuments).where(eq(issueDocuments.documentId, registerId));
+      await db.delete(documentRevisions).where(eq(documentRevisions.documentId, registerId));
+      await db.delete(documents).where(eq(documents.id, registerId));
+    }
+    const verified = await f.svc.verify(f.principal, { invocationId: f.invocation.id, opHash: f.opHash, idempotencyKey: "verify-register" });
+    expect(verified).toMatchObject({ decision: "deny", reasonCode, verificationId: null });
+    expect(await db.select().from(governanceVerifications).where(eq(governanceVerifications.invocationId, f.invocation.id))).toHaveLength(0);
+  });
+  it("accepts every documented outcome claim and rejects mismatched type/reason pairs", async () => {
+    for (const claim of [
+      { type: "succeeded", reasonCode: "none" },
+      { type: "failed", reasonCode: "provider_failed" },
+      { type: "unknown", reasonCode: "outcome_unknown" },
+    ]) {
+      const f = await verifiedFixture();
+      const consumed = await f.svc.consume(f.principal, f.verified.verificationId, { opHash: f.opHash, idempotencyKey: "consume" });
+      for (const [type, reasonCode] of [["succeeded", "provider_failed"], ["succeeded", "outcome_unknown"], ["failed", "none"],
+        ["failed", "outcome_unknown"], ["unknown", "none"], ["unknown", "provider_failed"]]) {
+        await expect(f.svc.appendEvent(f.principal, consumed.dispatchId, { type, reasonCode, idempotencyKey: `bad-${type}-${reasonCode}` }), `${type}/${reasonCode}`)
+          .rejects.toMatchObject({ status: 422 });
+      }
+      const event = { ...claim, idempotencyKey: "outcome", artifactDigest: "c".repeat(64) };
+      const recorded = await f.svc.appendEvent(f.principal, consumed.dispatchId, event);
+      expect(recorded.noReplay).toBe(true);
+      expect((await f.svc.appendEvent(f.principal, consumed.dispatchId, event)).id).toBe(recorded.id);
+      const rows = await db.select().from(governanceAuditEvents).where(eq(governanceAuditEvents.dispatchId, consumed.dispatchId));
+      expect(rows.map(row => [row.type, row.reasonCode]).sort()).toEqual([["audit_intent", "none"], [claim.type, claim.reasonCode]].sort());
+    }
+  });
+  it("bounds credential lifetime and never caches the issued token", async () => {
+    const f = await fixture();
+    const app = express(); app.use(express.json());
+    app.use((req, _res, next) => { req.actor = { type: "board", userId: f.ownerUserId, source: "session", companyIds: [f.companyId], memberships: [{ companyId: f.companyId, membershipRole: "owner", status: "active" }] }; next(); });
+    app.use("/api", governanceOwnerRoutes(db)); app.use(errorHandler);
+    const url = `/api/companies/${f.companyId}/governance/services/${f.service.id}/credentials`;
+    for (const expiresAt of [new Date(Date.now() + 86_400_000 + 60_000), new Date(Date.now() - 1_000), new Date(Date.now() - 86_400_000)]) {
+      const rejected = await request(app).post(url).send({ expiresAt: expiresAt.toISOString() });
+      expect(rejected.status, expiresAt.toISOString()).toBe(422);
+    }
+    expect((await request(app).post(url).send({ expiresAt: "tomorrow" })).status).toBe(422);
+    expect(await f.svc.listCredentials(f.service.id, f.ownerUserId)).toHaveLength(1);
+    const issued = await request(app).post(url).send({ expiresAt: new Date(Date.now() + 86_400_000 - 60_000).toISOString() });
+    expect(issued.status).toBe(201);
+    expect(issued.headers["cache-control"]).toBe("no-store");
+    expect(issued.body.token).toMatch(/^pcgov_[a-f0-9]{64}$/);
+  });
+  it("returns 404 when revoking an unknown or another service's credential", async () => {
+    const f = await fixture();
+    const sibling = await f.svc.createService({ companyId: f.companyId, ownerUserId: f.ownerUserId, nasTarget: "sibling-nas" });
+    const siblingCredential = await f.svc.issueCredential(sibling.id, f.ownerUserId, new Date(Date.now() + 60_000));
+    const app = express(); app.use(express.json());
+    app.use((req, _res, next) => { req.actor = { type: "board", userId: f.ownerUserId, source: "session", companyIds: [f.companyId], memberships: [{ companyId: f.companyId, membershipRole: "owner", status: "active" }] }; next(); });
+    app.use("/api", governanceOwnerRoutes(db)); app.use(errorHandler);
+    const url = `/api/companies/${f.companyId}/governance/services/${f.service.id}/credentials`;
+    for (const id of [randomUUID(), siblingCredential.id, "not-a-uuid"]) {
+      expect((await request(app).delete(`${url}/${id}`)).status, id).toBe(404);
+    }
+    expect((await f.svc.authenticate(siblingCredential.token)).credentialId).toBe(siblingCredential.id);
+    expect((await f.svc.authenticate(f.credential.token)).credentialId).toBe(f.credential.id);
   });
   it("denies consume after the service owner loses company authority", async () => {
     const f = await verifiedFixture();
