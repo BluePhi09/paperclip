@@ -13,20 +13,20 @@ describe("Decision brief essential disclosure", () => {
     const root = createRoot(host);
     const brief = {
       version: 1, decisionClass: "human_risk_decision", purpose: "execution_authorization",
-      subject: "Öffentlichen Zugang über eine separate DMZ-VM freigeben?",
-      resolverTarget: { type: "human", reason: "Du entscheidest über den öffentlichen Zugang." },
-      evidenceRefs: [{ source: "Geprüfter Plan", revision: "5" }],
+      subject: "Should the media server be reachable from the internet?",
+      resolverTarget: { type: "human", reason: "Only you decide about public access." },
+      evidenceRefs: [{ source: "Reviewed plan", revision: "5" }],
       selectionConsequences: [
-        { optionId: "accept", consequence: "Nur diese Portfreigabe erlauben." },
-        { optionId: "reject", consequence: "Alternative planen, keinen Umbau ausführen." },
+        { optionId: "accept", consequence: "Permit this single forwarding rule only." },
+        { optionId: "reject", consequence: "Plan an alternative; change nothing." },
       ],
-      safeDefault: "Keine Portweiterleitung einrichten.",
-      reason: "Jellyfin von außen erreichen.",
-      scope: "TCP 443 auf 192.168.50.2, eine vom Cluster getrennte VM.",
-      excludedScope: "Andere Portweiterleitungen und UPnP bleiben verboten.",
-      risks: "Deine öffentliche IP wird sichtbar.",
-      preconditions: ["Die Voraussetzungen des geprüften Plans müssen vor Umsetzung erfüllt sein."],
-      recommendationOptionId: "accept", recommendationReason: "Die separate VM begrenzt den Schaden am Cluster.",
+      safeDefault: "Do not add any forwarding rule.",
+      reason: "Reach the media server while travelling.",
+      scope: "TCP 443 to the isolated media VM (example.internal).",
+      excludedScope: "All other forwarding and UPnP stay prohibited.",
+      risks: "Your public IP address becomes visible.",
+      preconditions: ["The reviewed plan's prerequisites must be met before implementation."],
+      recommendationOptionId: "accept", recommendationReason: "The isolated VM limits the impact of a compromise.",
     };
     try {
       await act(async () => root.render(<DecisionBriefSummary value={brief} />));
@@ -36,7 +36,7 @@ describe("Decision brief essential disclosure", () => {
         expect(visible.textContent).toContain(text);
       }
       expect(host.querySelector("details")?.open).toBe(false);
-      expect(host.querySelector("details")?.textContent).toContain("Geprüfter Plan");
+      expect(host.querySelector("details")?.textContent).toContain("Reviewed plan");
     } finally {
       await act(async () => root.unmount());
     }

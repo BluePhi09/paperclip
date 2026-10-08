@@ -4,14 +4,14 @@ import type { Agent, AttentionItem } from "@paperclipai/shared";
 import { decisionChatTarget, nativeChatDraftNavigation } from "./decision-chat";
 import { loadDraft, saveDraft } from "./composer-draft";
 
-const agent = { id: "agent-1", companyId: "company-1", name: "Nessa", status: "idle" } as Agent;
+const agent = { id: "agent-1", companyId: "company-1", name: "Planner", status: "idle" } as Agent;
 const item: AttentionItem = { id: "interaction:card-1", companyId: "company-1", audience: "human", sourceKind: "issue_thread_interaction",
-  subject: { kind: "interaction", identifier: null, status: "pending", href: null, id: "card-1", companyId: "company-1", title: "Portfreigabe?", metadata: { createdByAgentId: agent.id, targetRevisionId: "revision-5" } },
-  relatedIssue: { kind: "issue", status: "in_progress", title: "Portfreigabe planen", href: null, id: "task-1", companyId: "company-1", identifier: "BLU-484" },
+  subject: { kind: "interaction", identifier: null, status: "pending", href: null, id: "card-1", companyId: "company-1", title: "Expose the media server?", metadata: { createdByAgentId: agent.id, targetRevisionId: "revision-5" } },
+  relatedIssue: { kind: "issue", status: "in_progress", title: "Plan media server access", href: null, id: "task-1", companyId: "company-1", identifier: "ACME-12" },
   whyNow: "Human choice required", decisionVerbs: [], inlineResolvable: false, entryRule: "pending", exitRule: "answered",
   dedupKey: "card-1", dismissalKey: "card-1", dismissal: null, severity: "medium", rank: 1,
   activityAt: "2026-10-07T00:00:00Z", createdAt: "2026-10-07T00:00:00Z", updatedAt: "2026-10-07T00:00:00Z",
-  project: null, workspace: null, expiresAt: null, ruleKey: null, originAgentName: "Nessa", queues: [], shelf: false,
+  project: null, workspace: null, expiresAt: null, ruleKey: null, originAgentName: "Planner", queues: [], shelf: false,
   retentionDays: 30, keep: false, archivedAt: null, retentionVersion: 1, decideBy: null, decideByAttribution: null,
   snoozedUntil: null, detail: null, trainingExampleId: null,
 };
@@ -46,9 +46,9 @@ describe("decision chat navigation", () => {
     expect(loadDraft(key)).toBe(saved);
   });
   it("preserves another unsent draft and exposes the context separately", () => {
-    saveDraft(key, "Meine ungesendete Frage");
+    saveDraft(key, "My unsent question");
     const result = nativeChatDraftNavigation(item, agent, "company-1", "user-1");
-    expect(loadDraft(key)).toBe("Meine ungesendete Frage");
+    expect(loadDraft(key)).toBe("My unsent question");
     expect(result.state.decisionDiscussion.context).toContain("card-1");
     expect(result.state.decisionDiscussion.draftPrepared).toBe(false);
   });

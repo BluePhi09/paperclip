@@ -48,13 +48,13 @@ The contact, card, subject and linked task must belong to the selected company. 
 
 `pnpm decisions:legacy-routing apply --plan plan.json --yes` re-plans under row locks and executes only `reroute`/`split` entries whose source hash and action still match the reviewed plan. Replacement cards use deterministic idempotency keys and the original is withdrawn (no wake, answer or approval), so re-running is a no-op (`already_applied`). Cards changed after review are `skipped_changed`. Nothing is run automatically; applying to live data needs separate parent authorization after reviewing the plan.
 
-The same split rules apply to the approved wording below. Do not map a fact answer to authorization for another question. There is no automatic supersession, resolution or old-card approval.
+The same split rules apply to the illustrative wording below. Do not map a fact answer to authorization for another question. There is no automatic supersession, resolution or old-card approval.
 
-Approved wording and boundaries for manual parent review:
+Illustrative wording and boundaries (fictional examples):
 
-- BLU-484: "Öffentlichen Zugang über eine separate DMZ-VM freigeben?" Explain one Internet forwarding rule, TCP 443 to 192.168.50.2, external Jellyfin access and visible public IP. All other forwarding and UPnP remain prohibited. The alternate answer commissions a cluster plan only. Preserve the original document/revision; technical prerequisites must be checked before implementation.
-- BLU-422: split acceptance of loss of 2 TB films/series without redundancy from investigation of backup options/costs. Existing separate app-configuration backups do not make media redundant. Investigation permits no purchase. NAS deletion is a separate destructive authorization; keep the other backup questions separate.
-- BLU-425: the actual current fix subject is missing and the proposed windows are stale. Mark internally unresolved. Do not manufacture a current fix description or reuse expired dates. A later valid question explains the 1–3 minute restart, a 30-minute window, reachable manual fallback, safe agent pause, verification and resume; no deliberate run interruption.
-- BLU-142: "Nutzen Personen außerhalb deines Haushalts deine Dienste?" Ask only for group and service, not names. The answer is a personal fact and authorizes no change. DNS retention is a separate choice. Do not promise a blanket legal household exemption.
+- "Should the media server be reachable from the internet?" Explain the single forwarding rule (port and target host), what becomes publicly visible and what stays prohibited (all other forwarding, UPnP). The alternate answer commissions a plan only. Technical prerequisites must be checked before implementation.
+- Split "accept that a media archive has no redundancy" from "investigate backup options and costs". Investigation permits no purchase. Deleting data is a separate destructive authorization.
+- If a maintenance card's subject is missing or its proposed windows have expired, mark it internally unresolved. Do not invent a current description or reuse expired dates. A later valid question explains the expected downtime, the window, the manual fallback, verification and resume.
+- "Does anyone outside your team use the shared services?" Ask only for group and service, not names. The answer is a personal fact and authorizes no change. Any follow-up configuration change is a separate choice.
 
 Deployment alone never repairs the historical cards. Parent validation and separate authorization are required before any live changes. This feature authorizes no merge, deployment, agent wake or database mutation of the backlog.

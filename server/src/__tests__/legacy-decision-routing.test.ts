@@ -14,11 +14,11 @@ const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : 
 
 const factBrief = {
   version: 1, decisionClass: "personal_fact", purpose: "fact",
-  subject: "Do people outside your household use your services?",
+  subject: "Does anyone outside your team use the shared services?",
   mainSummary: "Name the group and service, no names. Your answer records a fact and permits no change.",
-  resolverTarget: { type: "human", reason: "Only you know who uses your services." },
+  resolverTarget: { type: "human", reason: "Only you know who uses the services." },
   evidenceRefs: [{ source: "privacy review", revision: "1" }],
-  selectionConsequences: [{ optionId: "household", label: "Only my household", consequence: "Record this fact only." }],
+  selectionConsequences: [{ optionId: "team_only", label: "Only my team", consequence: "Record this fact only." }],
   safeDefault: "Leave the question open; change nothing.",
 };
 
@@ -48,14 +48,14 @@ describeEmbeddedPostgres("legacy decision routing", () => {
     const creatorId = randomUUID();
     const expertId = randomUUID();
     await db.insert(companies).values({ id: companyId, name: "Paperclip", issuePrefix: `L${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`, requireBoardApprovalForNewAgents: false });
-    for (const [id, name] of [[creatorId, "Atlas"], [expertId, "Network expert"]] as const) {
+    for (const [id, name] of [[creatorId, "Author agent"], [expertId, "Network expert"]] as const) {
       await db.insert(agents).values({ id, companyId, name, role: "engineer", status: "active", adapterType: "codex_local", adapterConfig: {}, runtimeConfig: {}, permissions: {} });
     }
-    await db.insert(issues).values({ id: issueId, companyId, title: "Homelab", status: "in_review", priority: "medium", assigneeAgentId: creatorId });
+    await db.insert(issues).values({ id: issueId, companyId, title: "Infrastructure review", status: "in_review", priority: "medium", assigneeAgentId: creatorId });
     const expertBrief = {
       version: 1, decisionClass: "expert_review", purpose: "result_verification",
       subject: "Verify the DHCP range", resolverTarget: { type: "agent", agentId: expertId, reason: "Network expert" },
-      evidenceRefs: [{ source: "router export", revision: "3" }],
+      evidenceRefs: [{ source: "network config export", revision: "3" }],
       selectionConsequences: [{ optionId: "ok", consequence: "Record the verified range." }],
       safeDefault: "Leave unverified.",
     };
@@ -67,12 +67,12 @@ describeEmbeddedPostgres("legacy decision routing", () => {
       kind: "ask_user_questions",
       title: "Two questions",
       payload: { version: 1, questions: [
-        { id: "household", prompt: "Who uses your services?", selectionMode: "single", options: [{ id: "household", label: "Only my household" }], brief: factBrief },
+        { id: "team_only", prompt: "Who uses the shared services?", selectionMode: "single", options: [{ id: "team_only", label: "Only my team" }], brief: factBrief },
         { id: "dhcp", prompt: "Is the DHCP range correct?", selectionMode: "single", options: [{ id: "ok", label: "Correct" }], brief: expertBrief },
       ] },
     });
     // The title sounds technical; with no structured evidence it must not move.
-    const untyped = legacy({ kind: "request_confirmation", title: "Technical check: read the NAS output", payload: { version: 1, prompt: "Read the NAS output" } });
+    const untyped = legacy({ kind: "request_confirmation", title: "Technical check: read the storage report", payload: { version: 1, prompt: "Read the storage report" } });
     const governed = legacy({ kind: "request_confirmation", title: "Approve tool", payload: { version: 1, prompt: "Run tool?", toolAction: { requestId: randomUUID() } } });
     const agentCard = { ...legacy({ kind: "request_confirmation", payload: { version: 1, prompt: "Review" } }), addresseeAgentId: expertId, effectiveResolverPolicy: "anyone", requestedResolverPolicy: "anyone" };
     await db.insert(issueThreadInteractions).values([mixed, untyped, governed, agentCard] as never);
@@ -88,7 +88,7 @@ describeEmbeddedPostgres("legacy decision routing", () => {
     expect(byId.has(fx.agentCard.id)).toBe(false);
     expect(byId.get(fx.mixed.id)?.action).toEqual({ type: "split", groups: [
       { key: `expert:${fx.expertId}`, route: "expert", agentId: fx.expertId, unitIds: ["dhcp"] },
-      { key: "human", route: "human", unitIds: ["household"] },
+      { key: "human", route: "human", unitIds: ["team_only"] },
     ] });
     expect(byId.get(fx.untyped.id)).toMatchObject({ action: { type: "needs_triage" }, units: [{ route: { route: "needs_triage", basis: "no_structured_classification" } }] });
     expect(byId.get(fx.governed.id)).toMatchObject({ action: { type: "keep_human" }, units: [{ route: { route: "human", basis: "governed_action" } }] });
@@ -101,7 +101,7 @@ describeEmbeddedPostgres("legacy decision routing", () => {
     const plan = await planLegacyDecisionRouting(db, fx.companyId, {
       [fx.untyped.id]: { sourceHash: hash(fx.untyped.id), units: { card: { route: "expert", agentId: fx.expertId } } },
       [fx.governed.id]: { sourceHash: hash(fx.governed.id), units: { card: { route: "expert", agentId: fx.expertId } } },
-      [fx.mixed.id]: { sourceHash: "stale", units: { household: { route: "expert", agentId: fx.expertId } } },
+      [fx.mixed.id]: { sourceHash: "stale", units: { team_only: { route: "expert", agentId: fx.expertId } } },
     });
     const byId = new Map(plan.entries.map((entry) => [entry.interactionId, entry]));
     expect(byId.get(fx.untyped.id)?.action).toEqual({ type: "reroute", agentId: fx.expertId });
@@ -132,9 +132,9 @@ describeEmbeddedPostgres("legacy decision routing", () => {
     expect(expertCard).toMatchObject({ addresseeAgentId: fx.expertId, createdByAgentId: fx.creatorId, status: "pending" });
     expect((expertCard!.payload as { questions: Array<{ id: string }> }).questions.map((q) => q.id)).toEqual(["dhcp"]);
     expect(humanCard).toMatchObject({ addresseeAgentId: null, effectiveResolverPolicy: "human_only", createdByAgentId: fx.creatorId, status: "pending" });
-    expect((humanCard!.payload as { questions: Array<{ id: string; brief?: unknown }> }).questions).toEqual([expect.objectContaining({ id: "household", brief: factBrief })]);
+    expect((humanCard!.payload as { questions: Array<{ id: string; brief?: unknown }> }).questions).toEqual([expect.objectContaining({ id: "team_only", brief: factBrief })]);
     const rerouted = rows.find((row) => row.id === results[1]!.replacementInteractionIds![0])!;
-    expect(rerouted).toMatchObject({ kind: "request_confirmation", addresseeAgentId: fx.expertId, title: "Technical check: read the NAS output" });
+    expect(rerouted).toMatchObject({ kind: "request_confirmation", addresseeAgentId: fx.expertId, title: "Technical check: read the storage report" });
     expect(rows.find((row) => row.id === fx.governed.id)?.status).toBe("pending");
 
     const again = await applyLegacyDecisionRouting(db, plan);
