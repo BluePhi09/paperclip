@@ -181,6 +181,9 @@ function hasEvidencePack(executionPolicy: unknown) {
   return (executionPolicy as { evidencePack?: unknown } | null)?.evidencePack !== undefined;
 }
 
+/** Does this stored execution policy opt the issue into evidence gating? */
+export const issueHasEvidencePack = hasEvidencePack;
+
 /**
  * Lock-free opt-in probe. Issues without an evidence pack and runs without a
  * recorded evidence admission must behave exactly as before the gate existed:

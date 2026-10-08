@@ -9,7 +9,7 @@ import { createdFromIssueCondition } from "./issue-creation-origin.js";
 import { executionProjectionsForRuns } from "./execution-projection.js";
 import type { ExecutionProjection } from "@paperclipai/shared";
 import { Buffer } from "node:buffer";
-import { assertIssueEvidencePack, authorizeEvidencePolicyChange } from "./evidence-pack.js";
+import { assertIssueEvidencePack, authorizeEvidencePolicyChange, issueHasEvidencePack } from "./evidence-pack.js";
 import { createHash, randomUUID } from "node:crypto";
 import { isExplicitContinuationRetryClaim } from "./explicit-continuation-retry-claim.js";
 import { markdownToPlainText, parseMarkdown } from "chat";
@@ -11526,14 +11526,26 @@ export function issueService(db: Db) {
             eq(issues.executionRunId, checkoutRunId),
           )
         : isNull(issues.executionRunId);
-      const admittedWrite = async <T>(write: (tx: Db) => Promise<T>): Promise<T> => db.transaction(async (tx) => {
-        const [locked] = await tx.select().from(issues)
-          .where(and(eq(issues.id, id), eq(issues.companyId, issueCompany.companyId))).for("update");
-        if (!locked) throw notFound("Issue not found");
-        await assertIssueEvidencePack(tx as unknown as Db, locked, agentId);
-        return write(tx as unknown as Db);
-      });
-      const updated = await admittedWrite(async (tx) => tx
+      // Opt-in invariant: without an evidence pack this is exactly the legacy
+      // single UPDATE (no transaction, no row lock); a missing row still yields
+      // null to the legacy fallback below. The guard makes that write a no-op if
+      // a pack is present, so a pack committed concurrently is never bypassed:
+      // the write is then repeated under the issue lock after admission.
+      const noEvidencePack = sql`(${issues.executionPolicy} -> 'evidencePack') is null`;
+      const admittedWrite = async <T>(write: (tx: Db, guard?: SQL) => Promise<T | null>): Promise<T | null> => {
+        const legacy = await write(db, noEvidencePack);
+        if (legacy !== null) return legacy;
+        const [probe] = await db.select({ executionPolicy: issues.executionPolicy }).from(issues)
+          .where(and(eq(issues.id, id), eq(issues.companyId, issueCompany.companyId)));
+        if (!probe || !issueHasEvidencePack(probe.executionPolicy)) return null;
+        return db.transaction(async (tx) => {
+          const [locked] = await tx.select().from(issues)
+            .where(and(eq(issues.id, id), eq(issues.companyId, issueCompany.companyId))).for("update");
+          if (locked) await assertIssueEvidencePack(tx as unknown as Db, locked, agentId);
+          return write(tx as unknown as Db);
+        });
+      };
+      const updated = await admittedWrite(async (tx, guard) => tx
         .update(issues)
         .set({
           assigneeAgentId: agentId,
@@ -11550,6 +11562,7 @@ export function issueService(db: Db) {
             inArray(issues.status, expectedStatuses),
             or(isNull(issues.assigneeAgentId), sameRunAssigneeCondition),
             executionLockCondition,
+            guard,
           ),
         )
         .returning()
@@ -11582,7 +11595,7 @@ export function issueService(db: Db) {
           current.executionRunId === checkoutRunId) &&
         checkoutRunId
       ) {
-        const adopted = await admittedWrite(async (tx) => tx
+        const adopted = await admittedWrite(async (tx, guard) => tx
           .update(issues)
           .set({
             checkoutRunId,
@@ -11599,6 +11612,7 @@ export function issueService(db: Db) {
                 isNull(issues.executionRunId),
                 eq(issues.executionRunId, checkoutRunId),
               ),
+              guard,
             ),
           )
           .returning()
@@ -11659,7 +11673,7 @@ export function issueService(db: Db) {
           }
           // Narrowing does not survive into the admitted-write callback.
           const staleExecutionRunId = current.executionRunId;
-          const adopted = await admittedWrite(async (tx) => tx
+          const adopted = await admittedWrite(async (tx, guard) => tx
             .update(issues)
             .set(adoptionSet)
             .where(
@@ -11671,6 +11685,7 @@ export function issueService(db: Db) {
                   isNull(issues.assigneeAgentId),
                   eq(issues.assigneeAgentId, agentId),
                 ),
+                guard,
               ),
             )
             .returning()

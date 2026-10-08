@@ -548,6 +548,57 @@ describe("evidence pack at the issue execution boundary", () => {
     await db.update(issues).set({ status: "todo" }).where(eq(issues.id, f.pack.prerequisiteIssueIds[0]));
     await expect(issueService(db).checkout(f.issueId, f.agentId, ["todo"], null)).rejects.toMatchObject({ details: { code: "evidence_pack_prerequisite_open" } });
   });
+  // Opt-in invariant at checkout: an issue without a pack keeps the legacy
+  // single-statement writes; a row that disappears before a write still yields
+  // null to the legacy fallback instead of a new not-found error.
+  async function waitForLockWait() {
+    const { sql } = await import("drizzle-orm");
+    for (let i = 0; i < 300; i++) {
+      const rows = await db.execute(sql`select 1 from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`);
+      if (rows.length) return true;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return false;
+  }
+  it("noPack checkout keeps the legacy fallback when the row disappears before adoption", async () => {
+    const f = await fixture();
+    const runId = randomUUID();
+    await db.insert(heartbeatRuns).values({ id: runId, companyId: f.companyId, agentId: f.agentId, status: "running" });
+    // Not in expectedStatuses: the first write misses and the adoption branch runs.
+    await db.update(issues).set({ executionPolicy: null, status: "in_progress" }).where(eq(issues.id, f.issueId));
+    let deleter: Promise<unknown> | null = null;
+    let lockWaitSeen = false;
+    // Once checkout has read its fallback snapshot, lock the row, wait until the
+    // adoption write queues behind the lock, then delete the row.
+    const afterCurrentRead = () => new Promise<void>((locked) => {
+      deleter = db.transaction(async (tx) => {
+        await tx.select({ id: issues.id }).from(issues).where(eq(issues.id, f.issueId)).for("update");
+        locked();
+        lockWaitSeen = await waitForLockWait();
+        await tx.delete(issues).where(eq(issues.id, f.issueId));
+      });
+    });
+    const fallbackRead = "id,status,assigneeAgentId,checkoutRunId,executionRunId";
+    const observed = new Proxy(db, { get(target, prop) {
+      if (prop !== "select") { const value = Reflect.get(target, prop); return typeof value === "function" ? value.bind(target) : value; }
+      return (fields?: Record<string, unknown>) => {
+        const builder = target.select(fields as never);
+        if (!fields || Object.keys(fields).join() !== fallbackRead) return builder;
+        const from = builder.from.bind(builder);
+        return Object.assign(builder, { from: (table: never) => {
+          const query = from(table);
+          const then = query.then.bind(query);
+          return Object.assign(query, { then: (resolve: never, reject: never) => then(async (rows: unknown) => { await afterCurrentRead(); return rows; }).then(resolve, reject) });
+        } });
+      };
+    } }) as typeof db;
+    const outcome = await issueService(observed).checkout(f.issueId, f.agentId, ["todo"], runId).then(() => "checked out", (e: Error) => e.message);
+    await deleter;
+    expect(lockWaitSeen).toBe(true);
+    // Legacy: the adoption write returns no row and the method falls through
+    // to its ordinary conflict.
+    expect(outcome).toBe("Issue checkout conflict");
+  });
   it("blocks a real in_progress update when an opted-in pack is missing", async () => {
     const f = await fixture();
     await expect(issueService(db).update(f.issueId, { status: "in_progress", actorUserId: "local-board" })).rejects.toThrow("Evidence pack");
