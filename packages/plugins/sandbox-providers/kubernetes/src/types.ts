@@ -114,6 +114,16 @@ export function parseKubernetesProviderConfig(input: unknown): KubernetesProvide
 }
 
 export interface KubernetesLeaseMetadata {
+  /** Provider-selected harness, not the mutable environment default. */
+  effectiveAdapterType?: string | null;
+  /** Selected OCI reference; not proof of a resolved image digest. */
+  imageRef?: string | null;
+  /** Container-status image identity when observed, otherwise explicitly unknown. */
+  imageID?: string | null;
+  containerIdentity?: import("./container-identity.js").ContainerIdentity;
+  podUid?: string | null;
+  workloadUid?: string | null;
+  containerName?: string;
   namespace: string;
   /** Name of the workload resource (Job name for job backend, Sandbox CR name for sandbox-cr backend). */
   jobName: string;
