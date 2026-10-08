@@ -52,7 +52,16 @@ export async function acquisitionAuthorityValid(tx: Db, run: typeof heartbeatRun
   const issueId = run.nativeIssueId ?? run.contextSnapshot?.issueId;
   if (typeof issueId === "string") {
     const [issue] = await tx.select().from(issues).where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)));
-    if (!issue || (issue.executionRunId && issue.executionRunId !== run.id) || (issue.checkoutRunId && issue.checkoutRunId !== run.id)) return false;
+    if (!issue || (issue.executionRunId && issue.executionRunId !== run.id)) return false;
+    // A checkout left behind by a terminal run is stale, not a competing owner
+    // (it is cleared lazily); only another live run's checkout revokes authority.
+    if (issue.checkoutRunId && issue.checkoutRunId !== run.id) {
+      const [other] = await tx.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(and(
+        eq(heartbeatRuns.id, issue.checkoutRunId), eq(heartbeatRuns.companyId, run.companyId),
+        sql`${heartbeatRuns.status} in ('queued', 'running')`,
+      )).limit(1);
+      if (other) return false;
+    }
   }
   const [retired] = await tx.select({ id: issueRecoveryActions.id }).from(issueRecoveryActions).where(and(eq(issueRecoveryActions.companyId, run.companyId), eq(issueRecoveryActions.fingerprint, `legacy-execution:${run.id}`), sql`${issueRecoveryActions.evidence} ? 'conversationDisposition'`)).limit(1);
   return !retired;

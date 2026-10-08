@@ -111,6 +111,8 @@ describeEmbeddedPostgres("environmentService leases", () => {
       agentId,
       invocationSource: "manual",
       status: "running",
+      controllerBootId: randomUUID(),
+      controllerLeaseExpiresAt: new Date(Date.now() + 60_000),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -159,6 +161,8 @@ describeEmbeddedPostgres("environmentService leases", () => {
       agentId,
       invocationSource: "manual",
       status: "running",
+      controllerBootId: randomUUID(),
+      controllerLeaseExpiresAt: new Date(Date.now() + 60_000),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
