@@ -44,6 +44,8 @@ export interface OpenNativeSessionInput {
 export interface NativeSessionRecoveryOptions {
   /** Abort provider recovery and release any not-yet-returned provider state. */
   signal: AbortSignal;
+  /** Trusted in-process admission, invoked before the effectful provider resume. */
+  onOperationAdmission?: () => Promise<void>;
 }
 
 export interface PersistedNativeSession {

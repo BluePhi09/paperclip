@@ -390,6 +390,10 @@ export class CodexAppServerDriver implements HarnessDriver {
       },
     });
     const cancellation = bootstrapCancellation(transport, options.signal);
+    // An admission denial is an authorization outcome, not an unrecoverable
+    // provider session: propagate it instead of reporting `recovered: false`,
+    // which could otherwise open a replacement or be classified as retryable.
+    let admissionDenial: { error: unknown } | null = null;
     try {
       await cancellation.wait(this.#persistProcessOwnership(transport));
       const initialize = await cancellation.wait(this.#initialize(transport));
@@ -411,6 +415,15 @@ export class CodexAppServerDriver implements HarnessDriver {
         this.#options.environment,
         this.#options.workingDirectoryAuthority,
       );
+      // Process start, initialize and history reads may await. Revalidate
+      // after them, before the effectful resume (local writes are synchronous).
+      try {
+        await options.onOperationAdmission?.();
+      } catch (error) {
+        admissionDenial = { error };
+        throw error;
+      }
+      options.signal.throwIfAborted();
       const response = await cancellation.wait(
         transport.request("thread/resume", {
           excludeTurns: true,
@@ -654,6 +667,7 @@ export class CodexAppServerDriver implements HarnessDriver {
     } catch (error) {
       await cancellation.close().catch(() => {});
       if (error instanceof NativeSessionProtocolIntegrityError) throw error;
+      if (admissionDenial && error === admissionDenial.error) throw error;
       if (options.signal.aborted) options.signal.throwIfAborted();
       return { recovered: false, reason: redactCodexDiagnostic(String(error)) };
     } finally {

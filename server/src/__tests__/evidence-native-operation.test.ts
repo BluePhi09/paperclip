@@ -22,7 +22,14 @@ describe("native evidence operation admission after asynchronous preparation", (
   beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("evidence-native-operation-"); db = createDb(database.connectionString); }, 120000);
   afterAll(async () => { await database?.cleanup(); });
 
-  it.each(["no_pack", "valid_pack", "late_opt_in", "removed", "rebound", "artifact", "context", "expiry", "cancelled", "owner_changed"])("fresh backend barrier: %s", async fault => {
+  type Path = "fresh" | "attach" | "recover";
+  const faults = ["no_pack", "valid_pack", "late_opt_in", "removed", "rebound", "artifact", "context", "expiry", "cancelled", "owner_changed"];
+  it.each(faults)("fresh backend barrier: %s", async fault => { await scenario("fresh", fault); });
+  // Retained attach and provider recovery have no fresh openSession; the
+  // asynchronous preparation barrier sits in the durable launch callback.
+  it.each(faults.flatMap(fault => (["attach", "recover"] as const).map(path => [path, fault] as const)))("%s barrier: %s", async (path, fault) => { await scenario(path, fault); });
+
+  async function scenario(path: Path, fault: string) {
     const invalidate = !["no_pack", "valid_pack"].includes(fault);
     const companyId = randomUUID(), issueId = randomUUID(), agentId = randomUUID(), runId = randomUUID();
     await db.insert(companies).values({ id: companyId, name: "A1 isolated", issuePrefix: `A${companyId.slice(0, 6)}` });
@@ -40,9 +47,10 @@ describe("native evidence operation admission after asynchronous preparation", (
     const result = { schema: "paperclip.run_result.v1" as const, reportedWorkDisposition: "done" as const, summary: "one turn", completionClaim: { contractRevision: "1", objectiveSatisfied: true, criteria: [{ criterionId: "objective", status: "satisfied" as const, evidenceRefs: [] }], remainingWork: [] }, evidence: [], verification: [], attentionRequests: [], artifacts: [] };
     const terminal = { schema: "paperclip.prp.terminal.v1" as const, turnTerminalState: "completed" as const, runTerminalState: "succeeded" as const, reportedWorkDisposition: "done" as const };
     const startTurn = vi.fn(async () => { turned.release(); return { turnId: "turn-a1" }; });
+    const attachRun = vi.fn(async () => {});
     const close = vi.fn(async () => { turned.release(); });
     const session: NativeSession = {
-      identity: () => identity, async capabilities() { return capabilities; }, startTurn, close,
+      identity: () => identity, async capabilities() { return capabilities; }, startTurn, close, attachRun,
       cancel() { turned.release(); return { cleanup: Promise.resolve() }; },
       async *events() {
         await turned.promise;
@@ -53,8 +61,10 @@ describe("native evidence operation admission after asynchronous preparation", (
     };
     const backend: NativeSessionBackend = {
       async descriptor() { return { kind: "mock", name: "delayed-a1", version: "1", capabilities }; },
-      async openSession() { entered.release(); await ready.promise; return session; },
+      async openSession() { if (path !== "fresh") throw new Error("unexpected fresh session"); entered.release(); await ready.promise; return session; },
+      ...(path === "recover" ? { recoverSession: vi.fn(async () => ({ recovered: true as const, session })) } : {}),
     };
+    const checkpoint = { backendKind: "mock" as const, sessionId: "driver-a1", identity, providerSessionId: "provider-a1", cursor: null, activeTurnId: null, pendingRuntimeRequests: [], lineage: [] };
     const input: NativeExecutionInputV1 = {
       schema: "paperclip.native-execution-input.v1", binding: { companyId, issueId, agentId, runId, executionWorkspaceId: "workspace-a1" },
       task: { identifier: "A1", title: "A1", description: null, prompt: "Bound execution", workMode: "standard" },
@@ -64,7 +74,10 @@ describe("native evidence operation admission after asynchronous preparation", (
     };
     const completeRun = vi.fn(async () => {});
     const options = {
-      input, backend, onSessionAdmission: admission, onOperationAdmission: () => revalidateEvidenceOperation(db, input.binding),
+      input, backend, onOperationAdmission: () => revalidateEvidenceOperation(db, input.binding),
+      onSessionAdmission: async () => { await admission(); if (path !== "fresh") { entered.release(); await ready.promise; } },
+      ...(path === "attach" ? { existingSession: session } : {}),
+      ...(path === "recover" ? { persistedSession: checkpoint } : {}),
       runnerInstanceId: "a1-runner", controlPlaneInstanceId: "a1-control",
       controlPlane: { async openRun() {}, async checkpointSession() {}, completeRun,
         async appendEvent(event: { sourceSeq: number }) { return { cursor: event.sourceSeq, highestContiguousSourceSeq: event.sourceSeq, disposition: "committed" as const }; },
@@ -89,11 +102,15 @@ describe("native evidence operation admission after asynchronous preparation", (
     } finally { ready.release(); }
     const outcome = await execution;
     expect(startTurn).toHaveBeenCalledTimes(invalidate ? 0 : 1);
-    expect(close).toHaveBeenCalledOnce();
+    if (path === "attach") expect(attachRun).toHaveBeenCalledTimes(invalidate ? 0 : 1);
+    if (path === "recover") expect(backend.recoverSession).toHaveBeenCalledTimes(invalidate ? 0 : 1);
+    // Denied before attach/recovery, no provider session belongs to this run:
+    // the retained session was never attached and recovery never ran.
+    expect(close).toHaveBeenCalledTimes(path === "fresh" || !invalidate ? 1 : 0);
     if (invalidate) {
       const code = fault === "removed" ? "evidence_pack_admission_changed" : fault === "expiry" ? "evidence_pack_expired" : ["cancelled", "owner_changed"].includes(fault) ? "evidence_pack_run_mismatch" : "evidence_pack_stale";
       expect(outcome.error).toMatchObject({ message: "Evidence pack blocks execution", details: { code } });
       expect(completeRun).not.toHaveBeenCalled();
     } else { expect(outcome.error).toBeNull(); expect(completeRun).toHaveBeenCalledOnce(); }
-  });
+  }
 });

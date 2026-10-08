@@ -155,6 +155,7 @@ export class HarnessDriverBackend implements NativeSessionBackend {
     };
     const recoveryOptions: HarnessSessionRecoveryOptions = {
       signal: options.signal,
+      onOperationAdmission: options.onOperationAdmission,
     };
     const recovered = await this.#driver.recoverSession(
       persisted,

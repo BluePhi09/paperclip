@@ -61,6 +61,8 @@ export interface OpenHarnessSessionInput {
 export interface HarnessSessionRecoveryOptions {
   /** Abort provider recovery and release any not-yet-returned provider state. */
   signal: AbortSignal;
+  /** Trusted control-plane callback, invoked before the effectful provider resume. */
+  onOperationAdmission?: () => Promise<void>;
 }
 
 export class HarnessCapabilityUnavailableError extends Error {
