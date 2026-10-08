@@ -54,11 +54,17 @@ export async function acquisitionAuthorityValid(tx: Db, run: typeof heartbeatRun
     const [issue] = await tx.select().from(issues).where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)));
     if (!issue || (issue.executionRunId && issue.executionRunId !== run.id)) return false;
     // A checkout left behind by a terminal run is stale, not a competing owner
-    // (it is cleared lazily); only another live run's checkout revokes authority.
+    // (it is cleared lazily); any other non-terminal run's checkout (queued,
+    // scheduled_retry, running or an unknown status) revokes authority, matching
+    // the issue checkout rules. The other run row is read without a lock. The
+    // workspace-export revivals lock this issue first and require that no other
+    // run is queued/running, so they serialize with the caller's issue lock.
+    // Locking the row here would not stop a later revival that ignores issue
+    // ownership; it would only add a run -> run lock edge.
     if (issue.checkoutRunId && issue.checkoutRunId !== run.id) {
       const [other] = await tx.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(and(
         eq(heartbeatRuns.id, issue.checkoutRunId), eq(heartbeatRuns.companyId, run.companyId),
-        sql`${heartbeatRuns.status} in ('queued', 'running')`,
+        sql`${heartbeatRuns.status} not in ('succeeded', 'interrupted', 'failed', 'cancelled', 'timed_out')`,
       )).limit(1);
       if (other) return false;
     }

@@ -459,3 +459,15 @@ it("publishes exactly one NEW usable owner and consumes its durable generation",
   expect((await db.select().from(environmentLeases).where(and(eq(environmentLeases.heartbeatRunId, f.runId), eq(environmentLeases.status, "active"))))).toHaveLength(1);
   await assertNoDispatch(f, call);
 });
+it.each([
+  ["succeeded", true], ["interrupted", true], ["failed", true],
+  ["queued", false], ["running", false], ["scheduled_retry", false],
+] as const)("treats only a non-terminal foreign checkout as a competing owner (%s)", async (status, allowed) => {
+  const f = await seed();
+  const other = randomUUID();
+  await db.insert(heartbeatRuns).values({ id: other, companyId: f.companyId, agentId: f.agentId, status, contextSnapshot: { issueId: f.issueId } });
+  await db.update(issues).set({ checkoutRunId: other }).where(eq(issues.id, f.issueId));
+  const reservation = reserveRunAcquisition(db, { companyId: f.companyId, heartbeatRunId: f.runId, issueId: f.issueId, environmentId: f.environmentId, expectedControllerBootId: f.bootId });
+  if (allowed) await expect(reservation).resolves.toEqual(expect.any(String));
+  else await expect(reservation).rejects.toThrow("controller authority lost");
+});
