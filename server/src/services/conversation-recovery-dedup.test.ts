@@ -151,6 +151,7 @@ it.each([
   ["new_message", "queued", "none", "resolved"],
   ["running_other", "running", "none", "active"],
   ["retry_column", "queued", "column", "active"],
+  ["retry_context", "queued", "context", "active"],
 ] as const)("only a live run or a queued retry of the held run blocks hold retirement (%s)", async (_mode, status, retry, expected) => {
   const f = await seed();
   await terminalizeLegacyExecution({ db, run: f.run, status: "interrupted" });
