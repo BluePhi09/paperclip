@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { isDeepStrictEqual } from "node:util";
 import { activityLog, documents, issueDocuments, documentRevisions, issueThreadInteractions, heartbeatRuns, issues, agents, type Db } from "@paperclipai/db";
 import { evidencePackBindingSchema, evidencePackSchema, evidenceTargetContextSchema, type EvidenceDocumentRef } from "@paperclipai/shared/evidence-pack";
@@ -46,22 +46,34 @@ async function acceptedReview(tx: Db, companyId: string, receipt: Receipt, revie
     actualTarget.key !== target.key || actualTarget.documentId !== target.documentId || actualTarget.revisionId !== target.revisionId) return false;
   const [run] = await tx.select({ agentId: heartbeatRuns.agentId, issueId: heartbeatRuns.nativeIssueId,
     contextSnapshot: heartbeatRuns.contextSnapshot, status: heartbeatRuns.status }).from(heartbeatRuns)
-    .where(and(eq(heartbeatRuns.id, receipt.resolvedByRunId), eq(heartbeatRuns.companyId, companyId))).for("share");
+    .where(and(eq(heartbeatRuns.id, receipt.resolvedByRunId), eq(heartbeatRuns.companyId, companyId)));
   const runIssueId = run?.issueId ?? (run?.contextSnapshot as { issueId?: string } | null)?.issueId;
   return Boolean(run && run.agentId === reviewerAgentId && runIssueId === receipt.issueId &&
     ["running", "succeeded"].includes(run.status));
 }
 
-/** Current native document + immutable revision, locked until the start commits. */
-async function currentDocument(tx: Db, companyId: string, ref: EvidenceDocumentRef) {
-  const [head] = await tx.select({ revisionId: documents.latestRevisionId }).from(issueDocuments)
+/**
+ * Lock order: the caller holds the subject issue row (then its own run).
+ * Only rows scoped to that subject issue may be share-locked afterwards. Rows
+ * of other issues, other runs and agents are read as a current committed
+ * snapshot without row locks: a writer may hold one of them and then lock the
+ * subject issue (e.g. blocker sync, run finalization), which would otherwise
+ * form a cycle. The admission is still a point-in-time check of committed data.
+ */
+
+/** Current native document + immutable revision; share-locked only within the subject issue. */
+async function currentDocument(tx: Db, companyId: string, ref: EvidenceDocumentRef, subjectIssueId: string) {
+  const subjectScope = ref.issueId === subjectIssueId;
+  const headQuery = tx.select({ revisionId: documents.latestRevisionId }).from(issueDocuments)
     .innerJoin(documents, eq(documents.id, issueDocuments.documentId))
     .where(and(eq(issueDocuments.companyId, companyId), eq(documents.companyId, companyId),
-      eq(issueDocuments.issueId, ref.issueId), eq(issueDocuments.key, ref.key), eq(documents.id, ref.documentId))).for("share");
+      eq(issueDocuments.issueId, ref.issueId), eq(issueDocuments.key, ref.key), eq(documents.id, ref.documentId)));
+  const [head] = subjectScope ? await headQuery.for("share") : await headQuery;
   if (!head || head.revisionId !== ref.revisionId) denied("evidence_pack_stale");
-  const [revision] = await tx.select().from(documentRevisions).where(and(
+  const revisionQuery = tx.select().from(documentRevisions).where(and(
     eq(documentRevisions.id, ref.revisionId), eq(documentRevisions.documentId, ref.documentId),
-    eq(documentRevisions.companyId, companyId))).for("share");
+    eq(documentRevisions.companyId, companyId)));
+  const [revision] = subjectScope ? await revisionQuery.for("share") : await revisionQuery;
   if (!revision) denied("evidence_pack_stale");
   return revision;
 }
@@ -76,14 +88,14 @@ export async function assertIssueEvidencePack(tx: Db, issue: {
   if (!parsed.success) denied("evidence_pack_invalid");
   const binding = parsed.data;
   const target = { issueId: issue.id, key: "evidence-pack", documentId: binding.documentId, revisionId: binding.revisionId };
-  const revision = await currentDocument(tx, issue.companyId, target);
+  const revision = await currentDocument(tx, issue.companyId, target, issue.id);
   let body: unknown;
   try { body = JSON.parse(revision?.body ?? ""); } catch { body = null; }
   const pack = evidencePackSchema.safeParse(body);
   if (!pack.success) denied("evidence_pack_invalid");
   if (pack.data.subjectIssueId !== issue.id || pack.data.scope.action !== binding.scope.action ||
       pack.data.scope.target !== binding.scope.target || JSON.stringify(pack.data.scope.exclusions) !== JSON.stringify(binding.scope.exclusions)) denied("evidence_pack_scope_mismatch");
-  const contextRevision = await currentDocument(tx, issue.companyId, pack.data.freshness.context);
+  const contextRevision = await currentDocument(tx, issue.companyId, pack.data.freshness.context, issue.id);
   let contextBody: unknown;
   try { contextBody = JSON.parse(contextRevision.body); } catch { contextBody = null; }
   const targetContext = evidenceTargetContextSchema.safeParse(contextBody);
@@ -91,13 +103,14 @@ export async function assertIssueEvidencePack(tx: Db, issue: {
   const excludedAgents = new Set([executorAgentId, revision.createdByAgentId].filter((id): id is string => Boolean(id)));
   const excludedRuns = new Set([revision.createdByRunId].filter((id): id is string => Boolean(id)));
   for (const ref of [pack.data.policySource, pack.data.freshness.context, ...pack.data.artifacts].sort((a, b) => a.documentId.localeCompare(b.documentId))) {
-    const artifactRevision = await currentDocument(tx, issue.companyId, ref);
+    const artifactRevision = await currentDocument(tx, issue.companyId, ref, issue.id);
     if (artifactRevision.createdByAgentId) excludedAgents.add(artifactRevision.createdByAgentId);
     if (artifactRevision.createdByRunId) excludedRuns.add(artifactRevision.createdByRunId);
   }
   for (const prerequisiteId of [...pack.data.prerequisiteIssueIds].sort()) {
+    // Foreign issue: committed snapshot, never a row lock (see lock order above).
     const [prerequisite] = await tx.select({ status: issues.status }).from(issues)
-      .where(and(eq(issues.id, prerequisiteId), eq(issues.companyId, issue.companyId))).for("share");
+      .where(and(eq(issues.id, prerequisiteId), eq(issues.companyId, issue.companyId)));
     if (prerequisite?.status !== "done") denied("evidence_pack_prerequisite_open");
     // Done records disposition, not a verdict. The condition path validates
     // the separate task's native document-bound, independent acceptance.
@@ -105,12 +118,16 @@ export async function assertIssueEvidencePack(tx: Db, issue: {
   }
   const conditionProofs = [];
   for (const condition of [...pack.data.conditions].sort((a, b) => a.proof.documentId.localeCompare(b.proof.documentId))) {
-    conditionProofs.push({ condition, proof: await currentDocument(tx, issue.companyId, condition.proof) });
+    conditionProofs.push({ condition, proof: await currentDocument(tx, issue.companyId, condition.proof, issue.id) });
   }
   const receiptIds = [...binding.receipts, ...pack.data.conditions.map((c) => c.receiptId)];
-  const receipts = await tx.select().from(issueThreadInteractions).where(and(
-    eq(issueThreadInteractions.companyId, issue.companyId), inArray(issueThreadInteractions.id, receiptIds)))
-    .orderBy(asc(issueThreadInteractions.id)).for("share");
+  const receiptScope = (subject: boolean) => and(eq(issueThreadInteractions.companyId, issue.companyId),
+    inArray(issueThreadInteractions.id, receiptIds),
+    subject ? eq(issueThreadInteractions.issueId, issue.id) : ne(issueThreadInteractions.issueId, issue.id));
+  const receipts = [
+    ...await tx.select().from(issueThreadInteractions).where(receiptScope(true)).orderBy(asc(issueThreadInteractions.id)).for("share"),
+    ...await tx.select().from(issueThreadInteractions).where(receiptScope(false)).orderBy(asc(issueThreadInteractions.id)),
+  ];
   for (const reviewerAgentId of pack.data.requiredReviewerAgentIds) {
     let accepted = false;
     for (const receipt of receipts.filter((r) => r.resolvedByAgentId === reviewerAgentId)) {
@@ -133,7 +150,6 @@ export async function assertIssueEvidencePack(tx: Db, issue: {
   return { ...binding, freshness: pack.data.freshness, targetContext: targetContext.data };
 }
 
-/** Native heartbeat sidecar, not a second artifact store. Issue -> run lock order. */
 /** Revalidate a server-bound execution after asynchronous native preparation.
  * The transaction commits before returning; no provider RPC runs under DB locks.
  */
@@ -151,6 +167,7 @@ export async function revalidateEvidenceOperation(db: Db, binding: {
   });
 }
 
+/** Native heartbeat sidecar, not a second artifact store. Issue -> run lock order. */
 export async function admitEvidencePackRun(tx: Db, hint: typeof heartbeatRuns.$inferSelect, dispatch = false, operation = false) {
   const context = hint.contextSnapshot as { issueId?: string } | null;
   const issueId = hint.nativeIssueId ?? context?.issueId;
@@ -187,8 +204,9 @@ export async function admitEvidencePackRun(tx: Db, hint: typeof heartbeatRuns.$i
   }
   if (issue.assigneeAgentId !== run.agentId) denied("evidence_pack_executor_changed");
   if (dispatch) {
+    // Agent rows are not subject-scoped: read without a row lock (lock order above).
     const [agent] = await tx.select({ adapterType: agents.adapterType }).from(agents)
-      .where(and(eq(agents.id, run.agentId), eq(agents.companyId, run.companyId))).for("share");
+      .where(and(eq(agents.id, run.agentId), eq(agents.companyId, run.companyId)));
     const environment = (run.contextSnapshot as { paperclipEnvironment?: { id?: string; driver?: string } } | null)?.paperclipEnvironment;
     const expected = binding.targetContext;
     const dispatchedAdapter = (profile.adapterDispatch as { adapterType?: unknown } | undefined)?.adapterType;

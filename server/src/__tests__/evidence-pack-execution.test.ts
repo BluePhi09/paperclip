@@ -448,6 +448,57 @@ describe("evidence pack at the issue execution boundary", () => {
     ]);
     expect((await db.select().from(issues).where(eq(issues.id, f.issueId)))[0].executionPolicy).toBeNull();
   });
+  // Lock order: admission holds the subject issue (then its own run) and
+  // may share-lock only rows scoped to that subject issue. Rows owned by other
+  // issues, other runs or agents are read without row locks, so a writer that
+  // holds one of those rows and then locks the subject cannot deadlock with it.
+  async function admitWhileWriterHolds(f: Awaited<ReturnType<typeof reviewedFixture>>, holdForeignRow: (tx: typeof db) => Promise<unknown>) {
+    const { sql } = await import("drizzle-orm");
+    let held!: () => void, release!: () => void;
+    const holding = new Promise<void>((r) => { held = r; });
+    const resume = new Promise<void>((r) => { release = r; });
+    const writer = db.transaction(async (tx) => {
+      await holdForeignRow(tx as unknown as typeof db);
+      held(); await resume;
+      // Same order as syncBlockedByIssueIds / run finalization: foreign row, then subject issue.
+      await tx.execute(sql`set local lock_timeout = '10s'`);
+      await tx.select({ id: issues.id }).from(issues).where(eq(issues.id, f.issueId)).for("update");
+    }).then(() => null, (e: { cause?: { code?: string }; code?: string; message: string }) => e.cause?.code ?? e.code ?? e.message);
+    await holding;
+    let settled = false;
+    const attempt = issueService(db).checkout(f.issueId, f.agentId, ["todo"], null)
+      .then((r) => r.status, (e: { cause?: { code?: string }; code?: string; message: string }) => e.cause?.code ?? e.code ?? e.message)
+      .finally(() => { settled = true; });
+    for (let i = 0; i < 200 && !settled; i++) {
+      const rows = await db.execute(sql`select 1 from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`);
+      if (rows.length) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    release();
+    return { writer: await writer, admission: await attempt };
+  }
+  it("cross-issue: a prerequisite writer that then locks the subject cannot deadlock admission", async () => {
+    const f = await reviewedFixture({ condition: true, prerequisite: true });
+    const prerequisiteId = f.pack.prerequisiteIssueIds[0];
+    const outcome = await admitWhileWriterHolds(f, (tx) => tx.select({ id: issues.id }).from(issues).where(eq(issues.id, prerequisiteId)).for("update"));
+    expect(outcome).toEqual({ writer: null, admission: "in_progress" });
+  });
+  it("cross-issue: a writer holding a prerequisite issue document cannot deadlock admission", async () => {
+    const f = await reviewedFixture({ condition: true, prerequisite: true });
+    const proof = f.pack.conditions.find((c) => c.id === "prerequisite")!.proof;
+    const outcome = await admitWhileWriterHolds(f, (tx) => tx.select({ id: documents.id }).from(documents).where(eq(documents.id, proof.documentId)).for("update"));
+    expect(outcome).toEqual({ writer: null, admission: "in_progress" });
+  });
+  it("reviewer/writer: a reviewer run writer that then locks the subject cannot deadlock admission", async () => {
+    const f = await reviewedFixture();
+    const outcome = await admitWhileWriterHolds(f, (tx) => tx.update(heartbeatRuns).set({ updatedAt: new Date() }).where(eq(heartbeatRuns.id, f.runs[0])));
+    expect(outcome).toEqual({ writer: null, admission: "in_progress" });
+  });
+  it("still revalidates a prerequisite reopened by a committed writer", async () => {
+    const f = await reviewedFixture({ condition: true, prerequisite: true });
+    await db.update(issues).set({ status: "todo" }).where(eq(issues.id, f.pack.prerequisiteIssueIds[0]));
+    await expect(issueService(db).checkout(f.issueId, f.agentId, ["todo"], null)).rejects.toMatchObject({ details: { code: "evidence_pack_prerequisite_open" } });
+  });
   it("blocks a real in_progress update when an opted-in pack is missing", async () => {
     const f = await fixture();
     await expect(issueService(db).update(f.issueId, { status: "in_progress", actorUserId: "local-board" })).rejects.toThrow("Evidence pack");

@@ -1,6 +1,6 @@
 # Evidence-pack execution gates
 
-Status: local, partial implementation; not a release qualification.
+Status: implemented and covered by local tests. Not yet exercised against a live provider.
 
 An issue opts into execution authorization through `executionPolicy.evidencePack`.
 The binding names the current `evidence-pack` issue document revision, exact
@@ -35,14 +35,14 @@ changes that preserve the binding do not require this extra authority.
 Removing a gate together with `status: in_progress` still cannot bypass the old
 execution authorization: both stored and replacement policies are checked.
 
-## Qualification boundary and remaining work
+## Test coverage
 
 The local tests exercise an actual heartbeat with a registered in-process test
 adapter, native review assignment records and document-bound vote resolution.
 They also exercise authenticated agent PATCH followed by checkout against a
 throwaway PostgreSQL database. They do not run an external provider.
 
-## A1 fresh-local operation slice
+## Revalidation before provider operations
 
 `revalidateEvidenceOperation` binds company, issue, agent and run from the server
 execution input, then rechecks current ownership and running state under issue
@@ -50,30 +50,53 @@ then run locks. It reuses the current evidence policy/revision/context/DB-clock
 and trusted-review-purpose validation, including no-pack late opt-in. Its
 transaction ends before any provider call.
 
-Fresh session startup now carries an in-process callback to the Codex driver.
-The driver invokes it after initialization and before effectful `thread/start`;
-the local Process transport writes that request synchronously. The normalized
-runtime also revalidates after session setup, checkpointing and fresh-handoff
-preparation, immediately before its fresh `startTurn`. An evidence denial is
-classified as permanent (no automatic native provider retry), and the existing
-runtime failure cleanup closes/quarantines the prepared session.
+The native runtime invokes it (`onOperationAdmission`) after all asynchronous
+preparation and immediately before every effectful provider operation:
+
+- fresh session bootstrap and the fresh/resumed task `startTurn`;
+- retained (warm) session `attachRun`;
+- provider `recoverSession`, and again before a governed replacement session;
+- both restart-continuation `startTurn` paths (checkpointed interruption and the
+  live `turn.failed` continuation during event consumption);
+- goal controls that grant provider work (`create`, `edit`, `replace`,
+  `resume`) and the goal-resume heartbeat. `pause`, `clear` and read-only `get`
+  are not gated: they only reduce or observe provider work.
+
+Fresh, replacement and recovery inputs also carry the callback into the
+backend. The Codex driver invokes it after process start/initialize/history
+reads and before the effectful `thread/start` or `thread/resume`; the local
+Process transport writes that request synchronously. A recovery-time denial is
+propagated as the denial, not as `recovered: false`, so it can neither open a
+replacement session nor be classified as a retryable recovery failure.
+An evidence denial is classified as permanent (`evidence_pack_denied`, no
+automatic provider retry). A denied retained session is never attached to the
+new run.
 
 Local tests use real `executeNativeSession` with a Promise-delayed backend and
-real isolated database admissions. They prove null fresh-turn dispatch after
-policy removal/rebinding/late opt-in, document/context revision changes, expiry,
-cancellation or execution-owner loss, and exactly one turn for valid/no-pack
-controls. A separate real Codex-driver test delays initialization and observes
-its fake transport's `thread/start` requests and cleanup. This is not a live
-provider or a full native executor/lease integration test.
+real isolated database admissions for the fresh, retained-attach and recovery
+paths. They prove null provider dispatch after policy removal/rebinding/late
+opt-in, document/context revision changes, expiry, cancellation or
+execution-owner loss, and exactly one turn for valid/no-pack controls. Runner
+tests cover replacement, both restart continuations and the goal paths; Codex
+driver tests delay initialize/history reads and observe the fake transport.
 
-This remains PARTIAL A1, not a universal pre-RPC guarantee. Retained attach,
-provider recovery/replacement, restart-continuation turns, goal resume, and
-asynchronous operations inside other backends/transports remain unqualified.
-In particular, forwarding a callback does not prove that every backend invokes
-it at its final effect boundary. Those are open local implementation/verification
-items, not merely missing live authorization. A4 is unchanged and remains open.
+Limits: this is a service boundary, not an RPC lease: a change committed after
+the check but before the provider receives the request is not observed. Other
+backends (OpenCode, ACPX, remote runnerd) are protected by the runtime-level
+checks before each call, but do not invoke the callback at their own internal
+effect boundary. Mid-turn runtime-request responses and per-tool scope are not
+evidence-gated. No live provider was exercised.
 
-The heartbeat handoff alone is not a final provider-RPC boundary. Cross-issue
-reviewer/writer lock-order qualification, broader source/test typegraphs and
-full release/live qualification remain separate work. Passing this limited
-fresh-local slice does not approve those paths.
+## Lock order
+
+Admission takes the subject issue row lock first, then its own heartbeat run.
+After that it may share-lock only rows scoped to the subject issue (its
+documents/revisions and its interaction receipts); every subject-scoped writer
+either locks the issue first or never waits on the issue. Rows owned by other
+issues (prerequisite issues, condition proofs and receipts on them), other
+heartbeat runs (reviewer runs) and agent rows are read without row locks. A
+writer holding such a foreign row and then locking the subject (for example
+`syncBlockedByIssueIds` sorting `[prerequisite, subject]`, or run finalization)
+therefore cannot form a cycle with an admission. Each read is still a current
+committed snapshot; the admission is linearizable as happening before any
+concurrent foreign change that commits later.
