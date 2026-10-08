@@ -2347,12 +2347,14 @@ describe("issue thread interaction routes", () => {
       });
 
     expect(res.status).toBe(201);
+    expect(mockInteractionService.create).toHaveBeenCalledTimes(1);
     expect(mockInteractionService.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+      expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", companyId: "company-1" }),
       expect.objectContaining({
         kind: "suggest_tasks",
         idempotencyKey: "interaction:task-1",
         sourceRunId: RUN_1,
+        payload: expect.objectContaining({ tasks: [expect.objectContaining({ clientKey: "task-1", title: "One" })] }),
       }),
       {
         agentId: CREATED_AGENT_ID,
@@ -2364,11 +2366,20 @@ describe("issue thread interaction routes", () => {
 
   it("does not require the human brief gate for board-authored cards", async () => {
     const app = await createApp();
-    await request(app)
+    const res = await request(app)
       .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions")
-      .send({ kind: "suggest_tasks", payload: { version: 1, tasks: [{ clientKey: "task-1", title: "One" }] } });
+      .send({ kind: "suggest_tasks", idempotencyKey: "board:task-1", payload: { version: 1, tasks: [{ clientKey: "task-1", title: "One" }] } });
+    expect(res.status).toBe(201);
+    expect(mockInteractionService.create).toHaveBeenCalledTimes(1);
     expect(mockInteractionService.create).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), expect.anything(), { requireHumanDecisionContext: false },
+      expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", companyId: "company-1" }),
+      expect.objectContaining({
+        kind: "suggest_tasks",
+        idempotencyKey: "board:task-1",
+        payload: expect.objectContaining({ tasks: [expect.objectContaining({ clientKey: "task-1", title: "One" })] }),
+      }),
+      { agentId: null, userId: "local-board" },
+      { requireHumanDecisionContext: false },
     );
   });
 

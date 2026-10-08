@@ -14,7 +14,8 @@ vi.mock("../hooks/useAgentChatEnabled", () => ({ useAgentChatEnabled: () => ({ e
 vi.mock("../api/agentChats", () => ({ agentChatsApi: { get: state.get, ensure: state.ensure } }));
 vi.mock("../api/agents", () => ({ agentsApi: { list: state.agents } }));
 vi.mock("../api/auth", () => ({ authApi: { getSession: state.session } }));
-vi.mock("../pages/IssueDetail", () => ({ TaskDetailSurface: () => <div>Native conversation</div> }));
+const surface = vi.hoisted(() => ({ suppressReadReceipt: [] as Array<boolean | undefined> }));
+vi.mock("../pages/IssueDetail", () => ({ TaskDetailSurface: ({ suppressReadReceipt }: { suppressReadReceipt?: boolean }) => { surface.suppressReadReceipt.push(suppressReadReceipt); return <div>Native conversation</div>; } }));
 vi.mock("./IssueLinkQuicklook", () => ({ IssueLinkQuicklook: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a> }));
 const agent = { id: "agent-1", companyId: "company-1", name: "Planner", status: "idle" } as Agent;
 const item: AttentionItem = { id: "card", companyId: "company-1", audience: "human", sourceKind: "issue_thread_interaction",
@@ -29,7 +30,7 @@ const item: AttentionItem = { id: "card", companyId: "company-1", audience: "hum
 };
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
-beforeEach(() => { state.company = "company-1"; state.enabled = true; state.agents.mockResolvedValue([agent]); vi.clearAllMocks(); sessionStorage.clear(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
+beforeEach(() => { surface.suppressReadReceipt.length = 0; state.company = "company-1"; state.enabled = true; state.agents.mockResolvedValue([agent]); vi.clearAllMocks(); sessionStorage.clear(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 function Controls() { const nav = useNavigate(); const loc = useLocation(); return <><output>{loc.pathname}</output><button onClick={() => nav(-1)}>Back</button><button onClick={() => nav(1)}>Forward</button></>; }
 async function render(agents = [agent]) {
@@ -57,6 +58,22 @@ describe("native decision discussion entry", () => {
       expect(loadDraft("paperclip:agent-chat-draft:company-1:user-1:agent-1")).toBe(draft);
       expect(state.ensure).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
     } finally { request.mockRestore(); }
+  });
+  it("does not mark the chat read while the decision context is shown, but does on a plain chat visit", async () => {
+    await render();
+    await click("Discuss with Planner"); await ready();
+    expect(surface.suppressReadReceipt.length).toBeGreaterThan(0);
+    expect(surface.suppressReadReceipt.every((value) => value === true)).toBe(true);
+    surface.suppressReadReceipt.length = 0;
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/ACME/chats/agent-1"]}><Routes>
+      <Route path="/ACME/chats/:agentRef" element={<AgentChat />} />
+    </Routes></MemoryRouter></QueryClientProvider>));
+    await ready();
+    expect(surface.suppressReadReceipt.length).toBeGreaterThan(0);
+    expect(surface.suppressReadReceipt.every((value) => value === false)).toBe(true);
   });
   it.each(["disabled", "deleted", "paused", "foreign"])("shows an honest %s fallback without a chat action", async (kind) => {
     if (kind === "disabled") state.enabled = false;

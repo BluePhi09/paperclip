@@ -194,11 +194,16 @@ describeEmbeddedPostgres("issue create onboarding first-task routes", () => {
       createdByAgentId: agentId,
       createdByUserId: null,
       continuationPolicy: "wake_assignee",
+      // The brief names a human resolver; the card must be explicitly human-only,
+      // otherwise the brief/policy check rejects it and the best-effort seed drops it.
+      requestedResolverPolicy: "human_only",
+      effectiveResolverPolicy: "human_only",
     });
     const payload = interactions[0].payload as {
       supersedeOnUserComment?: boolean;
-      questions: Array<{ selectionMode: string; options: Array<{ id: string; label: string; freeText?: boolean }> }>;
+      questions: Array<{ selectionMode: string; options: Array<{ id: string; label: string; freeText?: boolean }>; brief?: { decisionClass: string; resolverTarget: { type: string } } }>;
     };
+    expect(payload.questions[0].brief).toMatchObject({ decisionClass: "personal_fact", resolverTarget: { type: "human" } });
     expect(payload.supersedeOnUserComment).toBe(true);
     expect(payload.questions).toHaveLength(1);
     expect(payload.questions[0].selectionMode).toBe("single");

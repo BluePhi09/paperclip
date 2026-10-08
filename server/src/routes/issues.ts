@@ -12037,7 +12037,10 @@ export function issueRoutes(
             { agentId: issue.assigneeAgentId },
           );
         } catch (err) {
-          logger.warn(
+          // Best-effort so issue creation still succeeds, but never silent: the
+          // card is deterministic, so a failure (e.g. a 422 from the brief/policy
+          // contract) is a product defect, not a transient condition.
+          logger.error(
             { err, issueId: issue.id, companyId },
             "failed to seed onboarding first-task opening question",
           );

@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Agent, AttentionItem } from "@paperclipai/shared";
 import { decisionChatTarget, nativeChatDraftNavigation } from "./decision-chat";
-import { loadDraft, saveDraft } from "./composer-draft";
+import { loadDraft, loadDraftSubmission, saveDraft, saveDraftSubmission } from "./composer-draft";
 
 const agent = { id: "agent-1", companyId: "company-1", name: "Planner", status: "idle" } as Agent;
 const item: AttentionItem = { id: "interaction:card-1", companyId: "company-1", audience: "human", sourceKind: "issue_thread_interaction",
@@ -51,6 +51,15 @@ describe("decision chat navigation", () => {
     expect(loadDraft(key)).toBe("My unsent question");
     expect(result.state.decisionDiscussion.context).toContain("card-1");
     expect(result.state.decisionDiscussion.draftPrepared).toBe(false);
+  });
+  it("never writes over a pending submission of an already sent message", () => {
+    const attemptId = "0b9f6c1e-2a4d-4c8e-9f1a-3b5d7e9a1c2f";
+    saveDraftSubmission(key, { attemptId, reviewed: false });
+    const result = nativeChatDraftNavigation(item, agent, "company-1", "user-1");
+    expect(loadDraft(key)).toBe("");
+    expect(loadDraftSubmission(key)).toMatchObject({ attemptId, reviewed: false });
+    expect(result.state.decisionDiscussion.draftPrepared).toBe(false);
+    expect(result.state.decisionDiscussion.context).toContain("card-1");
   });
   it("never writes an anonymous or foreign draft", () => {
     nativeChatDraftNavigation(item, agent, "company-1", null);
