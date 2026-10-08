@@ -276,6 +276,11 @@ export class CodexAppServerDriver implements HarnessDriver {
       const initialize = await cancellation.wait(this.#initialize(transport));
       const requestedMode =
         this.#options.requestedCollaborationMode ?? "default";
+      // initialize/process ownership may await. Revalidate after them, before
+      // the effectful thread creation (local transport writes synchronously).
+      // Under the bootstrap cancellation: a pending admission never delays Stop.
+      await cancellation.wait(Promise.resolve(input.onOperationAdmission?.()));
+      input.signal?.throwIfAborted();
       const response = await cancellation.wait(
         transport.request("thread/start", {
           ...createSecuredCodexThreadParams(
@@ -386,6 +391,10 @@ export class CodexAppServerDriver implements HarnessDriver {
       },
     });
     const cancellation = bootstrapCancellation(transport, options.signal);
+    // An admission denial is an authorization outcome, not an unrecoverable
+    // provider session: propagate it instead of reporting `recovered: false`,
+    // which could otherwise open a replacement or be classified as retryable.
+    let admissionDenial = null as { error: unknown } | null;
     try {
       await cancellation.wait(this.#persistProcessOwnership(transport));
       const initialize = await cancellation.wait(this.#initialize(transport));
@@ -407,6 +416,14 @@ export class CodexAppServerDriver implements HarnessDriver {
         this.#options.environment,
         this.#options.workingDirectoryAuthority,
       );
+      // Process start, initialize and history reads may await. Revalidate
+      // after them, before the effectful resume (local writes are synchronous).
+      // Under the bootstrap cancellation: a pending admission never delays
+      // Stop. Only the admission's own rejection is an authorization denial.
+      const admission = Promise.resolve(options.onOperationAdmission?.());
+      admission.catch((error: unknown) => { admissionDenial = { error }; });
+      await cancellation.wait(admission);
+      options.signal.throwIfAborted();
       const response = await cancellation.wait(
         transport.request("thread/resume", {
           excludeTurns: true,
@@ -650,6 +667,7 @@ export class CodexAppServerDriver implements HarnessDriver {
     } catch (error) {
       await cancellation.close().catch(() => {});
       if (error instanceof NativeSessionProtocolIntegrityError) throw error;
+      if (admissionDenial && error === admissionDenial.error) throw error;
       if (options.signal.aborted) options.signal.throwIfAborted();
       return { recovered: false, reason: redactCodexDiagnostic(String(error)) };
     } finally {

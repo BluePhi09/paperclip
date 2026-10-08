@@ -49,6 +49,8 @@ export interface NativeRuntimeContextCapabilities {
 }
 
 export interface OpenHarnessSessionInput {
+  /** Trusted control-plane callback, not a provider-supplied capability. */
+  onOperationAdmission?: () => Promise<void>;
   runId: string;
   normalizedSessionId: string;
   workingDirectory: string;
@@ -59,6 +61,8 @@ export interface OpenHarnessSessionInput {
 export interface HarnessSessionRecoveryOptions {
   /** Abort provider recovery and release any not-yet-returned provider state. */
   signal: AbortSignal;
+  /** Trusted control-plane callback, invoked before the effectful provider resume. */
+  onOperationAdmission?: () => Promise<void>;
 }
 
 export class HarnessCapabilityUnavailableError extends Error {

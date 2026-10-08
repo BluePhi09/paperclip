@@ -192,6 +192,11 @@ export interface ExecuteNativeSessionOptions {
   getFreshSessionHandoff?: () => Promise<string | null>;
   /** Durable launch intent, after cleanup admission and before provider calls. */
   onSessionAdmission?: () => Promise<void>;
+  /** Server-owned revalidation after preparation, immediately before session operations.
+   * Backends with asynchronous work inside an effectful operation must additionally
+   * enforce this admission at their provider boundary; this is not an RPC lease.
+   */
+  onOperationAdmission?: () => Promise<void>;
   input: NativeExecutionInput;
   backend: NativeSessionBackend;
   controlPlane: ControlPlanePort;
@@ -1893,6 +1898,9 @@ export async function executeNativeSession(
     // static binding check (for example, when the provider lost multi-run
     // state). Prove the provider attachment before opening durable
     // control-plane state because ControlPlanePort has no rollback operation.
+    // Attachment binds this run to live provider state: revalidate after
+    // all asynchronous preparation and before the provider sees the new run.
+    await options.onOperationAdmission?.();
     try {
       await options.existingSession.attachRun({ identity });
     } catch (error) {
@@ -1940,6 +1948,7 @@ export async function executeNativeSession(
     if (failedProviderSession && !replacementAllowed) {
       throw new NativeProviderTerminalFailure("provider_checkpoint_failed_terminal", false);
     }
+    if (!failedProviderSession) await options.onOperationAdmission?.();
     const recovery = failedProviderSession
       ? {
           recovered: false as const,
@@ -1952,6 +1961,7 @@ export async function executeNativeSession(
             operation: (signal) =>
               options.backend.recoverSession!(providerRecoveryCheckpoint, {
                 signal,
+                onOperationAdmission: options.onOperationAdmission,
               }),
             onLateResolution: async (lateRecovery) => {
               if (lateRecovery.session) {
@@ -1982,7 +1992,11 @@ export async function executeNativeSession(
       const replacementInput = {
         identity,
         workingDirectory: input.workspace.cwd,
+        onOperationAdmission: options.onOperationAdmission,
       };
+      // Provider recovery is asynchronous; a replacement is a new provider
+      // session and must observe admission after it.
+      await options.onOperationAdmission?.();
       session = await runAbortableOperationWithin({
         timeoutMs: recoveryTimeoutMs,
         timeoutMessage: `native session replacement bootstrap timed out after ${recoveryTimeoutMs}ms`,
@@ -2015,7 +2029,9 @@ export async function executeNativeSession(
     const bootstrapInput = {
       identity,
       workingDirectory: input.workspace.cwd,
+      onOperationAdmission: options.onOperationAdmission,
     };
+    await options.onOperationAdmission?.();
     session = await runAbortableOperationWithin({
       timeoutMs: bootstrapTimeoutMs,
       timeoutMessage: `native session bootstrap timed out after ${bootstrapTimeoutMs}ms`,
@@ -2202,6 +2218,8 @@ export async function executeNativeSession(
       // history to adopt an accepted continuation if its checkpoint was lost.
       await persistCheckpoint(snapshot, signal);
       signal.throwIfAborted();
+      await options.onOperationAdmission?.();
+      signal.throwIfAborted();
       await session.startTurn(restartContinuation());
       await checkpoint(signal);
       return true;
@@ -2368,12 +2386,17 @@ export async function executeNativeSession(
         if (options.sessionGoalControl) {
           // Explicit controls remain authoritative after controller loss. In
           // particular, pause/clear/edit must reach a recovered session even
-          // while its provider turn is still active.
+          // while its provider turn is still active. Controls that grant
+          // provider work are revalidated; pause/clear only reduce it.
+          if (!["pause", "clear"].includes(options.sessionGoalControl.action)) {
+            await options.onOperationAdmission?.();
+          }
           await applyNativeSessionGoalControl(session, options.sessionGoalControl);
           await checkpoint();
         } else if (options.resumeSessionGoalHeartbeat && shouldStartFreshTurn) {
           const requestId = `recovery_${input.binding.runId}`;
           if (recoveredSnapshot.goal?.status === "active") {
+            await options.onOperationAdmission?.();
             await applyNativeSessionGoalControl(session, { requestId, action: "resume" });
           } else {
             // Reconcile completed/paused/cleared state without changing it.
@@ -2385,6 +2408,7 @@ export async function executeNativeSession(
           await checkpoint();
         } else if (shouldStartFreshTurn && recovered && checkpointedInterruption) {
           restartContinuationStarted = true;
+          await options.onOperationAdmission?.();
           await session.startTurn(restartContinuation());
           await checkpoint();
         } else if (shouldStartFreshTurn) {
@@ -2425,6 +2449,7 @@ export async function executeNativeSession(
           if (!(dispositionOnlyRecovery && !effectFreeInitialAcpxTurn) && "requestedSkills" in modelEnvelope && options.backend.preparedTaskConstraints) {
             modelEnvelope.constraints = [...options.backend.preparedTaskConstraints];
           }
+          await options.onOperationAdmission?.();
           await session.startTurn({
             message: { role: "user", text: JSON.stringify(modelEnvelope) },
             ...(recovered && modelEnvelope.schema === "paperclip.native-continuation.v1"

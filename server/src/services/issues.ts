@@ -9,6 +9,7 @@ import { createdFromIssueCondition } from "./issue-creation-origin.js";
 import { executionProjectionsForRuns } from "./execution-projection.js";
 import type { ExecutionProjection } from "@paperclipai/shared";
 import { Buffer } from "node:buffer";
+import { assertIssueEvidencePack, authorizeEvidencePolicyChange, issueHasEvidencePack } from "./evidence-pack.js";
 import { createHash, randomUUID } from "node:crypto";
 import { isExplicitContinuationRetryClaim } from "./explicit-continuation-retry-claim.js";
 import { markdownToPlainText, parseMarkdown } from "chat";
@@ -7500,6 +7501,7 @@ export function issueService(db: Db) {
         .select({
           id: issues.id,
           companyId: issues.companyId,
+          executionPolicy: issues.executionPolicy,
           status: issues.status,
           assigneeAgentId: issues.assigneeAgentId,
           checkoutRunId: issues.checkoutRunId,
@@ -7554,6 +7556,7 @@ export function issueService(db: Db) {
           return { adopted: null, latest: lockedIssue };
         }
       }
+      await assertIssueEvidencePack(tx as unknown as Db, lockedIssue, input.actorAgentId);
       const actorLive =
         actorRun && !TERMINAL_HEARTBEAT_RUN_STATUSES.has(actorRun.status);
       if (!stale || !actorLive) {
@@ -10965,6 +10968,18 @@ export function issueService(db: Db) {
           .for("update")
           .then((rows: Array<typeof issues.$inferSelect>) => rows[0] ?? null);
         if (!receiptExisting) return null;
+        await authorizeEvidencePolicyChange(tx, receiptExisting, patch.executionPolicy, {
+          agentId: actorAgentId, userId: actorUserId,
+        });
+        if (patch.status === "in_progress") {
+          // Validate both the stored policy and a replacement: removing/rebinding
+          // a gate in the same request cannot authorize the start retroactively.
+          const lockedExecutor = patch.assigneeAgentId !== undefined ? patch.assigneeAgentId : receiptExisting.assigneeAgentId;
+          await assertIssueEvidencePack(tx, receiptExisting, lockedExecutor ?? null);
+          if (patch.executionPolicy !== undefined) {
+            await assertIssueEvidencePack(tx, { ...receiptExisting, executionPolicy: patch.executionPolicy }, lockedExecutor ?? null);
+          }
+        }
         if (actorAgentId && actorRunId) {
           // Recheck under a run lock: a request admitted before Stop must not
           // commit a late Done after cancellation revoked its credentials.
@@ -11511,7 +11526,26 @@ export function issueService(db: Db) {
             eq(issues.executionRunId, checkoutRunId),
           )
         : isNull(issues.executionRunId);
-      const updated = await db
+      // Opt-in invariant: without an evidence pack this is exactly the legacy
+      // single UPDATE (no transaction, no row lock); a missing row still yields
+      // null to the legacy fallback below. The guard makes that write a no-op if
+      // a pack is present, so a pack committed concurrently is never bypassed:
+      // the write is then repeated under the issue lock after admission.
+      const noEvidencePack = sql`(${issues.executionPolicy} -> 'evidencePack') is null`;
+      const admittedWrite = async <T>(write: (tx: Db, guard?: SQL) => Promise<T | null>): Promise<T | null> => {
+        const legacy = await write(db, noEvidencePack);
+        if (legacy !== null) return legacy;
+        const [probe] = await db.select({ executionPolicy: issues.executionPolicy }).from(issues)
+          .where(and(eq(issues.id, id), eq(issues.companyId, issueCompany.companyId)));
+        if (!probe || !issueHasEvidencePack(probe.executionPolicy)) return null;
+        return db.transaction(async (tx) => {
+          const [locked] = await tx.select().from(issues)
+            .where(and(eq(issues.id, id), eq(issues.companyId, issueCompany.companyId))).for("update");
+          if (locked) await assertIssueEvidencePack(tx as unknown as Db, locked, agentId);
+          return write(tx as unknown as Db);
+        });
+      };
+      const updated = await admittedWrite(async (tx, guard) => tx
         .update(issues)
         .set({
           assigneeAgentId: agentId,
@@ -11528,10 +11562,11 @@ export function issueService(db: Db) {
             inArray(issues.status, expectedStatuses),
             or(isNull(issues.assigneeAgentId), sameRunAssigneeCondition),
             executionLockCondition,
+            guard,
           ),
         )
         .returning()
-        .then((rows) => rows[0] ?? null);
+        .then((rows) => rows[0] ?? null));
 
       if (updated) {
         const [enriched] = await withIssueLabels(db, [updated]);
@@ -11560,7 +11595,7 @@ export function issueService(db: Db) {
           current.executionRunId === checkoutRunId) &&
         checkoutRunId
       ) {
-        const adopted = await db
+        const adopted = await admittedWrite(async (tx, guard) => tx
           .update(issues)
           .set({
             checkoutRunId,
@@ -11577,10 +11612,11 @@ export function issueService(db: Db) {
                 isNull(issues.executionRunId),
                 eq(issues.executionRunId, checkoutRunId),
               ),
+              guard,
             ),
           )
           .returning()
-          .then((rows) => rows[0] ?? null);
+          .then((rows) => rows[0] ?? null));
         if (adopted) return adopted;
       }
 
@@ -11635,22 +11671,25 @@ export function issueService(db: Db) {
           if (current.status !== "in_progress") {
             adoptionSet.startedAt = now;
           }
-          const adopted = await db
+          // Narrowing does not survive into the admitted-write callback.
+          const staleExecutionRunId = current.executionRunId;
+          const adopted = await admittedWrite(async (tx, guard) => tx
             .update(issues)
             .set(adoptionSet)
             .where(
               and(
                 eq(issues.id, id),
                 inArray(issues.status, expectedStatuses),
-                eq(issues.executionRunId, current.executionRunId),
+                eq(issues.executionRunId, staleExecutionRunId),
                 or(
                   isNull(issues.assigneeAgentId),
                   eq(issues.assigneeAgentId, agentId),
                 ),
+                guard,
               ),
             )
             .returning()
-            .then((rows) => rows[0] ?? null);
+            .then((rows) => rows[0] ?? null));
           if (adopted) {
             const [enriched] = await withIssueLabels(db, [adopted]);
             return enriched;

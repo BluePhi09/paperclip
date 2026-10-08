@@ -53,6 +53,7 @@ export class HarnessDriverBackend implements NativeSessionBackend {
 
   async openSession(input: OpenNativeSessionInput): Promise<NativeSession> {
     const session = await this.#driver.openSession({
+      onOperationAdmission: input.onOperationAdmission,
       runId: input.identity.runId,
       normalizedSessionId: input.identity.sessionId,
       workingDirectory: input.workingDirectory ?? process.cwd(),
@@ -154,6 +155,7 @@ export class HarnessDriverBackend implements NativeSessionBackend {
     };
     const recoveryOptions: HarnessSessionRecoveryOptions = {
       signal: options.signal,
+      onOperationAdmission: options.onOperationAdmission,
     };
     const recovered = await this.#driver.recoverSession(
       persisted,

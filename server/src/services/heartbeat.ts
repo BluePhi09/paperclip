@@ -426,6 +426,7 @@ import {
   WORKTREE_INSTANCE_ROOT_METADATA_KEY,
 } from "./workspace-instance-cleanup.js";
 import { issueService } from "./issues.js";
+import { admitEvidenceAtRunStart, admitEvidencePackRun, runHasEvidenceState } from "./evidence-pack.js";
 import {
   blockRunnerGoalRecovery,
   failRunnerGoalAction,
@@ -17615,6 +17616,7 @@ export function heartbeatService(
       }).from(issues).where(and(
         eq(issues.id, issueId), eq(issues.companyId, run.companyId),
       )).for("update") : [];
+      await admitEvidencePackRun(tx, run);
       const ownsIssue = owner?.assigneeAgentId === run.agentId &&
         context.wakeReason !== "source_scoped_recovery_action";
       if (ownsIssue && ["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? "") &&
@@ -20108,7 +20110,42 @@ export function heartbeatService(
   // (an unverifiable interrupt receipt, a manual wake with no user). Those rows
   // do not change, so the claim fails the same way on every pass and restart.
   function isPermanentClaimRejection(err: unknown): err is HttpError {
-    return err instanceof HttpError && err.status === 403;
+    return err instanceof HttpError && (err.status === 403 || evidenceDenialCode(err) !== null);
+  }
+
+  // An evidence-pack denial is a policy verdict on the current issue state,
+  // not a transient claim conflict. Retrying it every pass would only repeat
+  // the denial; a corrected pack is picked up by a new wake.
+  function evidenceDenialCode(err: unknown): string | null {
+    const code = err instanceof HttpError ? (err.details as { code?: unknown } | undefined)?.code : null;
+    return typeof code === "string" && code.startsWith("evidence_pack_") ? code : null;
+  }
+
+  // Terminal and attributable: no immediate recovery/repair wake, and an
+  // activity entry so the board can see why execution was refused.
+  async function cancelEvidenceDeniedRun(runId: string, code: string) {
+    const before = await getRun(runId);
+    const cancelled = await cancelRunInternal(runId, "Evidence pack blocks execution", {
+      errorCode: code,
+      suppressImmediateRecovery: true,
+    });
+    // cancelRunInternal returns an already terminal run unchanged (for example
+    // a native run its finalizer already failed). Only a cancellation caused
+    // by this denial is attributed to it.
+    if (!cancelled || before?.status === "cancelled" || cancelled.status !== "cancelled" || cancelled.errorCode !== code) return;
+    const issueId = readNonEmptyString(parseObject(cancelled.contextSnapshot).issueId) ?? cancelled.nativeIssueId ?? null;
+    await logActivity(db, {
+      companyId: cancelled.companyId,
+      actorType: "system",
+      actorId: "heartbeat",
+      agentId: cancelled.agentId,
+      runId: cancelled.id,
+      issueId,
+      action: "heartbeat.evidence_denied",
+      entityType: "heartbeat_run",
+      entityId: cancelled.id,
+      details: { code, issueId, status: cancelled.status },
+    });
   }
 
   // Other 4xx rejections can clear later (a responsible user gets assigned, a
@@ -20129,6 +20166,11 @@ export function heartbeatService(
         "cancelling queued heartbeat run whose claim was rejected",
       );
       try {
+        const evidenceCode = evidenceDenialCode(err);
+        if (evidenceCode) {
+          await cancelEvidenceDeniedRun(run.id, evidenceCode);
+          continue;
+        }
         await cancelRunInternal(
           run.id,
           `Cancelled because the queued run cannot be claimed: ${err.message}`,
@@ -20417,7 +20459,15 @@ export function heartbeatService(
     if (run.status !== "queued" && run.status !== "running") return;
 
     if (run.status === "queued") {
-      const claimed = await claimQueuedRun(run);
+      let claimed: Awaited<ReturnType<typeof claimQueuedRun>>;
+      try {
+        claimed = await claimQueuedRun(run);
+      } catch (err) {
+        const code = evidenceDenialCode(err);
+        if (!code) throw err;
+        await cancelEvidenceDeniedRun(run.id, code);
+        return;
+      }
       if (!claimed) {
         // claimQueuedRun can also leave the run queued when dependencies are unresolved.
         return;
@@ -20425,6 +20475,16 @@ export function heartbeatService(
       run = claimed;
     }
 
+    try {
+      const admitted = await admitEvidenceAtRunStart(db, run, (id) => getRun(id));
+      if (!admitted) return;
+      run = admitted;
+    } catch (err) {
+      const code = evidenceDenialCode(err);
+      if (!code) throw err;
+      await cancelEvidenceDeniedRun(run.id, code);
+      return;
+    }
     const instructionCleanupRun = run;
     let instructionCleanupDeferred = false;
     const releaseInstructionCopy = async () => {
@@ -22954,12 +23014,32 @@ export function heartbeatService(
           }
           return { dispatched: false };
         }
-        if (
-          !issueId ||
-          (!isResolvedInteractionContinuationWakeContext(context) &&
-            !["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? ""))
-        ) {
+        if (!issueId) {
           return { dispatched: true, resultPromise: dispatch(() => {}) };
+        }
+        if (
+          !isResolvedInteractionContinuationWakeContext(context) &&
+          !["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? "")
+        ) {
+          // Opt-in invariant: without a pack (and without a recorded evidence
+          // admission) the handoff is exactly the legacy one — no issue lock,
+          // no execution-ownership requirement. Mention and source-scoped
+          // recovery runs never own the issue execution lock.
+          if (!(await runHasEvidenceState(db, run))) {
+            return { dispatched: true, resultPromise: dispatch(() => {}) };
+          }
+          await options.beforeResolvedInteractionContinuationDispatchCheck?.({ runId: run.id, issueId });
+          await options.afterResolvedInteractionContinuationDispatchCheck?.({ runId: run.id, issueId });
+          // A run admitted without a pack can opt in during asynchronous setup:
+          // admit under issue -> run locks and hand off synchronously while
+          // they are held, without awaiting adapter work in the transaction.
+          const handoff = await db.transaction(async (tx) => {
+            await admitEvidencePackRun(tx as unknown as Db, run, true);
+            const resultPromise = dispatch(() => {});
+            void resultPromise.catch(() => {});
+            return { resultPromise };
+          });
+          return { dispatched: true, resultPromise: handoff.resultPromise };
         }
         await options.beforeResolvedInteractionContinuationDispatchCheck?.({
           runId: run.id,
@@ -24553,6 +24633,12 @@ export function heartbeatService(
               // row; never copy another run's execution profile.
               runnerProfileJson: sql`(case when ${heartbeatRuns.runnerProfileJson} ? ${CHAT_CONTROL_RECOVERY_ADMISSION_KEY}
                 then jsonb_build_object(${CHAT_CONTROL_RECOVERY_ADMISSION_KEY}::text, ${heartbeatRuns.runnerProfileJson}->${CHAT_CONTROL_RECOVERY_ADMISSION_KEY})
+                else '{}'::jsonb end)
+              || (case when ${heartbeatRuns.runnerProfileJson} ? 'evidenceAdmission'
+                then jsonb_build_object('evidenceAdmission', ${heartbeatRuns.runnerProfileJson}->'evidenceAdmission')
+                else '{}'::jsonb end)
+              || (case when ${heartbeatRuns.runnerProfileJson} ? 'evidenceReviewerAdmission'
+                then jsonb_build_object('evidenceReviewerAdmission', ${heartbeatRuns.runnerProfileJson}->'evidenceReviewerAdmission')
                 else '{}'::jsonb end)
               || (case when ${heartbeatRuns.runnerProfileJson} ? 'adapterDispatch'
                 then jsonb_build_object('adapterDispatch', ${heartbeatRuns.runnerProfileJson}->'adapterDispatch')
@@ -26165,6 +26251,7 @@ export function heartbeatService(
           wasFirstHeartbeat: timerClaimWasFirstHeartbeat(run),
         });
       } catch (err) {
+        if (evidenceDenialCode(err)) throw err;
         if (err instanceof NativeControllerDetachedForRestartError) {
           nativeSessionResumeScheduled = true;
           return;
@@ -26505,7 +26592,10 @@ export function heartbeatService(
         });
       }
     } catch (outerErr) {
-      if (
+      const evidenceCode = evidenceDenialCode(outerErr);
+      if (evidenceCode) {
+        await cancelEvidenceDeniedRun(run.id, evidenceCode);
+      } else if (
         nativeOwnershipHeld ||
         outerErr instanceof NativeRunnerOwnershipUnverifiedError
       ) {
