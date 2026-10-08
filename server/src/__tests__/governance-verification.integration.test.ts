@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
@@ -15,11 +18,16 @@ import { createApp } from "../app.js";
 describe("isolated governance lifecycle", () => {
   let temporary: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
   let db: ReturnType<typeof createDb>;
+  let emptyPluginDir: string;
   beforeAll(async () => {
+    emptyPluginDir = await mkdtemp(path.join(tmpdir(), "paperclip-governance-plugins-"));
     temporary = await startEmbeddedPostgresTestDatabase("governance-verification-");
     db = createDb(temporary.connectionString);
   }, 120_000);
-  afterAll(async () => { await temporary?.cleanup(); });
+  afterAll(async () => {
+    await temporary?.cleanup();
+    if (emptyPluginDir) await rm(emptyPluginDir, { recursive: true, force: true });
+  });
   it("never passes a machine bearer into legacy routes, including implicit local Board", async () => {
     const app = express();
     app.use(express.json());
@@ -43,7 +51,7 @@ describe("isolated governance lifecycle", () => {
       uiMode: "none", serverPort: 3100, deploymentMode: "local_trusted", deploymentExposure: "private",
       allowedHostnames: ["127.0.0.1", "localhost"], bindHost: "127.0.0.1", authReady: true,
       companyDeletionEnabled: false, managedPluginAutoInstall: [], decisionServiceOptions: {},
-      localPluginDir: new URL("../../../../.astra-dsm-evidence/empty-plugins", import.meta.url).pathname,
+      localPluginDir: emptyPluginDir,
       storageService: { provider: "local_disk", putFile: async () => { throw new Error("Unexpected storage call"); },
         getObject: async () => { throw new Error("Unexpected storage call"); }, headObject: async () => ({ exists: false }), deleteObject: async () => {} },
     });
