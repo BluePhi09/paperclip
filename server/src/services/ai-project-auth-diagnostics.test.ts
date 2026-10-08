@@ -78,3 +78,25 @@ it("distinguishes scanner failure from detected keys without exposing output", a
   expect(error.details).toEqual({ code: "ai_connection_incompatible", reason: "scanner_failed", phase: "remote_scan", targetKind: "remote", exitCode: 43, timedOut: false });
   expect(JSON.stringify(error)).not.toContain("private-fixture");
 });
+it.each([
+  ["remote_key", { exitCode: 42, timedOut: false, signal: null }],
+  ["remote_scanner", { exitCode: 43, timedOut: false, signal: null }],
+  ["remote_timeout", { exitCode: 0, timedOut: true, signal: null }],
+  ["remote_transport", "reject"],
+  ["argument_override", "args"],
+  ["local_io", "local"],
+] as const)("reports the same fixed message on the run as the gate threw (%s)", async (_mode, source) => {
+  if (source === "reject") vi.spyOn(execution, "runAdapterExecutionTargetProcess").mockRejectedValue(new Error("private-fixture"));
+  else if (typeof source === "object") vi.spyOn(execution, "runAdapterExecutionTargetProcess").mockResolvedValue({ ...source, stdout: "", stderr: "" } as Awaited<ReturnType<typeof execution.runAdapterExecutionTargetProcess>>);
+  else if (source === "local") vi.spyOn(fs, "readFile").mockRejectedValue(Object.assign(new Error("private-fixture"), { code: "EACCES" }));
+  const cause = await (source === "args" ? assertManagedAiProjectAuth({ args: ["--api-key=private-fixture"] }, "openai")
+    : source === "local" ? assertManagedAiProjectAuth({ cwd: "/fixture/workspace" }, "openai")
+    : assertManagedAiProjectAuth({}, "openai", target)).catch(e => e);
+  expect(cause?.message).toEqual(expect.any(String));
+  expect(managedAiProjectAuthFailure(cause, "/agents/fixture/runtime").message).toBe(cause.message);
+});
+it("never copies an unrecognised error message onto the run", () => {
+  const failure = managedAiProjectAuthFailure(new Error("private-fixture detail"), "/agents/fixture/runtime");
+  expect(failure.message).not.toContain("private-fixture");
+  expect(failure.message).toBe("Project authentication could not be verified; repair the scanner or execution environment before retrying");
+});

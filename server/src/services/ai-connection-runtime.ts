@@ -72,6 +72,14 @@ export function stripAiAuthBindings(env: unknown): Record<string, unknown> {
       delete result[key];
   return result;
 }
+const PROJECT_AUTH_MESSAGES = {
+  authOverride: "Remove authentication/configuration overrides before selecting a managed AI connection",
+  conflict: "Project authentication settings conflict with the selected AI connection",
+  remoteNotExecuted: "The project authentication scan could not execute; repair the environment before retrying",
+  remoteIncomplete: "The project authentication scan did not complete; repair the environment before retrying",
+  localUnreadable: "The project authentication scan could not read project settings; repair the workspace before retrying",
+} as const;
+const PROJECT_AUTH_MESSAGE_SET: ReadonlySet<string> = new Set(Object.values(PROJECT_AUTH_MESSAGES));
 export function managedAiProjectAuthFailure(error: unknown, actionUrl: string) {
   // Never copy an arbitrary error message/details into persisted run evidence.
   const details = error instanceof HttpError && error.details && typeof error.details === "object"
@@ -86,8 +94,10 @@ export function managedAiProjectAuthFailure(error: unknown, actionUrl: string) {
     ...(typeof details.timedOut === "boolean" ? { timedOut: details.timedOut } : {}),
   };
   return {
-    message: reason === "key_detected" || reason === "auth_override_argument"
-      ? "Project authentication settings conflict with this agent’s managed AI connection"
+    // The gate throws only fixed messages; report the same one on the run. Any
+    // other message is never copied, so it falls back to a generic one.
+    message: error instanceof HttpError && PROJECT_AUTH_MESSAGE_SET.has(error.message)
+      ? error.message
       : "Project authentication could not be verified; repair the scanner or execution environment before retrying",
     resultJson: { configurationIncomplete: { reason: "ai_connection_incompatible", actionUrl, diagnostic } },
   };
@@ -112,7 +122,7 @@ export async function assertManagedAiProjectAuth(
     )
   ) {
     throw unprocessable(
-      "Remove authentication/configuration overrides before selecting a managed AI connection",
+      PROJECT_AUTH_MESSAGES.authOverride,
       { code: "ai_connection_incompatible", reason: "auth_override_argument", phase: "arguments", targetKind: target?.kind ?? "local" },
     );
   }
@@ -170,15 +180,15 @@ done`,
       },
     );
     } catch {
-      throw unprocessable("The project authentication scan could not execute; repair the environment before retrying", {
+      throw unprocessable(PROJECT_AUTH_MESSAGES.remoteNotExecuted, {
         code: "ai_connection_incompatible", reason: "remote_execution_failed", phase: "remote_scan", targetKind: "remote",
       });
     }
     if (result.exitCode !== 0 || result.timedOut || result.signal)
       throw unprocessable(
         result.exitCode === 42 && !result.timedOut && !result.signal
-          ? "Project authentication settings conflict with the selected AI connection"
-          : "The project authentication scan did not complete; repair the environment before retrying",
+          ? PROJECT_AUTH_MESSAGES.conflict
+          : PROJECT_AUTH_MESSAGES.remoteIncomplete,
         { code: "ai_connection_incompatible", reason: result.timedOut ? "remote_timeout"
             : result.signal ? "remote_execution_failed" : result.exitCode === 42 ? "key_detected"
             : result.exitCode === 43 ? "scanner_failed" : "remote_execution_failed",
@@ -198,14 +208,14 @@ done`,
           )
         ) {
           throw unprocessable(
-            "Project authentication settings conflict with the selected AI connection",
+            PROJECT_AUTH_MESSAGES.conflict,
             { code: "ai_connection_incompatible", reason: "key_detected", phase: "local_scan", targetKind: "local" },
           );
         }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
         if (error instanceof HttpError) throw error;
-        throw unprocessable("The project authentication scan could not read project settings; repair the workspace before retrying", {
+        throw unprocessable(PROJECT_AUTH_MESSAGES.localUnreadable, {
           code: "ai_connection_incompatible", reason: "scanner_io_failed", phase: "local_scan", targetKind: "local",
         });
       }
