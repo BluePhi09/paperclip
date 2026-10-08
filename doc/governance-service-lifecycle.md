@@ -1,9 +1,8 @@
 # Governance service lifecycle — local, incomplete integration
 
 This is a bounded implementation contract, not a production-ready DSM connector.
-The semantic register evaluator, trusted productive invocation issuer, native
-approval end-to-end qualification and external Synology MCP integration remain
-open. Do not replace the existing DSM account or keys based on this slice.
+The trusted productive invocation issuer and the external Synology MCP
+integration remain open. Do not replace the existing DSM account or keys based on this slice.
 
 ## Owner API
 
@@ -73,16 +72,27 @@ retries return its ID, contradictory retries fail. These are machine-reported
 claims, not independently verified provider effects. Late/manual reconciliation
 or adoption by another credential is not implemented.
 
-## Still required before package acceptance
+## Register authorization (deny by default)
 
-- Discover and qualify actual Synology MCP source and API/effect classification.
-- Validate a versioned semantic register, not merely its revision/hash.
-- Implement the trusted productive issuer and native approval/continuation E2E.
-- Resolve immutable-audit retention and company deletion (currently blocked by
-  foreign keys/append-only semantics); do not silently delete audit history.
-- Qualify migration numbering, snapshot drift, upgrade from 0310 with data,
-  focused server typechecks and production/full-suite gates.
-- Add owner discovery, reviewer evidence API, user-facing integration surface
-  and complete API/UI adoption documentation.
-- Separately authorize and qualify live migration; no live account, key or NAS
-  mutation is part of local testing.
+The `dsm-register` document bound to an operation (by id and revision) must be
+locked, linked to the same issue, and contain a versioned JSON body:
+
+```json
+{ "version": 1, "entries": [ { "entryId": "...", "effectClass": "NE", "api": "...",
+  "method": "...", "apiVersion": 1, "targetIds": ["..."] } ] }
+```
+
+Verify allows an operation only if one entry matches its entry id, effect class,
+API, method, API version, and every operation target id is listed. A missing,
+malformed, unversioned or non-matching register denies with `register_invalid`
+or `register_unauthorized`; no intent is written.
+
+## Open decisions (conservative defaults in this change)
+
+- Invocations can only be created by internal code (`recordInvocation`); there is
+  no HTTP issuer, so nothing can dispatch in production until one is built.
+- Company deletion is blocked once a governance service exists (foreign keys and
+  the append-only ledger). Audit history is never deleted silently.
+- The external Synology MCP source has not been found; no provider API names are
+  invented. The register content must come from that source.
+- Migration numbers 0311/0312 must be re-checked if another branch adds migrations.
