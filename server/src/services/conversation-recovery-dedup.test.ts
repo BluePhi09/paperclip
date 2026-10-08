@@ -147,3 +147,19 @@ it("durably retires one historical conversation hold across twenty service ticks
   expect(events).toHaveLength(1);
   expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, companyId))).toHaveLength(1);
 });
+it.each([
+  ["new_message", "queued", "none", "resolved"],
+  ["running_other", "running", "none", "active"],
+  ["retry_column", "queued", "column", "active"],
+] as const)("only a live run or a queued retry of the held run blocks hold retirement (%s)", async (_mode, status, retry, expected) => {
+  const f = await seed();
+  await terminalizeLegacyExecution({ db, run: f.run, status: "interrupted" });
+  await db.insert(heartbeatRuns).values({ id: randomUUID(), companyId: f.companyId, agentId: f.agentId, status, runtimeMode: "legacy",
+    retryOfRunId: retry === "column" ? f.runId : null,
+    contextSnapshot: { issueId: f.issueId, ...(retry === "context" ? { retryOfRunId: f.runId } : {}) } });
+  await settleUnrecoverableExecutions(db);
+  const [hold] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+  expect(hold).toMatchObject({ status: expected });
+  if (expected === "active") expect(hold!.evidence).not.toHaveProperty("conversationDisposition");
+  else expect(hold).toMatchObject({ outcome: "cancelled", evidence: { conversationDisposition: { runId: f.runId } } });
+});
