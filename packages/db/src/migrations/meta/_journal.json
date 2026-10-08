@@ -2164,6 +2164,20 @@
       "when": 1791320135262,
       "tag": "0310_talented_gressill",
       "breakpoints": true
+    },
+    {
+      "idx": 311,
+      "version": "7",
+      "when": 1791362518809,
+      "tag": "0311_governance_credential_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 312,
+      "version": "7",
+      "when": 1791363768337,
+      "tag": "0312_nosy_star_brand",
+      "breakpoints": true
     }
   ]
 }

@@ -1665,9 +1665,15 @@ describe("worktree helpers", () => {
       // table. Build the actual all-but-last schema before shuffling its history.
       const migrationsRoot = new URL("../../../packages/db/src/migrations/", import.meta.url);
       const journal = JSON.parse(fs.readFileSync(new URL("meta/_journal.json", migrationsRoot), "utf8"));
-      // The pending tail is upstream's lifecycle repair migration plus the
-      // fork-only tool_mcp_connectors migration that is appended after it.
-      const pendingTailLength = 2;
+      // The pending tail starts at upstream's lifecycle repair migration (which
+      // restores the dropped identity generator) and runs through every later
+      // migration, so appending migrations never moves the repair into the
+      // already-applied prefix.
+      const lifecycleRepairIndex = journal.entries.findIndex(
+        (entry: { tag: string }) => entry.tag === "0309_loving_the_hood",
+      );
+      expect(lifecycleRepairIndex).toBeGreaterThan(0);
+      const pendingTailLength = journal.entries.length - lifecycleRepairIndex;
       const priorEntries = journal.entries.slice(0, -pendingTailLength);
       const priorMigrations = path.join(tempRoot, "prior-migrations");
       fs.mkdirSync(path.join(priorMigrations, "meta"), { recursive: true });

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { agents, authUsers, companies, companyMemberships, createDb, heartbeatRuns, issues, projects, projectWorkspaces, activityLog, issueComments, assets, goals, approvals, documents, documentRevisions, issueDocuments, issueRelations, issueThreadInteractions, connectionIntentDeliveries, toolApplications, toolConnections, toolConnectionInstalls, connectionGrants, toolCatalogEntries, toolProfiles, toolProfileBindings } from "@paperclipai/db";
 import { documentService } from "../../services/documents.js";
 import { connectionIntentService } from "../../services/connection-intents.js";
@@ -14,6 +14,7 @@ import { createLocalDiskStorageProvider } from "../../storage/local-disk-provide
 import { createStorageService } from "../../storage/service.js";
 import { setupRunnerPrpWebSocketServer, runnerPrpWebSocketInternals } from "../../realtime/runner-prp-ws.js";
 import { PaperclipRunnerToolAuthority } from "../../services/native-runtime/paperclip-runner-tool-authority.js";
+import { truncateTablesWithDeadlockRetry } from "./truncate-with-deadlock-retry.js";
 
 export type RunnerConnectionScenario = "fresh" | "pending" | "declined" | "custom" | "foreign" | "stale_owner" | "ready";
 const CONNECTION_SCENARIOS: readonly RunnerConnectionScenario[] = ["fresh", "pending", "declined", "custom", "foreign", "stale_owner", "ready"];
@@ -54,18 +55,7 @@ export async function startRunnerApiTestServer(options: {
       // loser's transaction rolls back the moment it is chosen, so a short
       // bounded retry makes the reset deterministic instead of flaky.
       if (options.reset) {
-        for (let attempt = 0; ; attempt += 1) {
-          try {
-            await db.execute(sql`TRUNCATE companies CASCADE`);
-            break;
-          } catch (error) {
-            const code =
-              (error as { code?: string }).code ??
-              (error as { cause?: { code?: string } }).cause?.code;
-            if (attempt >= 4 || code !== "40P01") throw error;
-            await new Promise((resolve) => setTimeout(resolve, 100));
-          }
-        }
+        await truncateTablesWithDeadlockRetry(db, "TRUNCATE companies CASCADE", { attempts: 5, delayMs: () => 100 });
       }
       const id = (key: string) => {
         if (!options.reset) return randomUUID();

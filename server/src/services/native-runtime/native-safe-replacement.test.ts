@@ -19,7 +19,7 @@ import { appendHeartbeatRunEvent } from "../heartbeat-run-events.js";
 import { tmpdir } from "node:os";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agents,
@@ -42,6 +42,7 @@ import {
 } from "../../__tests__/helpers/embedded-postgres.js";
 import { reconcileSafeNativeReplacements } from "./native-safe-replacement.js";
 import { reconcileAbandonedExecutionControl } from "../execution-control-reconciliation.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 const externalDatabaseUrl = process.env.PAPERCLIP_TEST_DATABASE_URL;
 const support = externalDatabaseUrl
   ? { supported: true }
@@ -65,7 +66,7 @@ const support = externalDatabaseUrl
     afterEach(async () => {
       // Each sweep scans all companies. Keep earlier tests' unresolved runs out
       // of later tests so every case exercises only its own recovery fixtures.
-      await db.execute(sql`TRUNCATE companies CASCADE`);
+      await truncateTablesWithDeadlockRetry(db, `TRUNCATE companies CASCADE`);
     });
     afterAll(async () => {
       if (externalDatabaseUrl) await db?.$client.end();

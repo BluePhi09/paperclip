@@ -229,3 +229,4 @@ export { toolConnectionAppSnapshots } from "./tool_connection_app_snapshots.js";
 export { toolConnectionAppSyncs } from "./tool_connection_app_syncs.js";
 
 export { agentIdentityKeys } from "./agent_identity_keys.js";
+export * from "./governance_verification.js";
