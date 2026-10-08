@@ -2461,6 +2461,26 @@ export function createToolGatewayService(
         argumentsSummary: input.argumentsSummary,
       });
 
+    // Build (and validate) the brief before any approval row is written. Tool names and
+    // argument summaries are not bounded by the brief limits, so they are shortened with
+    // a visible marker; the complete arguments stay in the card's details and toolAction.
+    const actionToolName = input.tool.displayName?.trim() || input.tool.name;
+    const actionBrief = nativeHumanActionBrief({
+      subject: `Approve ${actionToolName}?`,
+      summary: `Allow this agent to run ${actionToolName} once with the displayed arguments. Rejecting does not run it.`,
+      scope: clipBriefText(
+        `One action with these arguments: ${input.argumentsSummary.summary}`,
+        BRIEF_TEXT_LIMITS.text,
+        " … (shortened; the complete arguments are shown in this approval's details)",
+      ),
+      excludedScope: "No other action or different arguments are authorized. Remembering an action is a separate broader permission.",
+      risks: input.tool.risk === "destructive" ? "This action is marked destructive and may irreversibly remove data." : input.tool.risk === "read" ? "This action reads data and can expose it to the agent." : "This action can change external data or state.",
+      preconditions: ["Review the displayed action preview and arguments before authorizing; the argument hash must still match."],
+      source: `tool-action:${actionRequest.id}`, revision: canonicalArgumentsHash,
+      acceptLabel: "Approve action", rejectLabel: "Reject action",
+      acceptConsequence: "Run this one action with its bound arguments after the native permission checks.", rejectConsequence: "Do not run this action.",
+    });
+
     let formalApprovalId: string | null = null;
     if (toolRequiresFormalApproval(input.tool)) {
       const [approval] = await db
@@ -2499,6 +2519,10 @@ export function createToolGatewayService(
         .onConflictDoNothing();
     }
 
+    // The formal approval and the card are written without a shared transaction
+    // (interaction creation runs its own service writes). If the card cannot be
+    // created, remove the just-written formal approval so it does not linger
+    // unreferenced in the Board queue, then surface the original error.
     const interaction = await interactions.create(
       { id: input.session.issueId, companyId: input.session.companyId },
       {
@@ -2512,17 +2536,7 @@ export function createToolGatewayService(
         payload: {
           version: 1,
           prompt: `Approve ${input.tool.displayName?.trim() || input.tool.name}?`,
-          brief: nativeHumanActionBrief({
-            subject: `Approve ${input.tool.displayName?.trim() || input.tool.name}?`,
-            summary: `Allow this agent to run ${input.tool.displayName?.trim() || input.tool.name} once with the displayed arguments. Rejecting does not run it.`,
-            scope: `One action with these arguments: ${input.argumentsSummary.summary}`,
-            excludedScope: "No other action or different arguments are authorized. Remembering an action is a separate broader permission.",
-            risks: input.tool.risk === "destructive" ? "This action is marked destructive and may irreversibly remove data." : input.tool.risk === "read" ? "This action reads data and can expose it to the agent." : "This action can change external data or state.",
-            preconditions: ["Review the displayed action preview and arguments before authorizing; the argument hash must still match."],
-            source: `tool-action:${actionRequest.id}`, revision: canonicalArgumentsHash,
-            acceptLabel: "Approve action", rejectLabel: "Reject action",
-            acceptConsequence: "Run this one action with its bound arguments after the native permission checks.", rejectConsequence: "Do not run this action.",
-          }),
+          brief: actionBrief,
           acceptLabel: "Approve action",
           rejectLabel: "Reject action",
           rejectRequiresReason: false,
@@ -2565,7 +2579,13 @@ export function createToolGatewayService(
         },
       },
       { agentId: input.session.agentId },
-    );
+    ).catch(async (error: unknown) => {
+      if (formalApprovalId) {
+        await db.delete(issueApprovals).where(eq(issueApprovals.approvalId, formalApprovalId));
+        await db.delete(approvals).where(and(eq(approvals.id, formalApprovalId), eq(approvals.status, "pending")));
+      }
+      throw error;
+    });
 
     // Sign the row only while it is still pending. A concurrent matching call can
     // expire this row when the create runs longer than the abandon grace time.
@@ -11361,4 +11381,4 @@ export function createToolGatewayService(
 }
 
 export type ToolGatewayService = ReturnType<typeof createToolGatewayService>;
-import { nativeHumanActionBrief, nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";
+import { BRIEF_TEXT_LIMITS, clipBriefText, nativeHumanActionBrief, nativeConnectionAuthorizationBrief } from "./native-human-action-brief.js";
