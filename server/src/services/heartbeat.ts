@@ -8088,6 +8088,12 @@ export function heartbeatService(
 
     resumeQueuedRuns,
 
+    resumeQueuedRunsForAgent: async (companyId: string, agentId: string) => {
+      const agent = await getAgent(agentId);
+      if (!agent || agent.companyId !== companyId) return [];
+      return startNextQueuedRunForAgent(agentId);
+    },
+
     scheduleBoundedRetry,
 
     reconcileStrandedAssignedIssues,
