@@ -2177,7 +2177,8 @@ export type WithdrawIssueThreadInteraction = z.infer<
 >;
 
 export const respondIssueThreadInteractionSchema = z.object({
-  answers: z.array(askUserQuestionsAnswerSchema).max(20),
+  // Must match the 64-question cap, otherwise large cards cannot be submitted.
+  answers: z.array(askUserQuestionsAnswerSchema).max(64),
   summaryMarkdown: multilineTextSchema
     .pipe(z.string().max(20000))
     .nullable()
