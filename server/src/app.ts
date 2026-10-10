@@ -13,6 +13,7 @@ import { customerSuccessRoutes } from "./routes/customer-success.js";
 import { cloudWarmStandbyMiddleware } from "./middleware/cloud-warm-standby.js";
 import type { CloudWarmStandby } from "./services/cloud-warm-standby.js";
 import { browserUseRoutes } from "./routes/browser-use.js";
+import { registerChatActionWork } from "./services/chat-action-work.js";
 import { registerChatDeliveryWork } from "./services/chat-delivery-work.js";
 import { registerBrowserUseCleanup } from "./services/browser-use-work.js";
 import { browserUseService } from "./services/browser-use.js";
@@ -1252,6 +1253,7 @@ export async function createApp(
     });
   }
   registerChatDeliveryWork(deliveryWork, chatChannels, () => !isIdleTaskDrainActive());
+  registerChatActionWork(deliveryWork, chatChannels, () => !isIdleTaskDrainActive());
   emailChannels.start();
   const reconcileChatPublicationMaintenance = async () => {
     await chatChannels.processPublicationMaintenance();
