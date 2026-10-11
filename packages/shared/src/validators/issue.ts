@@ -1955,6 +1955,9 @@ const createIssueThreadInteractionCommon = {
   resolverPolicy: issueThreadInteractionResolverPolicySchema.optional(),
   addresseeAgentId: z.string().guid().nullable().optional(),
   addresseeUserId: z.string().trim().min(1).nullable().optional(),
+  // Older pending cards of the same creator on this issue that this card
+  // replaces. Without it, every open card stays answerable.
+  supersedesInteractionIds: z.array(z.string().guid()).max(20).optional(),
 };
 
 // Validate dual representations on creation, not when reading historical rows.

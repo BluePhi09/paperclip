@@ -90,7 +90,6 @@ const {
   };
   const heartbeatServiceFactoryMock = vi.fn(() => heartbeatServiceMock);
   const issueThreadInteractionServiceMock = {
-    sweepSupersededPendingRequestConfirmations: vi.fn(async () => ({ expired: 0 })),
     sweepMergedPullRequestConfirmations: vi.fn(async () => ({
       checked: 0,
       candidates: 0,

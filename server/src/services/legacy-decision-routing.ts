@@ -351,7 +351,6 @@ export async function applyLegacyDecisionRouting(db: Db, plan: LegacyRoutingPlan
             { id: row.issueId, companyId: row.companyId },
             replacementInput(row, group),
             creator,
-            { supersedePendingSiblingInteractions: false },
           ));
         }
         const replacementIds = replacements.map((interaction) => interaction.id);

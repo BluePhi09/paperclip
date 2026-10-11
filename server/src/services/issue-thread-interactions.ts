@@ -164,8 +164,6 @@ async function assertInteractionRunWriteAllowed(tx: Db, issue: { id: string; com
 }
 
 type CreateInteractionOptions = {
-  /** Keep independently owned pending cards actionable. Internal runtime bridges use this. */
-  supersedePendingSiblingInteractions?: boolean;
   /**
    * Agent-authored boundaries (the HTTP interaction route) require a complete
    * concise brief on every new human-facing card. Clarifying questions inside
@@ -815,8 +813,11 @@ function interactionTerminalError(row: { status: string; result?: unknown }) {
     );
   }
   if (
+    result?.outcome === "superseded" ||
     result?.outcome === "superseded_by_comment" ||
-    result?.outcome === "superseded_by_newer_request"
+    result?.outcome === "superseded_by_newer_request" ||
+    result?.expirationReason === "superseded_by_comment" ||
+    result?.expirationReason === "superseded_by_newer_interaction"
   ) {
     return issueThreadInteractionResolutionError(
       409,
@@ -970,9 +971,8 @@ function buildSupersededByNewerRequestResult(replacementInteractionId: string) {
   } as const;
 }
 
-// An agent that posts a fresh ask_user_questions while its own earlier ones on
-// the same issue are still pending has replaced them — the newer card carries
-// the real ask, so the stale siblings auto-expire (PAP-437). Mirrors the
+// A newer ask_user_questions that explicitly names an older pending one in
+// supersedesInteractionIds replaces it, so the older card expires. Mirrors the
 // `superseded_by_comment` shape (ask_user_questions results key expiry off
 // `expirationReason`, not `outcome`) so the UI can hide them cleanly.
 function buildSupersededByNewerInteractionResult(
@@ -985,6 +985,20 @@ function buildSupersededByNewerInteractionResult(
     supersededByInteractionId: replacementInteractionId,
     summaryMarkdown: null,
   } as const;
+}
+
+function canExplicitlySupersedeInteraction(
+  row: IssueThreadInteractionRow,
+  actor: InteractionActor,
+) {
+  const ownCard = actor.agentId
+    ? row.createdByAgentId === actor.agentId
+    : Boolean(actor.userId) && row.createdByUserId === actor.userId;
+  if (!ownCard) return false;
+  if (row.kind === "ask_user_questions") return true;
+  if (row.kind !== "request_confirmation") return false;
+  const payload = (row.payload ?? {}) as Record<string, unknown>;
+  return payload.toolAction === undefined && payload.secretProposal === undefined;
 }
 
 function buildAdministrativeOutcomeResult(
@@ -3289,95 +3303,6 @@ export function issueThreadInteractionService(
       return cancelled;
     },
 
-    sweepSupersededPendingRequestConfirmations: async () => {
-      const rows = await db
-        .select()
-        .from(issueThreadInteractions)
-        .where(
-          and(
-            eq(issueThreadInteractions.kind, "request_confirmation"),
-            eq(issueThreadInteractions.status, "pending"),
-            isNotNull(issueThreadInteractions.createdByAgentId),
-          ),
-        )
-        .orderBy(
-          asc(issueThreadInteractions.companyId),
-          asc(issueThreadInteractions.issueId),
-          asc(issueThreadInteractions.kind),
-          asc(issueThreadInteractions.createdByAgentId),
-          desc(issueThreadInteractions.createdAt),
-          desc(issueThreadInteractions.id),
-        );
-
-      const newestByGroup = new Map<string, IssueThreadInteractionRow>();
-      const supersededRows: Array<{
-        row: IssueThreadInteractionRow;
-        replacementInteractionId: string;
-      }> = [];
-      for (const row of rows) {
-        if (!row.createdByAgentId) continue;
-        const groupKey = `${row.companyId}:${row.issueId}:${row.kind}:${row.createdByAgentId}`;
-        const newest = newestByGroup.get(groupKey);
-        if (!newest) {
-          newestByGroup.set(groupKey, row);
-          continue;
-        }
-        supersededRows.push({ row, replacementInteractionId: newest.id });
-      }
-
-      if (supersededRows.length === 0) return { expired: 0 };
-
-      const now = new Date();
-      const expired: IssueThreadInteraction[] = [];
-      for (const { row, replacementInteractionId } of supersededRows) {
-        const updated = await db.transaction(async (tx) => {
-          const [updatedRow] = await tx
-            .update(issueThreadInteractions)
-            .set({
-              status: "expired",
-              result: buildSupersededByNewerRequestResult(
-                replacementInteractionId,
-              ),
-              resolvedByAgentId: null,
-              resolvedByUserId: null,
-              resolvedAt: now,
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(issueThreadInteractions.id, row.id),
-                eq(issueThreadInteractions.status, "pending"),
-              ),
-            )
-            .returning();
-          if (!updatedRow) return null;
-          await resolveLinkedToolActionRequests(tx, updatedRow, {
-            status: "expired",
-            fromStatuses: ["pending", "approved"],
-            actor: {},
-            now,
-          });
-          await enqueueTerminalIssueInteractionChatPublications(
-            tx as unknown as Db,
-            hydrateInteraction(updatedRow),
-          );
-          return updatedRow;
-        });
-        if (!updated) continue;
-        expired.push(hydrateInteraction(updated));
-      }
-
-      if (expired.length > 0) {
-        for (const issueId of new Set(
-          expired.map((interaction) => interaction.issueId),
-        )) {
-          await touchIssue(db, issueId);
-        }
-        await emitResolvedInteractionsTelemetry(db, expired);
-      }
-      return { expired: expired.length };
-    },
-
     create: async (
       issue: { id: string; companyId: string },
       input: CreateIssueThreadInteractionInput,
@@ -3741,52 +3666,73 @@ export function issueThreadInteractionService(
             })
             .returning();
 
-          // An agent replacing its own still-pending card supersedes the older
-          // one so the thread never accumulates stale sibling cards. This covers
-          // request_confirmation drafts and ordinary task questions. Agent Chat
-          // questions remain answerable in history even when another is asked.
-          // Scoped to the same agent + issue + kind; other actors are untouched.
-          const canSupersedeSiblingCards =
-            options.supersedePendingSiblingInteractions !== false &&
-            ((data.kind === "request_confirmation" &&
-              data.payload.toolAction === undefined &&
-              data.payload.secretProposal === undefined) ||
-              (data.kind === "ask_user_questions" && (!issueRow.conversationAgentId || !issueRow.conversationUserId)));
-          if (!actor.agentId || !canSupersedeSiblingCards) {
+          // A new card never silently replaces older ones: two open questions
+          // on different topics must both stay answerable. Only cards the
+          // creator explicitly names in supersedesInteractionIds expire, and
+          // only its own pending questions/confirmations on this issue.
+          const supersedeIds = [...new Set(data.supersedesInteractionIds ?? [])];
+          if (supersedeIds.length === 0) {
             await enqueueIssueInteractionChatPublications(
               tx as unknown as Db,
               hydrateInteraction(row),
             );
             return { row, supersededRows: [] };
           }
-
-          const now = new Date();
-          const supersededResult =
-            data.kind === "ask_user_questions"
-              ? buildSupersededByNewerInteractionResult(row.id)
-              : buildSupersededByNewerRequestResult(row.id);
-          const supersededRows = await tx
-            .update(issueThreadInteractions)
-            .set({
-              status: "expired",
-              result: supersededResult,
-              resolvedByAgentId: actor.agentId,
-              resolvedByUserId: actor.userId ?? null,
-              resolvedAt: now,
-              updatedAt: now,
-            })
+          const supersedeCandidates = await tx
+            .select()
+            .from(issueThreadInteractions)
             .where(
               and(
                 eq(issueThreadInteractions.companyId, issue.companyId),
                 eq(issueThreadInteractions.issueId, issue.id),
-                eq(issueThreadInteractions.kind, data.kind),
-                eq(issueThreadInteractions.createdByAgentId, actor.agentId),
-                eq(issueThreadInteractions.status, "pending"),
-                ne(issueThreadInteractions.id, row.id),
-
+                inArray(issueThreadInteractions.id, supersedeIds),
               ),
             )
-            .returning();
+            .for("update");
+          const invalidSupersedeIds = supersedeIds.filter((id) => {
+            const candidate = supersedeCandidates.find((entry) => entry.id === id);
+            return !candidate || !canExplicitlySupersedeInteraction(candidate, actor);
+          });
+          if (invalidSupersedeIds.length > 0) {
+            throw unprocessable(
+              "supersedesInteractionIds must name your own questions or confirmations on this issue",
+              {
+                code: "interaction_supersede_target_invalid",
+                interactionIds: invalidSupersedeIds,
+              },
+            );
+          }
+          // Already answered or expired targets stay as they are.
+          const pendingSupersedeIds = supersedeCandidates
+            .filter((candidate) => candidate.status === "pending")
+            .map((candidate) => candidate.id);
+
+          const now = new Date();
+          const supersededRows: IssueThreadInteractionRow[] = [];
+          for (const candidate of supersedeCandidates) {
+            if (!pendingSupersedeIds.includes(candidate.id)) continue;
+            const [updatedRow] = await tx
+              .update(issueThreadInteractions)
+              .set({
+                status: "expired",
+                result:
+                  candidate.kind === "ask_user_questions"
+                    ? buildSupersededByNewerInteractionResult(row.id)
+                    : buildSupersededByNewerRequestResult(row.id),
+                resolvedByAgentId: actor.agentId ?? null,
+                resolvedByUserId: actor.userId ?? null,
+                resolvedAt: now,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(issueThreadInteractions.id, candidate.id),
+                  eq(issueThreadInteractions.status, "pending"),
+                ),
+              )
+              .returning();
+            if (updatedRow) supersededRows.push(updatedRow);
+          }
           for (const supersededRow of supersededRows) {
             await resolveLinkedToolActionRequests(tx, supersededRow, {
               status: "expired",

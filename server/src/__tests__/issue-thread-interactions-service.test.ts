@@ -2150,7 +2150,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     expect(rows[0]?.idempotencyKey).toBe("run-1:questionnaire");
   });
 
-  it("supersedes older pending confirmations from the same agent without crossing agent or kind", async () => {
+  it("keeps an agent's confirmations on different topics open and expires only an explicitly superseded one", async () => {
     const { companyId, issueId } = await seedConfirmationIssue("Newer confirmation supersedes older");
     const firstAgentId = randomUUID();
     const secondAgentId = randomUUID();
@@ -2198,13 +2198,37 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       idempotencyKey: "confirmation:second",
       payload: { version: 1, prompt: "Approve the second agent's draft?" },
     }, { agentId: secondAgentId });
+    const secondTopic = await interactionsSvc.create({ id: issueId, companyId }, {
+      kind: "request_confirmation",
+      idempotencyKey: "confirmation:first:second-topic",
+      payload: { version: 1, prompt: "Approve an unrelated plan?" },
+    }, { agentId: firstAgentId });
+
+    // A newer card on another topic leaves the older one answerable.
+    let interactions = await interactionsSvc.listForIssue(issueId);
+    expect(interactions.find((interaction) => interaction.id === older.id)?.status).toBe("pending");
+    expect(interactions.find((interaction) => interaction.id === secondTopic.id)?.status).toBe("pending");
+
+    // Another agent's card can never be superseded, and nothing is created.
+    await expect(interactionsSvc.create({ id: issueId, companyId }, {
+      kind: "request_confirmation",
+      idempotencyKey: "confirmation:first:foreign",
+      supersedesInteractionIds: [otherAgent.id],
+      payload: { version: 1, prompt: "Replace the other agent's draft?" },
+    }, { agentId: firstAgentId })).rejects.toMatchObject({
+      status: 422,
+      details: { code: "interaction_supersede_target_invalid", interactionIds: [otherAgent.id] },
+    });
+
     const replacement = await interactionsSvc.create({ id: issueId, companyId }, {
       kind: "request_confirmation",
       idempotencyKey: "confirmation:first:newer",
+      supersedesInteractionIds: [older.id],
       payload: { version: 1, prompt: "Approve the newer draft?" },
     }, { agentId: firstAgentId });
 
-    const interactions = await interactionsSvc.listForIssue(issueId);
+    interactions = await interactionsSvc.listForIssue(issueId);
+    expect(interactions.some((interaction) => interaction.idempotencyKey === "confirmation:first:foreign")).toBe(false);
     expect(interactions.find((interaction) => interaction.id === older.id)).toMatchObject({
       status: "expired",
       resolvedByAgentId: firstAgentId,
@@ -2214,11 +2238,20 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       },
     });
     expect(interactions.find((interaction) => interaction.id === replacement.id)?.status).toBe("pending");
+    expect(interactions.find((interaction) => interaction.id === secondTopic.id)?.status).toBe("pending");
     expect(interactions.find((interaction) => interaction.id === otherAgent.id)?.status).toBe("pending");
     expect(interactions.find((interaction) => interaction.id === otherKind.id)?.status).toBe("pending");
+
+    // Answering the superseded card reports the supersede, not a generic resolve.
+    await expect(interactionsSvc.acceptInteraction(
+      { id: issueId, companyId },
+      older.id,
+      {},
+      { userId: "local-board" },
+    )).rejects.toMatchObject({ status: 409, details: { code: "interaction_superseded" } });
   });
 
-  it("supersedes an agent's own older pending ask_user_questions without crossing agent, kind, or issue", async () => {
+  it("keeps two questions on different topics open until one is explicitly superseded", async () => {
     const { companyId, goalId, issueId } = await seedConfirmationIssue("Question supersedes older sibling");
     const otherIssueId = randomUUID();
     await db.insert(issues).values({
@@ -2283,8 +2316,19 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     const otherIssueQuestion = await interactionsSvc.create(
       { id: otherIssueId, companyId }, question("Other issue question"), { agentId: probingAgentId },
     );
+    const secondTopic = await interactionsSvc.create(
+      { id: issueId, companyId }, question("Unrelated question"), { agentId: probingAgentId },
+    );
+
+    // Two open questions on different topics from the same agent both stay open.
+    const beforeReplace = await interactionsSvc.listForIssue(issueId);
+    expect(beforeReplace.find((interaction) => interaction.id === older.id)?.status).toBe("pending");
+    expect(beforeReplace.find((interaction) => interaction.id === secondTopic.id)?.status).toBe("pending");
+
     const replacement = await interactionsSvc.create(
-      { id: issueId, companyId }, question("Newer question"), { agentId: probingAgentId },
+      { id: issueId, companyId },
+      { ...question("Newer question"), supersedesInteractionIds: [older.id] },
+      { agentId: probingAgentId },
     );
 
     const interactions = await interactionsSvc.listForIssue(issueId);
@@ -2298,10 +2342,19 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       },
     });
     expect(interactions.find((interaction) => interaction.id === replacement.id)?.status).toBe("pending");
+    expect(interactions.find((interaction) => interaction.id === secondTopic.id)?.status).toBe("pending");
     // A different agent's pending question is untouched.
     expect(interactions.find((interaction) => interaction.id === otherAgentQuestion.id)?.status).toBe("pending");
     // A different kind from the same agent is untouched.
     expect(interactions.find((interaction) => interaction.id === otherKind.id)?.status).toBe("pending");
+
+    // Answering the superseded question reports the supersede (was: already resolved).
+    await expect(interactionsSvc.answerQuestions(
+      { id: issueId, companyId },
+      older.id,
+      { answers: [{ questionId: "q", optionIds: ["opt"] }] },
+      { userId: "local-board" },
+    )).rejects.toMatchObject({ status: 409, details: { code: "interaction_superseded" } });
 
     // The same agent's question on a different issue is untouched.
     const otherIssueInteractions = await interactionsSvc.listForIssue(otherIssueId);
@@ -2309,7 +2362,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       .toBe("pending");
   });
 
-  it("leaves exactly one pending ask_user_questions on the onboarding first task after probe cards and the real question arrive", async () => {
+  it("leaves exactly one pending ask_user_questions on the onboarding first task after the real question replaces probe cards", async () => {
     const companyId = randomUUID();
     const goalId = randomUUID();
     const issueId = randomUUID();
@@ -2363,10 +2416,11 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
         }],
       },
     });
-    await interactionsSvc.create({ id: issueId, companyId }, probe("t"), { agentId });
-    await interactionsSvc.create({ id: issueId, companyId }, probe("p"), { agentId });
+    const probeT = await interactionsSvc.create({ id: issueId, companyId }, probe("t"), { agentId });
+    const probeP = await interactionsSvc.create({ id: issueId, companyId }, probe("p"), { agentId });
     await interactionsSvc.create({ id: issueId, companyId }, {
       kind: "ask_user_questions",
+      supersedesInteractionIds: [probeT.id, probeP.id],
       payload: {
         version: 1,
         questions: [{
@@ -2392,7 +2446,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       expect(remaining.payload.questions[0]?.prompt).toContain("focus on first");
     }
 
-    // Both probe cards auto-expired with the sibling-supersede reason.
+    // Both explicitly replaced probe cards expired with the supersede reason.
     const expiredQuestions = interactions.filter(
       (interaction) => interaction.kind === "ask_user_questions" && interaction.status === "expired",
     );
@@ -2400,104 +2454,6 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     for (const card of expiredQuestions) {
       expect(card.result).toMatchObject({ expirationReason: "superseded_by_newer_interaction" });
     }
-  });
-
-  it("sweeps historical confirmation pile-ups idempotently per issue, kind, and agent", async () => {
-    const { companyId, issueId } = await seedConfirmationIssue("Historical confirmation sweep");
-    const firstAgentId = randomUUID();
-    const secondAgentId = randomUUID();
-    await db.insert(agents).values([
-      {
-        id: firstAgentId,
-        companyId,
-        name: "First agent",
-        role: "engineer",
-        status: "active",
-        adapterType: "codex_local",
-        adapterConfig: {},
-        runtimeConfig: {},
-        permissions: {},
-      },
-      {
-        id: secondAgentId,
-        companyId,
-        name: "Second agent",
-        role: "engineer",
-        status: "active",
-        adapterType: "codex_local",
-        adapterConfig: {},
-        runtimeConfig: {},
-        permissions: {},
-      },
-    ]);
-
-    const firstAgentIds = [randomUUID(), randomUUID(), randomUUID()];
-    const secondAgentIds = [randomUUID(), randomUUID()];
-    const checkboxId = randomUUID();
-    await db.insert(issueThreadInteractions).values([
-      ...firstAgentIds.map((id, index) => ({
-        id,
-        companyId,
-        issueId,
-        kind: "request_confirmation",
-        status: "pending",
-        continuationPolicy: "wake_assignee",
-        createdByAgentId: firstAgentId,
-        payload: { version: 1 as const, prompt: `First agent draft ${index + 1}` },
-        createdAt: new Date(`2026-07-01T12:0${index}:00.000Z`),
-        updatedAt: new Date(`2026-07-01T12:0${index}:00.000Z`),
-      })),
-      ...secondAgentIds.map((id, index) => ({
-        id,
-        companyId,
-        issueId,
-        kind: "request_confirmation",
-        status: "pending",
-        continuationPolicy: "wake_assignee",
-        createdByAgentId: secondAgentId,
-        payload: { version: 1 as const, prompt: `Second agent draft ${index + 1}` },
-        createdAt: new Date(`2026-07-01T13:0${index}:00.000Z`),
-        updatedAt: new Date(`2026-07-01T13:0${index}:00.000Z`),
-      })),
-      {
-        id: checkboxId,
-        companyId,
-        issueId,
-        kind: "request_checkbox_confirmation",
-        status: "pending",
-        continuationPolicy: "wake_assignee",
-        createdByAgentId: firstAgentId,
-        payload: { version: 1, prompt: "Select one", options: [{ id: "one", label: "One" }] },
-        createdAt: new Date("2026-07-01T14:00:00.000Z"),
-        updatedAt: new Date("2026-07-01T14:00:00.000Z"),
-      },
-    ]);
-
-    await expect(interactionsSvc.sweepSupersededPendingRequestConfirmations())
-      .resolves.toEqual({ expired: 3 });
-    await expect(interactionsSvc.sweepSupersededPendingRequestConfirmations())
-      .resolves.toEqual({ expired: 0 });
-
-    const interactions = await interactionsSvc.listForIssue(issueId);
-    for (const id of firstAgentIds.slice(0, -1)) {
-      expect(interactions.find((interaction) => interaction.id === id)).toMatchObject({
-        status: "expired",
-        result: {
-          outcome: "superseded_by_newer_request",
-          supersededByInteractionId: firstAgentIds.at(-1),
-        },
-      });
-    }
-    expect(interactions.find((interaction) => interaction.id === firstAgentIds.at(-1))?.status).toBe("pending");
-    expect(interactions.find((interaction) => interaction.id === secondAgentIds[0])).toMatchObject({
-      status: "expired",
-      result: {
-        outcome: "superseded_by_newer_request",
-        supersededByInteractionId: secondAgentIds[1],
-      },
-    });
-    expect(interactions.find((interaction) => interaction.id === secondAgentIds[1])?.status).toBe("pending");
-    expect(interactions.find((interaction) => interaction.id === checkboxId)?.status).toBe("pending");
   });
 
   it("refuses to create an interaction on a closed issue", async () => {

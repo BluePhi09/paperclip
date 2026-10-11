@@ -710,11 +710,6 @@ async function startServerWithDatabaseTeardown(
   if (toolOAuthBackfill.sanitizedConnections > 0 || toolOAuthBackfill.migratedConnections > 0) {
     logger.info(toolOAuthBackfill, "Backfilled legacy tool OAuth credentials into company secrets");
   }
-  const confirmationSweep = await issueThreadInteractionService(db as any)
-    .sweepSupersededPendingRequestConfirmations();
-  if (confirmationSweep.expired > 0) {
-    logger.info(confirmationSweep, "Expired pending confirmations superseded by newer agent requests");
-  }
   if (config.deploymentMode === "authenticated") {
     const {
       createBetterAuthHandler,

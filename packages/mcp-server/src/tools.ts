@@ -160,6 +160,8 @@ const createSuggestTasksToolSchema = z.object({
 const createAskUserQuestionsToolSchema = z.object({
   resolverPolicy: z.literal("human_only").default("human_only"),
   issueId: issueIdSchema,
+  supersedesInteractionIds: z.array(z.string().guid()).max(20).optional()
+    .describe("Only for replacing your own older open cards on this issue; omit to keep them open."),
   idempotencyKey: z.string().trim().max(255).nullable().optional(),
   sourceCommentId: z.string().guid().nullable().optional(),
   sourceRunId: z.string().guid().nullable().optional(),
@@ -172,6 +174,8 @@ const createAskUserQuestionsToolSchema = z.object({
 const createRequestConfirmationToolSchema = z.object({
   resolverPolicy: z.literal("human_only").default("human_only"),
   issueId: issueIdSchema,
+  supersedesInteractionIds: z.array(z.string().guid()).max(20).optional()
+    .describe("Only for replacing your own older open cards on this issue; omit to keep them open."),
   idempotencyKey: z.string().trim().max(255).nullable().optional(),
   sourceCommentId: z.string().guid().nullable().optional(),
   sourceRunId: z.string().guid().nullable().optional(),
@@ -184,6 +188,8 @@ const createRequestConfirmationToolSchema = z.object({
 const createRequestCheckboxConfirmationToolSchema = z.object({
   resolverPolicy: z.literal("human_only").default("human_only"),
   issueId: issueIdSchema,
+  supersedesInteractionIds: z.array(z.string().guid()).max(20).optional()
+    .describe("Only for replacing your own older open cards on this issue; omit to keep them open."),
   idempotencyKey: z.string().trim().max(255).nullable().optional(),
   sourceCommentId: z.string().guid().nullable().optional(),
   sourceRunId: z.string().guid().nullable().optional(),

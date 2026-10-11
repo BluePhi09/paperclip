@@ -197,7 +197,6 @@ export async function projectNativeRuntimeRequest(input: {
       payload: toInteractionPayload(questionSet, request.requestId),
     },
     { agentId: input.binding.agentId, runId: input.binding.runId },
-    { supersedePendingSiblingInteractions: false },
   ) as AskUserQuestionsInteraction;
   if (!existing) {
     await logActivity(input.db, {

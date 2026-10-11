@@ -53,7 +53,7 @@ describe("Decisions through the production authenticated app", () => {
     const create = (resolverPolicy: "not_creator" | "human_only" = "not_creator", target?: Record<string, unknown>) => svc.create({ id: f.issueId, companyId: f.companyId }, {
       kind: "request_confirmation", addresseeAgentId: reviewerId, resolverPolicy, continuationPolicy: "none",
       payload: { version: 1, prompt: "Review this revision only; no implementation authorized", ...(target ? { target } : {}), ...(resolverPolicy === "not_creator" ? { brief: { version: 1, decisionClass: "expert_review", purpose: "plan_review", subject: "Independent revision review", resolverTarget: { type: "agent", agentId: reviewerId, reason: "Independent expert" }, evidenceRefs: [{ source: "Issue document", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record review only" }, { optionId: "reject", consequence: "Revise" }], safeDefault: "No implementation" } } : {}) },
-    } as Parameters<typeof svc.create>[1], { agentId: f.agentId, runId: f.runId }, { supersedePendingSiblingInteractions: false });
+    } as Parameters<typeof svc.create>[1], { agentId: f.agentId, runId: f.runId });
     return { ...f, reviewerId, reviewerRunId, call, create };
   }
 
@@ -66,7 +66,7 @@ describe("Decisions through the production authenticated app", () => {
     await issueThreadInteractionService(server.db).create({ id: f.issueId, companyId: f.companyId }, {
       kind: "request_confirmation", addresseeAgentId: otherReviewerId, resolverPolicy: "not_creator", continuationPolicy: "none",
       payload: { version: 1, prompt: "Only the other reviewer may answer" },
-    }, { agentId: f.agentId, runId: f.runId }, { supersedePendingSiblingInteractions: false });
+    }, { agentId: f.agentId, runId: f.runId });
     const path = `/api/companies/${f.companyId}/attention/expert`;
     const response = await f.call(path);
     expect(response.status).toBe(200);
@@ -88,7 +88,7 @@ describe("Decisions through the production authenticated app", () => {
     const human = await issueThreadInteractionService(server.db).create({ id: f.issueId, companyId: f.companyId }, {
       kind: "request_confirmation", sourceRunId: f.runId, resolverPolicy: "human_only", continuationPolicy: "none",
       payload: { version: 1, prompt: "Independent Board review only", brief: { version: 1, decisionClass: "expert_review", purpose: "plan_review", subject: "Human Board review", resolverTarget: { type: "human", reason: "Independent Board reviewer" }, evidenceRefs: [{ source: "Issue document", revision: "1" }], selectionConsequences: [{ optionId: "accept", consequence: "Record review only" }, { optionId: "reject", consequence: "Revise" }], safeDefault: "No implementation" } },
-    }, { agentId: f.agentId, runId: f.runId }, { supersedePendingSiblingInteractions: false });
+    }, { agentId: f.agentId, runId: f.runId });
     const humanPath = `/api/issues/${f.issueId}/interactions/${human.id}/accept`;
     expect((await f.call(humanPath, "POST", {})).status).toBe(403);
     const creatorToken = createLocalAgentJwt(f.agentId, f.companyId, "paperclip_runner", f.runId, null)!;
