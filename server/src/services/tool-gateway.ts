@@ -721,12 +721,39 @@ function gatewaySessionFromRow(
   };
 }
 
+// Upper bound for a single tool execution. Some provider operations (for
+// example a UniFi controller backup) legitimately run for more than a minute,
+// so the bound is five minutes. Operators can tune it with
+// PAPERCLIP_TOOL_TIMEOUT_MAX_MS. Callers still default to
+// DEFAULT_TOOL_TIMEOUT_MS; only explicit budgets can reach this bound.
+const DEFAULT_MAX_TOOL_TIMEOUT_MS = 5 * 60 * 1000;
+
+export function maxToolTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
+  const configured = Number(env.PAPERCLIP_TOOL_TIMEOUT_MAX_MS);
+  return Number.isFinite(configured) && configured >= 1_000
+    ? Math.floor(configured)
+    : DEFAULT_MAX_TOOL_TIMEOUT_MS;
+}
+
 function timeoutMs(value: number | undefined) {
   if (!Number.isFinite(value)) return DEFAULT_TOOL_TIMEOUT_MS;
   return Math.max(
     1,
-    Math.min(60_000, Math.floor(value ?? DEFAULT_TOOL_TIMEOUT_MS)),
+    Math.min(maxToolTimeoutMs(), Math.floor(value ?? DEFAULT_TOOL_TIMEOUT_MS)),
   );
+}
+
+// Optional per-connection budget (`config.toolTimeoutMs`) for remote tool
+// calls whose caller sets none. The MCP gateway never forwards a timeout, so
+// without this every agent call is cut at DEFAULT_TOOL_TIMEOUT_MS. A connection
+// to a known-slow provider can opt in without raising the global default.
+export function connectionToolTimeoutMs(
+  config: Record<string, unknown> | null | undefined,
+): number | null {
+  const value = config?.toolTimeoutMs;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? timeoutMs(value)
+    : null;
 }
 
 function sessionTtlMs(value: number | undefined) {
@@ -5983,6 +6010,7 @@ export function createToolGatewayService(
     invocationId: string,
     callerHeaders?: ExecuteGatewayToolInput["callerHeaders"],
     useDefaultTimeout = false,
+    approvedExecution = false,
   ): Promise<RemoteHttpExecutionResult> {
     const { entry, connection } = await resolveConnectedRemoteTool(
       session,
@@ -5991,6 +6019,16 @@ export function createToolGatewayService(
     // Recheck immediately before dispatch, including previously approved calls
     // and connections whose stored grant/catalog predates scope reduction.
     assertGoogleChatToolArgumentsSupported(connection, entry.toolName, parameters);
+    // A connection-level budget replaces the interactive default, and may only
+    // extend (never shorten) the server-chosen budget of an approved execution.
+    // An explicit caller budget always wins.
+    const connectionBudgetMs = connectionToolTimeoutMs(connection.config);
+    if (
+      connectionBudgetMs !== null &&
+      (useDefaultTimeout || (approvedExecution && connectionBudgetMs > ms))
+    ) {
+      ms = connectionBudgetMs;
+    }
     if (useDefaultTimeout && isRailwayConnection(connection) && entry.toolName === `${RAILWAY_TOOL_PREFIX}run-command`) {
       ms = railwayCommandBudgetMs(parameters);
     }
@@ -6031,6 +6069,10 @@ export function createToolGatewayService(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     timer.unref?.();
+    // Distinguishes a timeout while establishing the MCP session (the server is
+    // unreachable or broken) from a timeout of the tool call itself (the server
+    // accepted the call and is merely slow).
+    let awaitingSessionHandshake = false;
     try {
       const dispatchRemote = (target: string, init: RequestInit) =>
         connection.transport === "connector"
@@ -6075,6 +6117,7 @@ export function createToolGatewayService(
       }
       let requestHeaders = headers;
       if (connection.config.mcpSessionRequired === true) {
+        awaitingSessionHandshake = true;
         requestHeaders = await getMcpHttpSession({
           scope: `${connection.id}:grant:${grant.id}:actor:${session.agentId}:${endpoint}`,
           send: (init) =>
@@ -6086,6 +6129,7 @@ export function createToolGatewayService(
           headers,
           requestId,
         });
+        awaitingSessionHandshake = false;
       }
       // The guard runs inside this call and the connection is pinned to the
       // address it approved, so an operator-supplied hostname cannot be rebound
@@ -6391,11 +6435,18 @@ export function createToolGatewayService(
         );
       }
       if (error instanceof Error && error.name === "AbortError") {
-        await markRemoteConnectionHealth(
-          connection,
-          "error",
-          "Remote MCP tool call timed out.",
-        );
+        // A slow tool is not a broken connection: the provider may still
+        // complete the call. Marking the connection unhealthy here
+        // would drop every one of its tools from discovery until a human
+        // reconnects, so only a timed-out session handshake affects health.
+        // The MCP session is kept; the server did not reject it.
+        if (awaitingSessionHandshake) {
+          await markRemoteConnectionHealth(
+            connection,
+            "error",
+            "Remote MCP session handshake timed out.",
+          );
+        }
         throw new ToolGatewayHttpError(
           504,
           "Remote MCP tool call timed out",
@@ -8165,6 +8216,9 @@ export function createToolGatewayService(
                 parameters,
                 executionTimeoutMs,
                 invocation.id,
+                undefined,
+                false,
+                true,
               )
             ).result
           : tool.providerType === "mcp_local_stdio"

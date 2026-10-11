@@ -54,7 +54,12 @@ import {
   signToolArguments,
   summarizeToolValue,
 } from "../services/tool-content-guards.js";
-import { createToolGatewayService, ToolGatewayHttpError } from "../services/tool-gateway.js";
+import {
+  connectionToolTimeoutMs,
+  createToolGatewayService,
+  maxToolTimeoutMs,
+  ToolGatewayHttpError,
+} from "../services/tool-gateway.js";
 import { resolveConnectionGrantSecret } from "../services/connection-credentials.js";
 import { secretService } from "../services/secrets.js";
 import * as cogneeBridge from "../services/cognee-connection.js";
@@ -4412,6 +4417,125 @@ rl.on("line", (line) => {
       }
     });
   }
+
+  async function setupRemoteTimeoutScenario(input: {
+    handler: Parameters<typeof startFakeRemoteMcpServer>[0];
+    connectionConfig?: Record<string, unknown>;
+  }) {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { run } = await createIssueAndRun(db, company.id, agent.id);
+    const fake = await startFakeRemoteMcpServer(input.handler);
+    const { connection } = await createRemoteMcpTool(db, company.id, {
+      applicationKey: `timeout-${randomUUID().slice(0, 8)}`,
+      toolName: "kv_set",
+      url: fake.url,
+      connectionConfig: input.connectionConfig,
+    });
+    await allowAllToolsForAgent(db, company.id, agent.id);
+    const gateway = createTestToolGatewayService(db);
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const connectedTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http");
+    expect(connectedTool).toBeTruthy();
+    const healthOf = async () => (await db
+      .select({ healthStatus: toolConnections.healthStatus })
+      .from(toolConnections)
+      .where(eq(toolConnections.id, connection.id)))[0]?.healthStatus;
+    return { fake, gateway, session, connectedTool: connectedTool!, healthOf };
+  }
+
+  const slowToolResult = { jsonrpc: "2.0", id: "slow", result: { content: [{ type: "text", text: "late" }] } };
+
+  it("keeps connection health and discovery when a remote tool call times out", async () => {
+    const { fake, gateway, session, connectedTool, healthOf } = await setupRemoteTimeoutScenario({
+      handler: () => ({ delayMs: 75, body: slowToolResult }),
+    });
+    try {
+      await gateway.executeTool({
+        sessionToken: session.token,
+        tool: connectedTool.name,
+        parameters: { key: "alpha", value: "one" },
+        timeoutMs: 10,
+      }).then(
+        () => {
+          throw new Error("Expected remote MCP call to time out");
+        },
+        (error) => expectGatewayError(error, 504, "tool_timeout"),
+      );
+      // A slow tool is not a broken connection: its tools must stay callable.
+      expect(await healthOf()).toBe("ok");
+      const tools = await gateway.listToolsForSession(session.token);
+      expect(tools.map((tool) => tool.name)).toContain(connectedTool.name);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  it("still marks connection health when the MCP session handshake times out", async () => {
+    const { fake, gateway, session, connectedTool, healthOf } = await setupRemoteTimeoutScenario({
+      connectionConfig: { mcpSessionRequired: true },
+      handler: (request) => request.body?.method === "initialize"
+        ? { delayMs: 75, headers: { "mcp-session-id": "late" }, body: { jsonrpc: "2.0", id: request.body?.id, result: {} } }
+        : { body: slowToolResult },
+    });
+    try {
+      await gateway.executeTool({
+        sessionToken: session.token,
+        tool: connectedTool.name,
+        parameters: { key: "alpha", value: "one" },
+        timeoutMs: 10,
+      }).then(
+        () => {
+          throw new Error("Expected remote MCP handshake to time out");
+        },
+        (error) => expectGatewayError(error, 504, "tool_timeout"),
+      );
+      expect(await healthOf()).toBe("error");
+    } finally {
+      await fake.close();
+    }
+  });
+
+  it("uses the connection toolTimeoutMs when the caller sets no timeout", async () => {
+    const { fake, gateway, session, connectedTool, healthOf } = await setupRemoteTimeoutScenario({
+      connectionConfig: { toolTimeoutMs: 20 },
+      handler: (request) => ({ delayMs: 150, body: { ...slowToolResult, id: request.body?.id } }),
+    });
+    try {
+      // No caller budget: the connection budget (20ms) replaces the 10s default.
+      await gateway.executeTool({
+        sessionToken: session.token,
+        tool: connectedTool.name,
+        parameters: { key: "alpha", value: "one" },
+      }).then(
+        () => {
+          throw new Error("Expected the connection budget to apply");
+        },
+        (error) => expectGatewayError(error, 504, "tool_timeout"),
+      );
+      // An explicit caller budget wins over the connection budget.
+      await expect(gateway.executeTool({
+        sessionToken: session.token,
+        tool: connectedTool.name,
+        parameters: { key: "beta", value: "two" },
+        timeoutMs: 5_000,
+      })).resolves.toMatchObject({ status: "completed" });
+      expect(await healthOf()).toBe("ok");
+    } finally {
+      await fake.close();
+    }
+  });
+
+  it("bounds tool timeouts at five minutes unless PAPERCLIP_TOOL_TIMEOUT_MAX_MS overrides it", () => {
+    expect(connectionToolTimeoutMs({ toolTimeoutMs: 120_000 })).toBe(120_000);
+    expect(connectionToolTimeoutMs({ toolTimeoutMs: 24 * 60 * 60 * 1000 })).toBe(300_000);
+    expect(connectionToolTimeoutMs({ toolTimeoutMs: "120000" })).toBeNull();
+    expect(connectionToolTimeoutMs({})).toBeNull();
+    expect(maxToolTimeoutMs({ PAPERCLIP_TOOL_TIMEOUT_MAX_MS: "600000" })).toBe(600_000);
+    expect(maxToolTimeoutMs({ PAPERCLIP_TOOL_TIMEOUT_MAX_MS: "nope" })).toBe(300_000);
+    expect(maxToolTimeoutMs({ PAPERCLIP_TOOL_TIMEOUT_MAX_MS: "10" })).toBe(300_000);
+  });
 
   it("persists hashed sessions and accepts them across gateway service instances", async () => {
     const company = await createCompany(db);
