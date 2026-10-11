@@ -142,6 +142,15 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   // shared/validators/secret.ts), minus the `.`/`..` dot segments.
   { method: "GET", path: /^\/api\/agents\/me\/secrets$/ },
   { method: "POST", path: /^\/api\/agents\/me\/secrets\/(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,120}\/value$/ },
+  // Secret/binding proposals for board approval (documented in the Paperclip
+  // skill). The controller binds them to the caller's running heartbeat and
+  // never echoes values back; approval/rejection stays board-only and denied.
+  { method: "GET", path: /^\/api\/agents\/me\/secret-proposals$/ },
+  { method: "POST", path: /^\/api\/agents\/me\/secret-proposals$/ },
+  {
+    method: "DELETE",
+    path: /^\/api\/agents\/me\/secret-proposals\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+  },
 
   // Read-only schema discovery for validated control-plane requests.
   { method: "GET", path: /^\/api\/openapi\.json$/ },

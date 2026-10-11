@@ -1457,6 +1457,9 @@ describe("sandbox callback bridge", () => {
       { method: "POST", path: "/api/agents/me/secrets/github_token/value" },
       { method: "POST", path: "/api/agents/me/secrets/nova-gitea-token/value" },
       { method: "POST", path: "/api/agents/me/secrets/nebula.sops.v2/value" },
+      { method: "GET", path: "/api/agents/me/secret-proposals" },
+      { method: "POST", path: "/api/agents/me/secret-proposals" },
+      { method: "DELETE", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b" },
     ];
     for (const request of allowed) {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBeNull();
@@ -1508,7 +1511,18 @@ describe("sandbox callback bridge", () => {
       { method: "POST", path: "/api/agents/me/secrets/../value" },
       { method: "POST", path: `/api/agents/me/secrets/${"a".repeat(121)}/value` },
       { method: "DELETE", path: "/api/agents/me/secrets/SYNNAS_USER/value" },
-      { method: "POST", path: "/api/agents/me/secret-proposals" },
+      // Proposals: only the caller's own list/create/withdraw. Board review
+      // (company-scoped list, approve, reject) and secret management stay denied.
+      { method: "GET", path: "/api/companies/co-1/secret-proposals" },
+      { method: "POST", path: "/api/companies/co-1/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/approve" },
+      { method: "POST", path: "/api/companies/co-1/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/reject" },
+      { method: "POST", path: "/api/companies/co-1/secrets" },
+      { method: "GET", path: "/api/agents/agent-1/secret-proposals" },
+      { method: "PATCH", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b" },
+      { method: "GET", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b" },
+      { method: "DELETE", path: "/api/agents/me/secret-proposals" },
+      { method: "DELETE", path: "/api/agents/me/secret-proposals/not-a-uuid" },
+      { method: "DELETE", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/x" },
     ];
     for (const request of denied) {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBe(
