@@ -393,11 +393,13 @@ const plugin = definePlugin({
     const jobName = `pc-${newRunUlidDns()}`;
     const secretName = `${jobName}-env`;
 
-    // TODO: use params.runId as stand-in for agentId in labels; future
-    // versions will have a dedicated agentId on AcquireLeaseParams.
+    // The paperclip.io/agent-id label is what per-agent network policies
+    // (e.g. CiliumNetworkPolicy endpointSelectors) match on, so it must carry
+    // the real agent id. Fall back to runId only for callers that do not pass
+    // agentId (older hosts).
     const labels = paperclipLabels({
       runId: params.runId,
-      agentId: params.runId,
+      agentId: params.agentId ?? params.runId,
       companyId: params.companyId,
       adapterType: effectiveAdapterType,
     });

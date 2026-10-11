@@ -19,6 +19,7 @@ vi.mock("../../src/sandbox-cr-orchestrator.js", async (importOriginal) => ({
 }));
 
 import plugin from "../../src/plugin.js";
+import { sandboxCrOrchestrator } from "../../src/sandbox-cr-orchestrator.js";
 
 describe("onEnvironmentAcquireLease", () => {
   it("attests the run-selected Codex adapter and image separately from the Claude environment default", async () => {
@@ -34,6 +35,28 @@ describe("onEnvironmentAcquireLease", () => {
       config: { inCluster: true, backend: "sandbox-cr", adapterType: "claude_local" }, companyId: "acme", environmentId: "env-1",
       providerLeaseId: "lease-1", leaseMetadata: { ...receipt, namespace: "fixture", backend: "sandbox-cr" } });
     expect(lease.metadata).toMatchObject(attested ? receipt : { effectiveAdapterType: null, imageRef: null, imageID: null });
+  });
+  it.each([
+    { agentId: "0b6f3c1e-7d2a-4e5b-9c8d-1a2b3c4d5e6f", expected: "0b6f3c1e-7d2a-4e5b-9c8d-1a2b3c4d5e6f" },
+    { agentId: undefined, expected: "r-label" },
+  ])("labels the sandbox pod with paperclip.io/agent-id=$expected", async ({ agentId, expected }) => {
+    const claim = vi.mocked(sandboxCrOrchestrator.claim);
+    claim.mockClear();
+    await plugin.definition.onEnvironmentAcquireLease!({
+      driverKey: "kubernetes",
+      config: { inCluster: true, backend: "sandbox-cr" },
+      runId: "r-label",
+      companyId: "acme",
+      environmentId: "env-1",
+      ...(agentId ? { agentId } : {}),
+    });
+    const manifest = claim.mock.calls[0]![2] as {
+      metadata: { labels: Record<string, string> };
+      spec: { podTemplate: { metadata: { labels: Record<string, string> } } };
+    };
+    expect(manifest.metadata.labels["paperclip.io/agent-id"]).toBe(expected);
+    expect(manifest.spec.podTemplate.metadata.labels["paperclip.io/agent-id"]).toBe(expected);
+    expect(manifest.spec.podTemplate.metadata.labels["paperclip.io/run-id"]).toBe("r-label");
   });
   it("exposes /workspace as remoteCwd so adapter probes can native-sync before workspace realization", async () => {
     const lease = await plugin.definition.onEnvironmentAcquireLease!({
