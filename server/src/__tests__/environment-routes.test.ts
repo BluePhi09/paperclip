@@ -103,6 +103,10 @@ vi.mock("../services/environment-probe.js", () => ({
   probeEnvironment: mockProbeEnvironment,
 }));
 
+vi.mock("../services/access.js", () => ({
+  accessService: () => mockAccessService,
+}));
+
 vi.mock("../services/secrets.js", () => ({
   secretService: () => mockSecretService,
 }));
@@ -1334,7 +1338,7 @@ describe("environment routes", () => {
     expect(res.body.sandboxProviders["unverified-plugin"].supportsReusableLeases).toBe(false);
   });
 
-  it("rejects agent list reads for instance-scoped environments", async () => {
+  it("rejects agent list reads without environments:manage", async () => {
     mockEnvironmentService.list.mockResolvedValue([createEnvironment()]);
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",
@@ -1354,11 +1358,11 @@ describe("environment routes", () => {
     const res = await request(app).get("/api/companies/company-1/environments");
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toContain("Board access required");
+    expect(res.body.error).toContain("Missing permission: environments:manage");
     expect(mockEnvironmentService.list).not.toHaveBeenCalled();
   });
 
-  it("rejects agent detail reads for instance-scoped environments", async () => {
+  it("rejects agent detail reads without environments:manage", async () => {
     mockEnvironmentService.getById.mockResolvedValue(createEnvironment());
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",
@@ -1378,7 +1382,7 @@ describe("environment routes", () => {
     const res = await request(app).get("/api/environments/env-1");
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toContain("Board access required");
+    expect(res.body.error).toContain("Missing permission: environments:manage");
   });
 
   it("creates an environment and logs activity", async () => {
@@ -2653,7 +2657,7 @@ describe("environment routes", () => {
     expect(mockEnvironmentService.getLeaseById).toHaveBeenCalledWith("lease-1");
   });
 
-  it("rejects agent access regardless of company when environment management is instance-scoped", async () => {
+  it("rejects agent access to another company's environment list", async () => {
     mockEnvironmentService.list.mockResolvedValue([]);
     const app = createApp({
       type: "agent",
@@ -2666,7 +2670,7 @@ describe("environment routes", () => {
     const res = await request(app).get("/api/companies/company-1/environments");
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toContain("Board access required");
+    expect(res.body.error).toContain("Agent key cannot access another company");
     expect(mockEnvironmentService.list).not.toHaveBeenCalled();
   });
 

@@ -171,6 +171,14 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   { method: "GET", path: /^\/api\/projects\/[^/]+$/ },
   { method: "GET", path: /^\/api\/goals\/[^/]+$/ },
 
+  // Environment list/read/update for agents holding `environments:manage`.
+  // The controller checks the grant, limits it to single-company instances,
+  // redacts credentials, and denies driver/envVars/secret changes. Create,
+  // delete, probe, leases, and secret refs stay denied.
+  { method: "GET", path: /^\/api\/companies\/[^/]+\/environments$/ },
+  { method: "GET", path: /^\/api\/environments\/[^/]+$/ },
+  { method: "PATCH", path: /^\/api\/environments\/[^/]+$/ },
+
   // Task-bound email actions. Company, inbox ownership, task/run authority,
   // and action policies are enforced by the controller; mailbox setup stays denied.
   { method: "GET", path: /^\/api\/companies\/[^/]+\/email\/inboxes$/ },

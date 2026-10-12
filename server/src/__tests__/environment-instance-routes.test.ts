@@ -21,6 +21,17 @@ const mockEnvironmentService = vi.hoisted(() => ({
   list: vi.fn(),
   getById: vi.fn(),
   create: vi.fn(),
+  update: vi.fn(),
+  hasUnresolvedPendingCleanupLeases: vi.fn(),
+}));
+
+const mockAccessService = vi.hoisted(() => ({
+  hasPermission: vi.fn(),
+}));
+
+const mockEnvironmentConfig = vi.hoisted(() => ({
+  collectEnvironmentSecretRefs: vi.fn(),
+  normalizeEnvironmentConfigForPersistence: vi.fn(),
 }));
 
 const mockEnvironmentCustomImageService = vi.hoisted(() => ({
@@ -58,6 +69,16 @@ vi.mock("../services/index.js", () => ({
   environmentCustomImageService: () => mockEnvironmentCustomImageService,
   logActivity: mockLogActivity,
   projectService: () => mockProjectService,
+}));
+
+vi.mock("../services/access.js", () => ({
+  accessService: () => mockAccessService,
+}));
+
+vi.mock("../services/environment-config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../services/environment-config.js")>()),
+  collectEnvironmentSecretRefs: mockEnvironmentConfig.collectEnvironmentSecretRefs,
+  normalizeEnvironmentConfigForPersistence: mockEnvironmentConfig.normalizeEnvironmentConfigForPersistence,
 }));
 
 vi.mock("../services/environments.js", () => ({
@@ -138,6 +159,15 @@ describe("environment instance routes", () => {
     mockEnvironmentService.list.mockReset();
     mockEnvironmentService.getById.mockReset();
     mockEnvironmentService.create.mockReset();
+    mockEnvironmentService.update.mockReset();
+    mockEnvironmentService.hasUnresolvedPendingCleanupLeases.mockReset();
+    mockEnvironmentService.hasUnresolvedPendingCleanupLeases.mockResolvedValue(false);
+    mockAccessService.hasPermission.mockReset();
+    mockAccessService.hasPermission.mockResolvedValue(false);
+    mockEnvironmentConfig.collectEnvironmentSecretRefs.mockReset();
+    mockEnvironmentConfig.collectEnvironmentSecretRefs.mockResolvedValue([]);
+    mockEnvironmentConfig.normalizeEnvironmentConfigForPersistence.mockReset();
+    mockEnvironmentConfig.normalizeEnvironmentConfigForPersistence.mockImplementation(async ({ config }) => config);
     Object.values(mockEnvironmentCustomImageService).forEach((mock) => mock.mockReset());
     mockEnvironmentCustomImageService.getOverview.mockResolvedValue({
       activeTemplate: null,
@@ -215,7 +245,7 @@ describe("environment instance routes", () => {
     const res = await request(app).get("/api/companies/company-1/environments");
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toContain("Board access required");
+    expect(mockEnvironmentService.list).not.toHaveBeenCalled();
   });
 
   it("rejects non-admin signed-in board members from mutating instance environments", async () => {
@@ -335,5 +365,177 @@ describe("environment instance routes", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.config).toEqual({ shell: "zsh" });
+  });
+
+  describe("agents with environments:manage", () => {
+    const agentActor = {
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      source: "agent_key",
+      runId: "run-1",
+    };
+    const sandboxEnvironment = () => createEnvironment({
+      driver: "sandbox",
+      config: {
+        provider: "kubernetes",
+        apiToken: "should-not-leak",
+        defaultResources: { memory: "4Gi" },
+        ssh: { host: "sandbox.internal", privateKey: "should-not-leak" },
+      },
+      envVars: { FOO: "bar" },
+      metadata: null,
+    });
+
+    beforeEach(() => {
+      mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1"]);
+    });
+
+    function grant() {
+      mockAccessService.hasPermission.mockImplementation(
+        async (_companyId, _type, _id, key) => key === "environments:manage",
+      );
+    }
+
+    it("still rejects agents without the grant", async () => {
+      const app = createApp(agentActor);
+
+      const list = await request(app).get("/api/companies/company-1/environments");
+      const read = await request(app).get("/api/environments/env-1");
+      const patch = await request(app).patch("/api/environments/env-1").send({ name: "x" });
+
+      expect([list.status, read.status, patch.status]).toEqual([403, 403, 403]);
+      expect(list.body.error).toContain("environments:manage");
+      expect(mockAccessService.hasPermission).toHaveBeenCalledWith(
+        "company-1",
+        "agent",
+        "agent-1",
+        "environments:manage",
+      );
+      expect(mockEnvironmentService.list).not.toHaveBeenCalled();
+      expect(mockEnvironmentService.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects the grant on multi-company instances and for other companies", async () => {
+      grant();
+      const app = createApp(agentActor);
+
+      const otherCompany = await request(app).get("/api/companies/company-2/environments");
+      mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1", "company-2"]);
+      const multiCompany = await request(app).get("/api/companies/company-1/environments");
+
+      expect(otherCompany.status).toBe(403);
+      expect(multiCompany.status).toBe(403);
+      expect(multiCompany.body.error).toContain("single-company");
+      expect(mockEnvironmentService.list).not.toHaveBeenCalled();
+    });
+
+    it("lists and reads environments without credential config or env vars", async () => {
+      grant();
+      mockEnvironmentService.list.mockResolvedValue([sandboxEnvironment()]);
+      mockEnvironmentService.getById.mockResolvedValue(sandboxEnvironment());
+      const app = createApp(agentActor);
+
+      const list = await request(app).get("/api/companies/company-1/environments");
+      const read = await request(app).get("/api/environments/env-1");
+
+      expect(list.status).toBe(200);
+      expect(read.status).toBe(200);
+      for (const environment of [list.body[0], read.body]) {
+        expect(environment.config).toEqual({
+          provider: "kubernetes",
+          defaultResources: { memory: "4Gi" },
+          ssh: { host: "sandbox.internal" },
+        });
+        expect(environment.envVars).toEqual({});
+      }
+    });
+
+    it("updates non-credential config and logs the agent as actor", async () => {
+      grant();
+      mockEnvironmentService.getById.mockResolvedValue(sandboxEnvironment());
+      mockEnvironmentService.update.mockImplementation(async (_id, patch) => ({
+        ...sandboxEnvironment(),
+        config: patch.config,
+      }));
+      const app = createApp(agentActor);
+
+      const res = await request(app)
+        .patch("/api/environments/env-1")
+        .send({ config: { defaultResources: { memory: "6Gi" } } });
+
+      expect(res.status).toBe(200);
+      expect(mockEnvironmentService.update).toHaveBeenCalledWith(
+        "env-1",
+        expect.objectContaining({
+          config: expect.objectContaining({ provider: "kubernetes", defaultResources: { memory: "6Gi" } }),
+        }),
+        { db: expect.anything() },
+      );
+      expect(res.body.config.defaultResources).toEqual({ memory: "6Gi" });
+      expect(res.body.config.apiToken).toBeUndefined();
+      expect(mockLogActivity).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ actorType: "agent", agentId: "agent-1", action: "environment.updated" }),
+      );
+    });
+
+    it.each([
+      [{ driver: "local" }, "driver"],
+      [{ envVars: { FOO: "baz" } }, "envVars"],
+      [{ metadata: {} }, "metadata"],
+      [{ config: { apiToken: "x" } }, "config.apiToken"],
+      [{ config: { auth: { privateKey: "x" } } }, "config.auth.privateKey"],
+      [{ config: { ssh: { host: "other.internal" } } }, "config.ssh.privateKey"],
+    ])("rejects agent patch %j", async (body, field) => {
+      grant();
+      mockEnvironmentService.getById.mockResolvedValue(sandboxEnvironment());
+      const app = createApp(agentActor);
+
+      const res = await request(app).patch("/api/environments/env-1").send(body);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toContain(field);
+      expect(mockEnvironmentService.update).not.toHaveBeenCalled();
+    });
+
+    it("rolls back agent config changes that add a secret reference", async () => {
+      grant();
+      mockEnvironmentService.getById.mockResolvedValue(sandboxEnvironment());
+      mockEnvironmentService.update.mockImplementation(async (_id, patch) => ({
+        ...sandboxEnvironment(),
+        config: patch.config,
+      }));
+      mockEnvironmentConfig.collectEnvironmentSecretRefs.mockImplementation(async ({ environment }) =>
+        environment.config?.kubeconfigRef
+          ? [{ secretId: environment.config.kubeconfigRef, configPath: "kubeconfigRef" }]
+          : [],
+      );
+      const app = createApp(agentActor);
+
+      const res = await request(app)
+        .patch("/api/environments/env-1")
+        .send({ config: { kubeconfigRef: "11111111-1111-4111-8111-111111111111" } });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toContain("secret references");
+      expect(mockSecretService.replaceSecretRefsForInstanceTarget).not.toHaveBeenCalled();
+      expect(mockLogActivity).not.toHaveBeenCalled();
+    });
+
+    it("keeps other environment routes board-only for granted agents", async () => {
+      grant();
+      mockEnvironmentService.getById.mockResolvedValue(sandboxEnvironment());
+      const app = createApp(agentActor);
+
+      const responses = await Promise.all([
+        request(app).post("/api/companies/company-1/environments").send({ name: "x", driver: "local", config: {} }),
+        request(app).delete("/api/environments/env-1"),
+        request(app).get("/api/environments/env-1/secret-refs"),
+        request(app).get("/api/environments/env-1/leases"),
+      ]);
+
+      expect(responses.map((res) => res.status)).toEqual([403, 403, 403, 403]);
+    });
   });
 });

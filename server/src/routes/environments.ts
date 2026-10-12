@@ -49,6 +49,7 @@ import {
 } from "../services/environment-config.js";
 import { probeEnvironment } from "../services/environment-probe.js";
 import { secretService } from "../services/secrets.js";
+import { accessService } from "../services/access.js";
 import {
   listReadyPluginEnvironmentDrivers,
   type ReadyPluginWorkerRecovery,
@@ -80,21 +81,66 @@ export function isPlatformProvisionedEnvironment(environment: {
   );
 }
 
-function redactSecretLikeConfigKeys(value: Record<string, unknown>): Record<string, unknown> {
+function redactSecretLikeConfigKeys(
+  value: Record<string, unknown>,
+  isRedactedKey: (key: string) => boolean = (key) => SECRET_LIKE_CONFIG_KEY_PATTERN.test(key),
+): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (SECRET_LIKE_CONFIG_KEY_PATTERN.test(key)) continue;
+    if (isRedactedKey(key)) continue;
     if (isPlainRecord(child)) {
-      result[key] = redactSecretLikeConfigKeys(child);
+      result[key] = redactSecretLikeConfigKeys(child, isRedactedKey);
     } else if (Array.isArray(child)) {
       result[key] = child.map((element) =>
-        isPlainRecord(element) ? redactSecretLikeConfigKeys(element) : element,
+        isPlainRecord(element) ? redactSecretLikeConfigKeys(element, isRedactedKey) : element,
       );
     } else {
       result[key] = child;
     }
   }
   return result;
+}
+
+// Agent PATCH may change name, description, status, and non-credential config.
+// Driver and env vars carry secret bindings, metadata carries platform markers.
+const AGENT_DENIED_ENVIRONMENT_PATCH_FIELDS = ["driver", "envVars", "metadata"] as const;
+const AGENT_DENIED_CONFIG_KEY_PATTERN = /private[-_]?key/i;
+
+function isAgentDeniedConfigKey(key: string) {
+  return SECRET_LIKE_CONFIG_KEY_PATTERN.test(key) || AGENT_DENIED_CONFIG_KEY_PATTERN.test(key);
+}
+
+function findAgentDeniedConfigKey(value: Record<string, unknown>, path: string): string | null {
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (isAgentDeniedConfigKey(key)) return childPath;
+    const nestedRecords = isPlainRecord(child) ? [child] : Array.isArray(child) ? child.filter(isPlainRecord) : [];
+    for (const nested of nestedRecords) {
+      const found = findAgentDeniedConfigKey(nested, childPath);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Agent view: structural config stays readable so the agent can tune it, but
+ * credential-shaped config keys and env vars (which may carry pasted
+ * credentials) are never echoed.
+ */
+function presentEnvironmentForAgent<T extends {
+  config: Record<string, unknown> | null;
+  envVars?: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+}>(environment: T): T {
+  return {
+    ...environment,
+    config: redactSecretLikeConfigKeys(
+      isPlainRecord(environment.config) ? environment.config : {},
+      isAgentDeniedConfigKey,
+    ),
+    ...(Object.prototype.hasOwnProperty.call(environment, "envVars") ? { envVars: {} } : {}),
+  };
 }
 
 /**
@@ -373,6 +419,53 @@ export function environmentRoutes(
     }
   }
 
+  // Agents reach instance-scoped environment rows only through the company
+  // grant `environments:manage`. A company grant must not reach rows other
+  // companies share, so it counts only while the agent's company is the
+  // instance's only company. This opens list, read, and PATCH; every other
+  // environment route stays board-only.
+  async function assertAgentEnvironmentManager(req: Request, routeCompanyId?: string) {
+    if (req.actor.type !== "agent" || !req.actor.agentId || !req.actor.companyId) {
+      throw forbidden("Agent authentication required");
+    }
+    const companyId = req.actor.companyId;
+    if (routeCompanyId !== undefined && routeCompanyId !== companyId) {
+      throw forbidden("Agent key cannot access another company");
+    }
+    const instanceCompanyIds = await instanceSettings.listCompanyIds();
+    if (instanceCompanyIds.length !== 1 || instanceCompanyIds[0] !== companyId) {
+      throw forbidden("Agent environment management requires a single-company instance");
+    }
+    if (!(await accessService(db).hasPermission(companyId, "agent", req.actor.agentId, "environments:manage"))) {
+      throw forbidden("Missing permission: environments:manage");
+    }
+  }
+
+  async function assertCanReadEnvironments(req: Request, routeCompanyId?: string) {
+    if (req.actor.type === "agent") {
+      await assertAgentEnvironmentManager(req, routeCompanyId);
+      return;
+    }
+    assertCanReadInstanceEnvironments(req);
+  }
+
+  async function assertCanUpdateEnvironment(req: Request) {
+    if (req.actor.type !== "agent") {
+      assertCanAccessInstanceEnvironments(req);
+      return;
+    }
+    await assertAgentEnvironmentManager(req);
+    const body = req.body as Record<string, unknown>;
+    const deniedField = AGENT_DENIED_ENVIRONMENT_PATCH_FIELDS.find((field) => body[field] !== undefined);
+    if (deniedField) {
+      throw forbidden(`Agents cannot change environment ${deniedField}`);
+    }
+    const credentialPath = isPlainRecord(body.config) ? findAgentDeniedConfigKey(body.config, "config") : null;
+    if (credentialPath) {
+      throw forbidden(`Agents cannot set credential config (${credentialPath})`);
+    }
+  }
+
   function canReadFullInstanceEnvironment(req: Request) {
     return req.actor.type === "board"
       && (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin);
@@ -414,6 +507,8 @@ export function environmentRoutes(
         ...(Object.prototype.hasOwnProperty.call(floored, "envVars") ? { envVars: {} } : {}),
       };
     }
+    // Agents only get here past `assertAgentEnvironmentManager`.
+    if (req.actor.type === "agent") return presentEnvironmentForAgent(environment);
     return canReadFullInstanceEnvironment(req)
       ? environment
       : redactEnvironmentForRestrictedView(environment);
@@ -700,7 +795,7 @@ export function environmentRoutes(
   }
 
   router.get("/companies/:companyId/environments", async (req, res) => {
-    assertCanReadInstanceEnvironments(req);
+    await assertCanReadEnvironments(req, req.params.companyId as string);
     const rows = await svc.list({
       status: req.query.status as string | undefined,
       driver: req.query.driver as string | undefined,
@@ -1074,7 +1169,7 @@ export function environmentRoutes(
   });
 
   router.get("/environments/:id", async (req, res) => {
-    assertCanReadInstanceEnvironments(req);
+    await assertCanReadEnvironments(req);
     const environment = await svc.getById(req.params.id as string);
     if (!environment || (environment.driver === "local" && (await isManagedSandboxOnlyInstance()))) {
       res.status(404).json({ error: "Environment not found" });
@@ -1123,11 +1218,23 @@ export function environmentRoutes(
   });
 
   router.patch("/environments/:id", validate(updateEnvironmentSchema), async (req, res) => {
-    assertCanAccessInstanceEnvironments(req);
+    await assertCanUpdateEnvironment(req);
     const existing = await svc.getById(req.params.id as string);
     if (!existing) {
       res.status(404).json({ error: "Environment not found" });
       return;
+    }
+    if (req.actor.type === "agent" && isPlainRecord(req.body.config)) {
+      // Config merges one level deep. Replacing a nested object the agent only
+      // saw redacted would silently drop the credentials inside it.
+      const existingConfig = parseObject(existing.config);
+      for (const key of Object.keys(req.body.config)) {
+        const current = existingConfig[key];
+        const credentialPath = isPlainRecord(current) ? findAgentDeniedConfigKey(current, `config.${key}`) : null;
+        if (credentialPath) {
+          throw forbidden(`Agents cannot replace config holding credentials (${credentialPath})`);
+        }
+      }
     }
     await assertPlatformProvisionedEnvironmentWritable(existing, {
       patchBody: req.body,
@@ -1212,9 +1319,20 @@ export function environmentRoutes(
       const updated = await svc.update(existing.id, patch, { db: tx });
       if (!updated) return null;
       if (patch.config !== undefined || patch.driver !== undefined) {
+        const nextSecretRefs = await collectEnvironmentSecretRefs({ db, environment: updated });
+        if (req.actor.type === "agent") {
+          // Agents may keep existing secret refs but never point config at a
+          // new secret; throwing rolls the update back.
+          const existingSecretIds = new Set(
+            (await collectEnvironmentSecretRefs({ db, environment: existing })).map((ref) => ref.secretId),
+          );
+          if (nextSecretRefs.some((ref) => !existingSecretIds.has(ref.secretId))) {
+            throw forbidden("Agents cannot add secret references to environment config");
+          }
+        }
         await secrets.replaceSecretRefsForInstanceTarget(
           { targetType: "environment", targetId: updated.id },
-          await collectEnvironmentSecretRefs({ db, environment: updated }),
+          nextSecretRefs,
           { db: tx },
         );
       }
