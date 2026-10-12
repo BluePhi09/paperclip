@@ -28,6 +28,7 @@ import type { Db } from "@paperclipai/db";
 import {
   agents,
   chatVoiceSessions,
+  approvals,
   authUsers,
   companySecretProposals,
   companies,
@@ -1087,10 +1088,13 @@ class InteractionResolvedConcurrentlyError extends Error {
 
 // A request_confirmation card can govern a parked tool call via a linked
 // tool_action_requests row. Administrative resolutions (withdraw, terminal-issue
-// expiry) must settle that row too, or the parked call stays approvable under
-// its own one-hour lifecycle after its card is gone.
+// expiry, supersede) must settle that row too, or the parked call stays approvable
+// under its own one-hour lifecycle after its card is gone. A destructive tool call
+// also carries a formal request_board_approval row; once the action request is
+// dead that approval can never authorize anything, so cancel it instead of
+// leaving it pending in the Board queue forever.
 async function resolveLinkedToolActionRequests(
-  db: Pick<Db, "update">,
+  db: Pick<Db, "update" | "insert">,
   interaction: Pick<IssueThreadInteractionRow, "id" | "companyId" | "kind">,
   outcome: {
     status: "expired" | "cancelled";
@@ -1100,7 +1104,7 @@ async function resolveLinkedToolActionRequests(
   },
 ) {
   if (interaction.kind !== "request_confirmation") return;
-  await db
+  const resolvedRequests = await db
     .update(toolActionRequests)
     .set({
       status: outcome.status,
@@ -1115,7 +1119,61 @@ async function resolveLinkedToolActionRequests(
         eq(toolActionRequests.interactionId, interaction.id),
         inArray(toolActionRequests.status, outcome.fromStatuses),
       ),
+    )
+    .returning({
+      id: toolActionRequests.id,
+      approvalId: toolActionRequests.approvalId,
+    });
+  const approvalIds = resolvedRequests
+    .map((request) => request.approvalId)
+    .filter((id): id is string => typeof id === "string");
+  if (approvalIds.length === 0) return;
+  const cancelledApprovals = await db
+    .update(approvals)
+    .set({
+      status: "cancelled",
+      decisionNote: `Linked tool action request ${outcome.status} with its approval card`,
+      decidedAt: outcome.now,
+      updatedAt: outcome.now,
+    })
+    .where(
+      and(
+        eq(approvals.companyId, interaction.companyId),
+        inArray(approvals.id, approvalIds),
+        inArray(approvals.status, ["pending", "revision_requested"]),
+      ),
+    )
+    .returning({ id: approvals.id, requestedByAgentId: approvals.requestedByAgentId });
+  const actorType = outcome.actor.userId
+    ? ("user" as const)
+    : outcome.actor.agentId
+      ? ("agent" as const)
+      : ("system" as const);
+  const actorId =
+    outcome.actor.userId ??
+    outcome.actor.agentId ??
+    outcome.actor.systemId ??
+    "system";
+  for (const approval of cancelledApprovals) {
+    const request = resolvedRequests.find(
+      (candidate) => candidate.approvalId === approval.id,
     );
+    await logActivity(db as unknown as Db, {
+      companyId: interaction.companyId,
+      actorType,
+      actorId,
+      action: "approval.cancelled",
+      entityType: "approval",
+      entityId: approval.id,
+      agentId: approval.requestedByAgentId ?? null,
+      details: {
+        reason: "linked_tool_action_request_resolved",
+        interactionId: interaction.id,
+        actionRequestId: request?.id ?? null,
+        actionRequestStatus: outcome.status,
+      },
+    });
+  }
 }
 
 // Governed cards (tool actions, secret proposals) carry their own lifecycle and

@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import {
   activityLog,
   agents,
+  approvals,
   authUsers,
   companyMemberships,
   instanceUserRoles,
@@ -25,6 +26,8 @@ import {
   issues,
   projectWorkspaces,
   projects,
+  toolActionRequests,
+  toolInvocations,
   workspaceOperations,
 } from "@paperclipai/db";
 import {
@@ -55,6 +58,9 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
+    await db.delete(toolActionRequests);
+    await db.delete(toolInvocations);
+    await db.delete(approvals);
     await db.delete(issueThreadInteractions);
     await db.delete(activityLog);
     await db.delete(issueComments);
@@ -2563,6 +2569,204 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       .from(issueThreadInteractions)
       .where(inArray(issueThreadInteractions.id, toolCardIds));
     expect(rows.map((row) => row.status)).toEqual(["pending", "pending"]);
+  });
+
+  async function seedToolActionConfirmation(input: {
+    companyId: string;
+    issueId: string;
+    agentId: string;
+    createdAt: Date;
+  }) {
+    const [approval] = await db.insert(approvals).values({
+      companyId: input.companyId,
+      type: "request_board_approval",
+      requestedByAgentId: input.agentId,
+      status: "pending",
+      payload: { title: "Approve high-risk tool action", source: "tool_gateway" },
+    }).returning();
+    const [invocation] = await db.insert(toolInvocations).values({
+      companyId: input.companyId,
+      actorType: "agent",
+      actorId: input.agentId,
+      agentId: input.agentId,
+      issueId: input.issueId,
+      toolName: "files:delete",
+      argumentsHash: "args-hash",
+      argumentsSummary: { summary: "{}", sha256: "args-hash", sizeBytes: 2 },
+      policyDecision: "require_approval",
+      approvalState: "pending",
+      status: "awaiting_approval",
+    }).returning();
+    const interactionId = randomUUID();
+    const [actionRequest] = await db.insert(toolActionRequests).values({
+      companyId: input.companyId,
+      invocationId: invocation!.id,
+      issueId: input.issueId,
+      approvalId: approval!.id,
+      status: "pending",
+      canonicalArgumentsHash: "args-hash",
+      canonicalArgumentsSummary: { summary: "{}", sha256: "args-hash", sizeBytes: 2 },
+    }).returning();
+    await db.insert(issueThreadInteractions).values({
+      id: interactionId,
+      companyId: input.companyId,
+      issueId: input.issueId,
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      createdByAgentId: input.agentId,
+      payload: {
+        version: 1,
+        prompt: "Approve files:delete?",
+        toolAction: {
+          version: 1,
+          actionRequestId: actionRequest!.id,
+          invocationId: invocation!.id,
+          toolName: "files:delete",
+          toolDisplayName: "files:delete",
+          connectionId: null,
+          applicationId: null,
+          appDisplayName: null,
+          risk: "destructive",
+          previewMarkdown: "Delete files",
+          argumentsSummaryJson: "{}",
+          argumentsHash: "args-hash",
+          expiresAt: new Date(input.createdAt.getTime() + 60 * 60 * 1000).toISOString(),
+        },
+      } as never,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    });
+    await db.update(toolActionRequests)
+      .set({ interactionId })
+      .where(eq(toolActionRequests.id, actionRequest!.id));
+    return { interactionId, actionRequestId: actionRequest!.id, approvalId: approval!.id };
+  }
+
+  async function seedSweepAgent(companyId: string) {
+    const agentId = randomUUID();
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Tool agent",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    return agentId;
+  }
+
+  it("does not sweep pending tool-action confirmation cards as superseded", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Tool action sweep exclusion");
+    const agentId = await seedSweepAgent(companyId);
+    const older = await seedToolActionConfirmation({
+      companyId,
+      issueId,
+      agentId,
+      createdAt: new Date("2026-07-01T12:00:00.000Z"),
+    });
+    const newer = await seedToolActionConfirmation({
+      companyId,
+      issueId,
+      agentId,
+      createdAt: new Date("2026-07-01T12:05:00.000Z"),
+    });
+    const draftId = randomUUID();
+    await db.insert(issueThreadInteractions).values({
+      id: draftId,
+      companyId,
+      issueId,
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      createdByAgentId: agentId,
+      payload: { version: 1 as const, prompt: "Plain draft" },
+      createdAt: new Date("2026-07-01T12:10:00.000Z"),
+      updatedAt: new Date("2026-07-01T12:10:00.000Z"),
+    });
+
+    await expect(interactionsSvc.sweepSupersededPendingRequestConfirmations())
+      .resolves.toEqual({ expired: 0 });
+
+    const interactions = await interactionsSvc.listForIssue(issueId);
+    for (const id of [older.interactionId, newer.interactionId, draftId]) {
+      expect(interactions.find((interaction) => interaction.id === id)?.status).toBe("pending");
+    }
+    const requestRows = await db.select().from(toolActionRequests);
+    expect(requestRows.map((row) => row.status)).toEqual(["pending", "pending"]);
+    const approvalRows = await db.select().from(approvals);
+    expect(approvalRows.map((row) => row.status)).toEqual(["pending", "pending"]);
+  });
+
+  it("does not supersede an older tool-action card when the agent creates a plain confirmation", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Tool action create exclusion");
+    const agentId = await seedSweepAgent(companyId);
+    const toolCard = await seedToolActionConfirmation({
+      companyId,
+      issueId,
+      agentId,
+      createdAt: new Date("2026-07-01T12:00:00.000Z"),
+    });
+
+    await interactionsSvc.create({ id: issueId, companyId }, {
+      kind: "request_confirmation",
+      continuationPolicy: "wake_assignee",
+      payload: { version: 1, prompt: "Plain follow-up confirmation" },
+    }, { agentId });
+
+    const interactions = await interactionsSvc.listForIssue(issueId);
+    expect(interactions.find((interaction) => interaction.id === toolCard.interactionId)?.status)
+      .toBe("pending");
+    const [approval] = await db.select().from(approvals).where(eq(approvals.id, toolCard.approvalId));
+    expect(approval?.status).toBe("pending");
+  });
+
+  it("cancels the linked formal approval when a tool-action card expires", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Tool action approval cleanup");
+    const agentId = await seedSweepAgent(companyId);
+    const toolCard = await seedToolActionConfirmation({
+      companyId,
+      issueId,
+      agentId,
+      createdAt: new Date("2026-07-01T12:00:00.000Z"),
+    });
+
+    await db.update(issues).set({ status: "done" }).where(eq(issues.id, issueId));
+    const expired = await interactionsSvc.expirePendingInteractionsForTerminalIssue(
+      { id: issueId, companyId, status: "done" },
+      { userId: "local-board" },
+    );
+    expect(expired.map((interaction) => interaction.id)).toEqual([toolCard.interactionId]);
+
+    const [request] = await db
+      .select()
+      .from(toolActionRequests)
+      .where(eq(toolActionRequests.id, toolCard.actionRequestId));
+    expect(request?.status).toBe("expired");
+    const [approval] = await db.select().from(approvals).where(eq(approvals.id, toolCard.approvalId));
+    expect(approval).toMatchObject({ status: "cancelled" });
+    expect(approval?.decidedAt).toBeInstanceOf(Date);
+
+    const activity = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.entityId, toolCard.approvalId));
+    expect(activity).toHaveLength(1);
+    expect(activity[0]).toMatchObject({
+      action: "approval.cancelled",
+      entityType: "approval",
+      actorType: "user",
+      actorId: "local-board",
+      details: expect.objectContaining({
+        reason: "linked_tool_action_request_resolved",
+        interactionId: toolCard.interactionId,
+        actionRequestId: toolCard.actionRequestId,
+        actionRequestStatus: "expired",
+      }),
+    });
   });
 
   it("refuses to create an interaction on a closed issue", async () => {
