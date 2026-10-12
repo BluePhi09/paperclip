@@ -1460,6 +1460,9 @@ describe("sandbox callback bridge", () => {
       { method: "GET", path: "/api/agents/me/secret-proposals" },
       { method: "POST", path: "/api/agents/me/secret-proposals" },
       { method: "DELETE", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b" },
+      { method: "GET", path: "/api/companies/co-1/environments" },
+      { method: "GET", path: "/api/environments/env-1" },
+      { method: "PATCH", path: "/api/environments/env-1" },
     ];
     for (const request of allowed) {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBeNull();
@@ -1523,6 +1526,14 @@ describe("sandbox callback bridge", () => {
       { method: "DELETE", path: "/api/agents/me/secret-proposals" },
       { method: "DELETE", path: "/api/agents/me/secret-proposals/not-a-uuid" },
       { method: "DELETE", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/x" },
+      // Environments: only list/read/update; lifecycle and secret surfaces stay denied.
+      { method: "POST", path: "/api/companies/co-1/environments" },
+      { method: "DELETE", path: "/api/environments/env-1" },
+      { method: "POST", path: "/api/environments/env-1/probe" },
+      { method: "GET", path: "/api/environments/env-1/secret-refs" },
+      { method: "GET", path: "/api/environments/env-1/leases" },
+      { method: "GET", path: "/api/companies/co-1/environments/capabilities" },
+      { method: "PATCH", path: "/api/environments/env-1/custom-image-template" },
     ];
     for (const request of denied) {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBe(
