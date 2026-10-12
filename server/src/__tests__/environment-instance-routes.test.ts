@@ -381,6 +381,7 @@ describe("environment instance routes", () => {
         provider: "kubernetes",
         apiToken: "should-not-leak",
         defaultResources: { memory: "4Gi" },
+        ssh: { host: "sandbox.internal", privateKey: "should-not-leak" },
       },
       envVars: { FOO: "bar" },
       metadata: null,
@@ -441,7 +442,11 @@ describe("environment instance routes", () => {
       expect(list.status).toBe(200);
       expect(read.status).toBe(200);
       for (const environment of [list.body[0], read.body]) {
-        expect(environment.config).toEqual({ provider: "kubernetes", defaultResources: { memory: "4Gi" } });
+        expect(environment.config).toEqual({
+          provider: "kubernetes",
+          defaultResources: { memory: "4Gi" },
+          ssh: { host: "sandbox.internal" },
+        });
         expect(environment.envVars).toEqual({});
       }
     });
@@ -481,6 +486,7 @@ describe("environment instance routes", () => {
       [{ metadata: {} }, "metadata"],
       [{ config: { apiToken: "x" } }, "config.apiToken"],
       [{ config: { auth: { privateKey: "x" } } }, "config.auth.privateKey"],
+      [{ config: { ssh: { host: "other.internal" } } }, "config.ssh.privateKey"],
     ])("rejects agent patch %j", async (body, field) => {
       grant();
       mockEnvironmentService.getById.mockResolvedValue(sandboxEnvironment());

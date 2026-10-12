@@ -81,15 +81,18 @@ export function isPlatformProvisionedEnvironment(environment: {
   );
 }
 
-function redactSecretLikeConfigKeys(value: Record<string, unknown>): Record<string, unknown> {
+function redactSecretLikeConfigKeys(
+  value: Record<string, unknown>,
+  isRedactedKey: (key: string) => boolean = (key) => SECRET_LIKE_CONFIG_KEY_PATTERN.test(key),
+): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (SECRET_LIKE_CONFIG_KEY_PATTERN.test(key)) continue;
+    if (isRedactedKey(key)) continue;
     if (isPlainRecord(child)) {
-      result[key] = redactSecretLikeConfigKeys(child);
+      result[key] = redactSecretLikeConfigKeys(child, isRedactedKey);
     } else if (Array.isArray(child)) {
       result[key] = child.map((element) =>
-        isPlainRecord(element) ? redactSecretLikeConfigKeys(element) : element,
+        isPlainRecord(element) ? redactSecretLikeConfigKeys(element, isRedactedKey) : element,
       );
     } else {
       result[key] = child;
@@ -103,10 +106,14 @@ function redactSecretLikeConfigKeys(value: Record<string, unknown>): Record<stri
 const AGENT_DENIED_ENVIRONMENT_PATCH_FIELDS = ["driver", "envVars", "metadata"] as const;
 const AGENT_DENIED_CONFIG_KEY_PATTERN = /private[-_]?key/i;
 
+function isAgentDeniedConfigKey(key: string) {
+  return SECRET_LIKE_CONFIG_KEY_PATTERN.test(key) || AGENT_DENIED_CONFIG_KEY_PATTERN.test(key);
+}
+
 function findAgentDeniedConfigKey(value: Record<string, unknown>, path: string): string | null {
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}.${key}`;
-    if (SECRET_LIKE_CONFIG_KEY_PATTERN.test(key) || AGENT_DENIED_CONFIG_KEY_PATTERN.test(key)) return childPath;
+    if (isAgentDeniedConfigKey(key)) return childPath;
     const nestedRecords = isPlainRecord(child) ? [child] : Array.isArray(child) ? child.filter(isPlainRecord) : [];
     for (const nested of nestedRecords) {
       const found = findAgentDeniedConfigKey(nested, childPath);
@@ -128,7 +135,10 @@ function presentEnvironmentForAgent<T extends {
 }>(environment: T): T {
   return {
     ...environment,
-    config: redactSecretLikeConfigKeys(isPlainRecord(environment.config) ? environment.config : {}),
+    config: redactSecretLikeConfigKeys(
+      isPlainRecord(environment.config) ? environment.config : {},
+      isAgentDeniedConfigKey,
+    ),
     ...(Object.prototype.hasOwnProperty.call(environment, "envVars") ? { envVars: {} } : {}),
   };
 }
@@ -1213,6 +1223,18 @@ export function environmentRoutes(
     if (!existing) {
       res.status(404).json({ error: "Environment not found" });
       return;
+    }
+    if (req.actor.type === "agent" && isPlainRecord(req.body.config)) {
+      // Config merges one level deep. Replacing a nested object the agent only
+      // saw redacted would silently drop the credentials inside it.
+      const existingConfig = parseObject(existing.config);
+      for (const key of Object.keys(req.body.config)) {
+        const current = existingConfig[key];
+        const credentialPath = isPlainRecord(current) ? findAgentDeniedConfigKey(current, `config.${key}`) : null;
+        if (credentialPath) {
+          throw forbidden(`Agents cannot replace config holding credentials (${credentialPath})`);
+        }
+      }
     }
     await assertPlatformProvisionedEnvironmentWritable(existing, {
       patchBody: req.body,
