@@ -1376,6 +1376,87 @@ describe("issue thread interaction routes", () => {
     );
   });
 
+  describe("tool gateway rejections during tool review resolution", () => {
+    const pendingToolReview = {
+      id: "interaction-tool-review",
+      companyId: "company-1",
+      issueId: ISSUE_ID,
+      kind: "request_confirmation",
+      status: "pending",
+      createdByAgentId: CREATED_AGENT_ID,
+      sourceRunId: RUN_1,
+      requestedResolverPolicy: "board_only",
+      effectiveResolverPolicy: "board_only",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Approve the action?",
+        toolAction: {
+          version: 1,
+          actionRequestId: "action-request-gateway",
+          toolName: "cloudflare_dns_update",
+        },
+      },
+    };
+
+    async function gatewayError(status: number, message: string, reasonCode: string) {
+      // Load the class from the same module graph as the routes under test.
+      const { ToolGatewayHttpError } = await import("../services/tool-gateway.js");
+      return new ToolGatewayHttpError(status, message, reasonCode, { actionRequestId: "action-request-gateway" });
+    }
+
+    it("returns the gateway status and reason when approving a tool review fails", async () => {
+      mockInteractionService.getForIssue.mockResolvedValueOnce(pendingToolReview);
+      const app = await createApp(undefined, {
+        approveToolActionRequest: vi.fn().mockRejectedValue(
+          await gatewayError(409, "Tool review has expired", "action_expired"),
+        ),
+      });
+
+      const res = await request(app)
+        .post(`/api/issues/${ISSUE_ID}/interactions/interaction-tool-review/accept`)
+        .send({});
+
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ error: "Tool review has expired", code: "action_expired" });
+    });
+
+    it("returns the gateway status when the post-accept tool execution is denied", async () => {
+      mockInteractionService.acceptInteraction.mockResolvedValueOnce({
+        interaction: { ...pendingToolReview, status: "accepted", result: { version: 1, outcome: "accepted" } },
+        createdIssues: [],
+      });
+      const app = await createApp(undefined, {
+        approveToolActionRequest: vi.fn().mockRejectedValue(
+          await gatewayError(403, "Tool policy denies this action", "policy_denied"),
+        ),
+      });
+
+      const res = await request(app)
+        .post(`/api/issues/${ISSUE_ID}/interactions/interaction-tool-review/accept`)
+        .send({});
+
+      expect(res.status).toBe(403);
+      expect(res.body).toMatchObject({ error: "Tool policy denies this action", code: "policy_denied" });
+    });
+
+    it("returns the gateway status and reason when declining a tool review fails", async () => {
+      mockInteractionService.getForIssue.mockResolvedValueOnce(pendingToolReview);
+      const app = await createApp(undefined, {
+        declineToolActionRequest: vi.fn().mockRejectedValue(
+          await gatewayError(409, "Tool review was invalidated", "action_request_invalidated"),
+        ),
+      });
+
+      const res = await request(app)
+        .post(`/api/issues/${ISSUE_ID}/interactions/interaction-tool-review/reject`)
+        .send({ reason: "Not now" });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ error: "Tool review was invalidated", code: "action_request_invalidated" });
+    });
+  });
+
   it("rejects client-supplied tool-action metadata on interaction creation", async () => {
     const app = await createApp();
 

@@ -151,6 +151,7 @@ import {
 import { trackAgentTaskCompleted } from "@paperclipai/shared/telemetry";
 import { getTelemetryClient } from "../telemetry.js";
 import { isUniqueViolation } from "../db-errors.js";
+import { ToolGatewayHttpError } from "../services/tool-gateway.js";
 import type { StorageService } from "../storage/types.js";
 import { validate, validateIssueMutationBody } from "../middleware/validate.js";
 import * as serviceIndex from "../services/index.js";
@@ -383,6 +384,23 @@ const editQueuedCommentSchema = queuedCommentMutationTargetSchema.extend({
 const reorderQueuedCommentsSchema = queuedCommentMutationTargetSchema.extend({
   orderedCommentIds: z.array(z.string().min(1)).max(MAX_ISSUE_COMMENT_LIMIT),
 });
+
+// Tool reviews are resolved by the tool gateway, which rejects with its own
+// error type (expired, invalidated, target changed, policy deny ...). Map it
+// to an HttpError so the board sees the status and reason instead of a 500.
+async function resolveToolReview<T>(resolve: () => Promise<T>): Promise<T> {
+  try {
+    return await resolve();
+  } catch (error) {
+    if (error instanceof ToolGatewayHttpError) {
+      throw new HttpError(error.status, error.message, {
+        ...error.details,
+        code: error.reasonCode,
+      });
+    }
+    throw error;
+  }
+}
 
 function prefersMinimalIssueUpdateResponse(req: Request) {
   return (req.get("Prefer") ?? "")
@@ -16082,17 +16100,21 @@ export function issueRoutes(
       ) {
         if (!opts.approveToolActionRequest)
           throw unprocessable("Tool review resolution is unavailable");
-        await opts.approveToolActionRequest({
-          companyId: issue.companyId,
-          issueId: issue.id,
-          interactionId: current.id,
-          actionRequestId: current.payload.toolAction.actionRequestId,
-          rememberAction: req.body.rememberAction === true,
-          actor: {
-            agentId: actor.agentId,
-            userId: actor.actorType === "user" ? actor.actorId : null,
-          },
-        });
+        const approveToolActionRequest = opts.approveToolActionRequest;
+        const actionRequestId = current.payload.toolAction.actionRequestId;
+        await resolveToolReview(() =>
+          approveToolActionRequest({
+            companyId: issue.companyId,
+            issueId: issue.id,
+            interactionId: current.id,
+            actionRequestId,
+            rememberAction: req.body.rememberAction === true,
+            actor: {
+              agentId: actor.agentId,
+              userId: actor.actorType === "user" ? actor.actorId : null,
+            },
+          }),
+        );
         res.json(await interactionSvc.getById(current.id));
         return;
       }
@@ -16132,16 +16154,20 @@ export function issueRoutes(
         typeof toolAction?.actionRequestId === "string" &&
         opts.approveToolActionRequest
       ) {
-        const approvalResult = await opts.approveToolActionRequest({
-          companyId: issue.companyId,
-          issueId: issue.id,
-          interactionId: interaction.id,
-          actionRequestId: toolAction.actionRequestId,
-          actor: {
-            agentId: actor.agentId,
-            userId: actor.actorType === "user" ? actor.actorId : null,
-          },
-        });
+        const approveToolActionRequest = opts.approveToolActionRequest;
+        const actionRequestId = toolAction.actionRequestId;
+        const approvalResult = await resolveToolReview(() =>
+          approveToolActionRequest({
+            companyId: issue.companyId,
+            issueId: issue.id,
+            interactionId: interaction.id,
+            actionRequestId,
+            actor: {
+              agentId: actor.agentId,
+              userId: actor.actorType === "user" ? actor.actorId : null,
+            },
+          }),
+        );
         const approval = readObject(approvalResult);
         const executionStatus = readToolActionExecutionStatus(approval.status);
         if (executionStatus) {
@@ -16398,17 +16424,21 @@ export function issueRoutes(
       ) {
         if (!opts.declineToolActionRequest)
           throw unprocessable("Tool review resolution is unavailable");
-        await opts.declineToolActionRequest({
-          companyId: issue.companyId,
-          issueId: issue.id,
-          interactionId: current.id,
-          actionRequestId: current.payload.toolAction.actionRequestId,
-          reason: req.body.reason,
-          actor: {
-            agentId: actor.agentId,
-            userId: actor.actorType === "user" ? actor.actorId : null,
-          },
-        });
+        const declineToolActionRequest = opts.declineToolActionRequest;
+        const actionRequestId = current.payload.toolAction.actionRequestId;
+        await resolveToolReview(() =>
+          declineToolActionRequest({
+            companyId: issue.companyId,
+            issueId: issue.id,
+            interactionId: current.id,
+            actionRequestId,
+            reason: req.body.reason,
+            actor: {
+              agentId: actor.agentId,
+              userId: actor.actorType === "user" ? actor.actorId : null,
+            },
+          }),
+        );
         res.json(await interactionSvc.getById(current.id));
         return;
       }
