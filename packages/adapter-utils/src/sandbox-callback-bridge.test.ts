@@ -17,6 +17,8 @@ import {
   getSandboxBridgeProcessBodyLedgerSource,
   getSandboxCallbackBridgeServerSource,
   HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
+  readAgentIdFromHostApiToken,
+  resolveSandboxCallbackBridgeRoutesForAgent,
   sandboxCallbackBridgeDirectories,
   syncRemoteTextFileWithHashSkip,
   syncSandboxCallbackBridgeEntrypoint,
@@ -1375,6 +1377,56 @@ describe("sandbox callback bridge", () => {
 
     // Nothing was written to the remote path on the failure path.
     await expect(readFile(remotePath, "utf8")).rejects.toThrow();
+  });
+
+  describe("instructions-bundle file routes", () => {
+    const MILO = "d3c5140e-2a8e-4e08-a78b-276b0ca3b955";
+    const ATLAS = "475f9a6f-5d99-408b-bba5-9322acbf315a";
+    const PAX = "97ac1286-84c8-4430-8dc8-9e38505df1b5";
+    const filePath = "/api/agents/agent-1/instructions-bundle/file";
+    const runJwt = (claims: Record<string, unknown>) =>
+      ["e30", Buffer.from(JSON.stringify(claims)).toString("base64url"), "sig"].join(".");
+    const authorizeAs = (agentId: string | null, request: { method: string; path: string }) =>
+      authorizeSandboxCallbackBridgeRequestWithRoutes(request, resolveSandboxCallbackBridgeRoutesForAgent(agentId));
+
+    it("reads the agent id from the run JWT sub claim only", () => {
+      expect(readAgentIdFromHostApiToken(runJwt({ sub: MILO, run_id: "run-1" }))).toBe(MILO);
+      expect(readAgentIdFromHostApiToken(runJwt({ agent_id: MILO }))).toBeNull();
+      expect(readAgentIdFromHostApiToken("pcp_static_api_key")).toBeNull();
+      expect(readAgentIdFromHostApiToken("a.!!!.c")).toBeNull();
+      expect(readAgentIdFromHostApiToken(null)).toBeNull();
+    });
+
+    it("lets every agent read an instructions file", () => {
+      for (const agentId of [MILO, ATLAS, PAX, null]) {
+        expect(authorizeAs(agentId, { method: "GET", path: filePath })).toBeNull();
+      }
+    });
+
+    it("lets only Milo and Atlas write an instructions file", () => {
+      expect(authorizeAs(MILO, { method: "PUT", path: filePath })).toBeNull();
+      expect(authorizeAs(ATLAS, { method: "PUT", path: filePath })).toBeNull();
+      for (const agentId of [PAX, null]) {
+        expect(authorizeAs(agentId, { method: "PUT", path: filePath })).toBe(`Route not allowed: PUT ${filePath}`);
+      }
+      expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "PUT", path: filePath })).not.toBeNull();
+    });
+
+    it("keeps neighbouring agent config routes closed for writers", () => {
+      for (const agentId of [MILO, ATLAS, PAX]) {
+        for (const request of [
+          { method: "PUT", path: "/api/agents/agent-1/instructions-path" },
+          { method: "GET", path: "/api/agents/agent-1/config-revisions" },
+          { method: "POST", path: "/api/agents/agent-1/config-revisions/rev-1/rollback" },
+          { method: "PATCH", path: "/api/agents/agent-1/instructions-bundle" },
+          { method: "DELETE", path: filePath },
+          { method: "PUT", path: `${filePath}/x` },
+          { method: "POST", path: "/api/agents/agent-1/instructions-bundle/restore" },
+        ]) {
+          expect(authorizeAs(agentId, request)).toBe(`Route not allowed: ${request.method} ${request.path}`);
+        }
+      }
+    });
   });
 
   it("permits the documented heartbeat surface and denies unrelated routes", () => {

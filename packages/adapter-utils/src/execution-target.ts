@@ -33,11 +33,14 @@ export type {
   SandboxAdditionalSource,
 } from "./sandbox-managed-runtime.js";
 import {
+  authorizeSandboxCallbackBridgeRequestWithRoutes,
   createCommandManagedSandboxCallbackBridgeQueueClient,
   createSandboxCallbackBridgeAsset,
   createSandboxCallbackBridgeToken,
   DEFAULT_SANDBOX_CALLBACK_BRIDGE_MAX_BODY_BYTES,
   HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
+  readAgentIdFromHostApiToken,
+  resolveSandboxCallbackBridgeRoutesForAgent,
   runSandboxBridgeControlCommand,
   SANDBOX_CALLBACK_BRIDGE_ENTRYPOINT,
   SANDBOX_CALLBACK_BRIDGE_HTTP2_MODE,
@@ -4332,6 +4335,11 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
   if (hostApiToken.length === 0) {
     throw new Error("Sandbox bridge mode requires a host-side Paperclip API token.");
   }
+  // Per-agent routes come from the host-side run JWT, never from the sandbox.
+  const bridgeRoutes = resolveSandboxCallbackBridgeRoutesForAgent(
+    readAgentIdFromHostApiToken(hostApiToken),
+    HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
+  );
   // The forward budget for one relayed request. It stays at the broker's default
   // forward budget (30 s) when the caller sets no option, so current behavior
   // does not change.
@@ -4747,7 +4755,7 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
           const http2Server = createHttp2BridgeServer({
             bridgeToken,
             forwardRequest: http2ForwardRequest,
-            routes: HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
+            routes: bridgeRoutes,
             // The same resolved limit the launch environment hands the
             // sandbox-side gateway (`PAPERCLIP_BRIDGE_MAX_BODY_BYTES`,
             // below), so the host check and the gateway check enforce one
@@ -4863,6 +4871,7 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
       maxBodyBytes,
       getRuntimeParentContext: input.getRuntimeParentContext,
       runtimeSpan: input.runtimeSpan,
+      authorizeRequest: (request) => authorizeSandboxCallbackBridgeRequestWithRoutes(request, bridgeRoutes),
       // The worker encodes binary bodies only at the queue boundary.
       handleRequest: (request, options) => forwardBridgeRequest(request, options?.signal, {
         reservation: options?.reservation,
