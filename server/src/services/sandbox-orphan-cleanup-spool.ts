@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { resolvePaperclipInstanceRoot } from "../home-paths.js";
+import { idleOrphanSpoolPath, registerIdleSpoolDirectory } from "./idle-local-work.js";
 
 /**
  * One orphan pending-cleanup record. The acquire builds it when the conditional
@@ -71,13 +71,6 @@ const RECORD_FILE_SUFFIX = ".json";
 // records never share a temp path. The atomic rename then publishes each record
 // without a torn write.
 let tempFileCounter = 0;
-
-function resolveDefaultSpoolDir(): string {
-  return (
-    process.env.SANDBOX_ORPHAN_CLEANUP_SPOOL_DIR ??
-    path.resolve(resolvePaperclipInstanceRoot(), "data", "sandbox-orphan-cleanup")
-  );
-}
 
 // Match the in-process buffer, file name and removal on the full allocation
 // scope. Provider lease IDs are only locally unique (often just "1"). Tokens
@@ -152,7 +145,8 @@ async function writeFileDurable(absPath: string, data: string): Promise<void> {
  * directory for a test.
  */
 export function createSandboxOrphanCleanupSpool(spoolDir?: string): SandboxOrphanCleanupSpool {
-  const dir = spoolDir ?? resolveDefaultSpoolDir();
+  const dir = spoolDir ?? idleOrphanSpoolPath();
+  registerIdleSpoolDirectory(dir);
 
   return {
     async append(record) {

@@ -3,11 +3,11 @@ name: Refresh Lockfile
 on:
   push:
     branches:
-      - integration/bluephi09-paperclip
+      - master
   workflow_dispatch:
 
 concurrency:
-  group: refresh-lockfile-integration
+  group: refresh-lockfile-master
   cancel-in-progress: false
 
 jobs:
@@ -83,7 +83,7 @@ jobs:
             pr_url="$(gh pr create \
               --head "$BRANCH" \
               --title "chore(lockfile): refresh pnpm-lock.yaml" \
-              --body "Auto-generated lockfile refresh after dependencies changed on ${{ github.ref_name }}. This PR only updates pnpm-lock.yaml.")"
+              --body "Auto-generated lockfile refresh after dependencies changed on master. This PR only updates pnpm-lock.yaml.")"
             echo "Created new PR: $pr_url"
           else
             echo "PR already exists: $pr_url"
@@ -91,8 +91,7 @@ jobs:
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
 
       - name: Enable auto-merge for lockfile PR
-        # Fork: auto-merge is disabled in BluePhi09/paperclip; merge manually.
-        if: github.repository == 'paperclipai/paperclip' && steps.upsert-pr.outputs.pr_url != ''
+        if: steps.upsert-pr.outputs.pr_url != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
