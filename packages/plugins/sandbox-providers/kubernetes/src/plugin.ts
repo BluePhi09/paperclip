@@ -427,6 +427,7 @@ const plugin = definePlugin({
           runtimeClassName: config.runtimeClassName,
           imagePullSecrets: config.imagePullSecrets,
           preloadedImages: config.preloadedImages,
+          volumes: config.sandboxVolumes,
           hardStop: boundedDeadline
             ? { atEpochSec: boundedDeadline.hardStopAtEpochSec, activeDeadlineSeconds: boundedDeadline.activeDeadlineSec }
             : undefined,
@@ -445,6 +446,7 @@ const plugin = definePlugin({
           ttlSecondsAfterFinished: config.jobTtlSecondsAfterFinished,
           imagePullSecrets: config.imagePullSecrets,
           preloadedImages: config.preloadedImages,
+          volumes: config.sandboxVolumes,
         });
 
     const { uid: ownerUid } = await orchestrator.claim(clients, namespace, manifest);

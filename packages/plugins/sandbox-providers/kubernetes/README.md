@@ -117,6 +117,8 @@ Common optional fields:
 | `egressAllowFqdns` | `[]` | Additional FQDNs (beyond adapter defaults like `api.anthropic.com`). |
 | `egressAllowCidrs` | `[]` | Additional CIDRs to allow egress to. |
 | `egressMode` | `"standard"` | `standard` (NetworkPolicy + CIDRs) or `cilium` (CiliumNetworkPolicy + FQDN allow-list). |
+| `defaultResources` | requests `250m`/`512Mi`, limits `2`/`4Gi` | `{ requests: { cpu, memory }, limits: { cpu, memory } }` for the agent container. Keep within the tenant LimitRange/ResourceQuota. |
+| `sandboxVolumes` | workspace `8Gi`, home `1Gi`, cache `1Gi`, tmp `8Gi` | emptyDir `sizeLimit` overrides: `workspaceSizeLimit`, `homeSizeLimit`, `cacheSizeLimit`, `tmpSizeLimit` (Kubernetes quantities such as `16Gi`). A pod that exceeds a limit is evicted. |
 | `runtimeClassName` | (none) | e.g. `kata-fc` for Firecracker-backed microVMs. Cluster must have the RuntimeClass installed. |
 | `serviceAccountAnnotations` | `{}` | Annotations applied to per-tenant ServiceAccount (e.g. IRSA `eks.amazonaws.com/role-arn`). |
 | `jobTtlSecondsAfterFinished` | `900` | Seconds after a Job completes before garbage-collection. |

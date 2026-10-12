@@ -114,4 +114,20 @@ describe("buildJobManifest", () => {
     });
     expect(job.spec.template.spec.containers[0].imagePullPolicy).toBe("IfNotPresent");
   });
+
+  it("defaults emptyDir size limits to workspace 8Gi, home 1Gi, cache 1Gi, tmp 8Gi", () => {
+    const job = buildJobManifest(baseInput);
+    const limits = Object.fromEntries(
+      job.spec.template.spec.volumes.map((v: { name: string; emptyDir: { sizeLimit: string } }) => [v.name, v.emptyDir.sizeLimit]),
+    );
+    expect(limits).toEqual({ workspace: "8Gi", home: "1Gi", cache: "1Gi", tmp: "8Gi" });
+  });
+
+  it("applies configured emptyDir size limits and keeps defaults for unset volumes", () => {
+    const job = buildJobManifest({ ...baseInput, volumes: { tmpSizeLimit: "16Gi", workspaceSizeLimit: "20Gi" } });
+    const limits = Object.fromEntries(
+      job.spec.template.spec.volumes.map((v: { name: string; emptyDir: { sizeLimit: string } }) => [v.name, v.emptyDir.sizeLimit]),
+    );
+    expect(limits).toEqual({ workspace: "20Gi", home: "1Gi", cache: "1Gi", tmp: "16Gi" });
+  });
 });
