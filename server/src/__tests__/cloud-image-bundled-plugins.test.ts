@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { BUNDLED_PLUGIN_CATALOG } from "../services/bundled-plugins.js";
+import { BUNDLED_PLUGIN_CATALOG, SELF_HOSTED_AUTO_INSTALL_KEYS } from "../services/bundled-plugins.js";
 
 /**
  * Drift guard for the explicit preview image (Dockerfile `cloud` target).
@@ -62,6 +62,15 @@ describe("cloud image bundled plugins", () => {
     // the workflow's main build would silently publish the cloud variant
     // to the self-hosted tags.
     expect(workflow).toMatch(/^\s*target: production$/m);
+  });
+
+  it("builds the kubernetes provider into the fork's production image on every integration merge", () => {
+    // The self-hosted auto-installer loads the kubernetes bundle from the
+    // image; without a built dist/ it would fall back to a hand-copied plugin.
+    expect(dockerfile).toMatch(/^ARG BUNDLED_SANDBOX_PLUGINS=""$/m);
+    expect(workflow).toMatch(/^\s*BUNDLED_SANDBOX_PLUGINS=kubernetes$/m);
+    expect(SELF_HOSTED_AUTO_INSTALL_KEYS).toContain("kubernetes");
+    expect(workflow).toMatch(/^\s*- "integration\/bluephi09-paperclip"$/m);
   });
 
   it("throttles the docker workflow with cancel-in-progress: false", () => {

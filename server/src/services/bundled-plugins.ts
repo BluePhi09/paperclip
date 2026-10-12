@@ -278,7 +278,14 @@ async function reconcileBundledPluginManifest(
       const approved = new Set(existing.manifestJson.capabilities ?? []);
       requiresApproval = bundleManifest.capabilities.some((capability) => !approved.has(capability));
     }
-    const rebindPackage = install.distribution && existing.packagePath !== install.localPath && existing.status !== "uninstalled";
+    // Catalog bundles ship with the image too: a row still pointing at a local
+    // install elsewhere (e.g. a hand-copied plugin on the data volume) moves
+    // to the shipped bundle, but only when the bundle really is that plugin.
+    const rebindPackage = existing.status !== "uninstalled" && existing.packagePath !== install.localPath && (
+      install.distribution
+        ? true
+        : typeof existing.packagePath === "string" && bundleManifest.id === install.pluginKey
+    );
     const refreshDistribution = install.distribution && !isDeepStrictEqual(bundleManifest, existing.manifestJson);
     if (bundleManifest.version === existing.version && !rebindPackage && !requiresApproval && !refreshDistribution) return;
     await deps.registry.update(existing.id, {
@@ -404,7 +411,7 @@ export async function ensureBundledPlugins(
         // manifest when the shipped bundle declares a different version. Without
         // this step a manifest capability added to a bundle never reaches an
         // existing install, because the auto-install below skips a present
-        // plugin. Distribution entries also replace a legacy/npm package path
+        // plugin. Present entries also move off a legacy/local package path
         // before loadAll resolves the worker. Configuration and status stay put.
         const reconciledStatus = await reconcileBundledPluginManifest(existing, install, deps, bundleManifestExists, verifiedManifest);
         if (reconciledStatus === "upgrade_pending") continue;

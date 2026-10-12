@@ -11,7 +11,8 @@ import type { AdapterRegistryEntry } from "../../src/adapter-registry.js";
 describe("adapter-defaults (built-in)", () => {
   it("returns defaults for claude_local", () => {
     const d = getAdapterDefaults("claude_local");
-    expect(d.runtimeImage).toBe("ghcr.io/paperclipai/agent-runtime-claude:latest");
+    // Pinned by digest, like codex_local: a moving tag would swap the runtime under running agents.
+    expect(d.runtimeImage).toMatch(/^ghcr\.io\/paperclipai\/agent-runtime-claude:git-[0-9a-f]{40}@sha256:[0-9a-f]{64}$/);
     expect(d.envKeys).toContain("ANTHROPIC_API_KEY");
     expect(d.allowFqdns).toContain("api.anthropic.com");
     expect(d.allowFqdns).toContain("claude.com");

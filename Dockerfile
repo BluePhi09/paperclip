@@ -152,6 +152,28 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN pnpm --filter @paperclipai/server build
 RUN test -f server/dist/index.js || (echo "ERROR: server build output missing" && exit 1)
 RUN rm -rf packages/paperclip-runner/runner/target
+# BUNDLED_SANDBOX_PLUGINS names sandbox-provider plugins to build into the
+# production image itself (same shape and install recipe as
+# CLOUD_BUNDLED_PLUGINS below). A self-hosted instance auto-installs the
+# kubernetes provider from /app/packages/plugins at boot
+# (SELF_HOSTED_AUTO_INSTALL_KEYS), so building it here ships the plugin with
+# the image instead of a hand-installed copy on the data volume. Empty by
+# default: the stock image keeps shipping only plugin sources.
+# The providers import @paperclipai/plugin-sdk without declaring it, so the
+# workspace SDK built above is linked into each
+# plugin's node_modules: tsc needs it for the build, and the loader requires it
+# there at runtime for standalone sandbox-provider bundles.
+ARG BUNDLED_SANDBOX_PLUGINS=""
+RUN set -eu; \
+  for name in $BUNDLED_SANDBOX_PLUGINS; do \
+    dir="packages/plugins/sandbox-providers/$name"; \
+    test -d "$dir" || { echo "ERROR: unknown sandbox provider '$name'" >&2; exit 1; }; \
+    pnpm -C "$dir" install --ignore-workspace --no-lockfile; \
+    mkdir -p "$dir/node_modules/@paperclipai"; \
+    ln -sfn /app/packages/plugins/sdk "$dir/node_modules/@paperclipai/plugin-sdk"; \
+    pnpm -C "$dir" build; \
+    test -f "$dir/dist/manifest.js" || { echo "ERROR: $dir is missing dist/manifest.js after build" >&2; exit 1; }; \
+  done
 
 # Remote OpenCode and ACPX runs require a controller-owned provider pack to
 # verify the sandbox installation or stage matching assets. Ship it in the
