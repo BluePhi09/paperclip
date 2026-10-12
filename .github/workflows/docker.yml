@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - "master"
+      # Fork integration branch: every merge publishes ghcr.io/bluephi09/paperclip:sha-<short>.
+      - "integration/bluephi09-paperclip"
     tags:
       - "v*"
       - "nightly/v*"
@@ -233,6 +235,7 @@ jobs:
             PAPERCLIP_BUILD_VERSION=${{ steps.build-version.outputs.version }}
             PAPERCLIP_BUILD_COMMIT=${{ github.sha }}
             CLI_TOOLS_CACHE_EPOCH=${{ steps.tools-epoch.outputs.epoch }}
+            BUNDLED_SANDBOX_PLUGINS=kubernetes
           platforms: ${{ matrix.platform }}
           # By digest, not by tag: two runners cannot each push the same tag
           # and end up with a manifest list. Each leg publishes an untagged

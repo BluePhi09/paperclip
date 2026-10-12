@@ -403,6 +403,44 @@ describe("ensureBundledPlugins", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it("rebinds a present catalog plugin from a local install path to the shipped bundle", async () => {
+    const { deps, installPlugin, update } = makeDeps({
+      rows: {
+        [K8S.pluginKey]: {
+          id: "row-k8s",
+          pluginKey: K8S.pluginKey,
+          status: "ready",
+          version: "0.1.0",
+          packagePath: "/paperclip/.paperclip/plugins/local-kubernetes",
+        },
+      },
+    });
+    await ensureBundledPlugins([K8S], deps, { reinstallUninstalled: false });
+    expect(installPlugin).not.toHaveBeenCalled();
+    // Same version, but the worker must load from the image bundle, not from a
+    // hand-maintained copy on the data volume.
+    expect(update).toHaveBeenCalledExactlyOnceWith(
+      "row-k8s",
+      expect.objectContaining({ packagePath: K8S.localPath, version: "0.1.0" }),
+    );
+  });
+
+  it("does not rebind a catalog plugin when the bundle manifest names another plugin", async () => {
+    const { deps, update, loadManifest } = makeDeps({
+      rows: {
+        [K8S.pluginKey]: {
+          id: "row-k8s",
+          pluginKey: K8S.pluginKey,
+          status: "ready",
+          packagePath: "/paperclip/.paperclip/plugins/local-kubernetes",
+        },
+      },
+    });
+    loadManifest.mockResolvedValueOnce(makeManifest("acme.other", "0.1.0"));
+    await ensureBundledPlugins([K8S], deps, { reinstallUninstalled: false });
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it.each([null, "/old/plugins/widget"])("adopts a selected distribution path from %s even at the same version", async (packagePath) => {
     const localPath = path.join(CATALOG_ROOT, "distribution/widget");
     const distribution = { key: "widget", pluginKey: "acme.widget", version: "0.1.0", directory: "widget", digest: `sha256:${"a".repeat(64)}`, localPath, entrypoints: { worker: "dist/worker.js" } };
