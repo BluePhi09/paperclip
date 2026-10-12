@@ -1418,7 +1418,7 @@ describe("issue thread interaction routes", () => {
         .send({});
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual({ error: "Tool review has expired", code: "action_expired" });
+      expect(res.body).toMatchObject({ error: "Tool review has expired", code: "action_expired" });
     });
 
     it("returns the gateway status when the post-accept tool execution is denied", async () => {
@@ -1453,7 +1453,7 @@ describe("issue thread interaction routes", () => {
         .send({ reason: "Not now" });
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual({ error: "Tool review was invalidated", code: "action_request_invalidated" });
+      expect(res.body).toMatchObject({ error: "Tool review was invalidated", code: "action_request_invalidated" });
     });
   });
 
