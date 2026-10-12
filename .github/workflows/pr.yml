@@ -2,6 +2,8 @@ name: PR
 
 on:
   pull_request:
+    branches:
+      - integration/bluephi09-paperclip
 
 permissions:
   actions: read
@@ -10,6 +12,6 @@ permissions:
 
 jobs:
   ci:
-    # Master requires CODEOWNERS review for .github/**, including this workflow.
-    # The AWS runner group permits pr-trusted.yml@refs/heads/master.
-    uses: paperclipai/paperclip/.github/workflows/pr-trusted.yml@master
+    # Fork: run the local reusable workflow; the gate falls back to
+    # GitHub-hosted runners outside paperclipai/paperclip.
+    uses: ./.github/workflows/pr-trusted.yml
