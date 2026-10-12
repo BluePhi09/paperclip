@@ -9,7 +9,7 @@ on:
       - server/src/peer-version-check.ts
       - server/src/__tests__/*sentry*.test.ts
   push:
-    branches: [master]
+    branches: [integration/bluephi09-paperclip]
     paths:
       - .github/workflows/sentry-contract.yml
       - server/package.json

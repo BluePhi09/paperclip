@@ -3,13 +3,9 @@ name: Docker
 on:
   push:
     branches:
-      - "master"
-      # Fork integration branch: every merge publishes ghcr.io/bluephi09/paperclip:sha-<short>.
+      # Fork: only the integration branch publishes ghcr.io/bluephi09/paperclip:sha-<short>.
+      # Upstream master and release tags (v*, nightly/v*, beta/v*) are not built here.
       - "integration/bluephi09-paperclip"
-    tags:
-      - "v*"
-      - "nightly/v*"
-      - "beta/v*"
   # Release workflows push lane tags with GITHUB_TOKEN, and GitHub suppresses
   # push-triggered runs for those, so release.yml dispatches this workflow at
   # the new tag ref instead. The tag mapping below keys off github.ref either
