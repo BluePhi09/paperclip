@@ -133,6 +133,9 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   { method: "GET", path: /^\/api\/agents\/[^/]+\/skills$/ },
   { method: "POST", path: /^\/api\/agents\/[^/]+\/skills\/sync$/ },
   { method: "PATCH", path: /^\/api\/agents\/[^/]+\/instructions-path$/ },
+  // Read one instructions-bundle file. The controller still checks read access
+  // to the target agent; writes are gated per agent below.
+  { method: "GET", path: /^\/api\/agents\/[^/]+\/instructions-bundle\/file$/ },
 
   // Run-bound secret access (documented in the Paperclip skill). Only the
   // caller's own grants: the controller requires a running heartbeat, an
@@ -253,6 +256,46 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
 
 // Keep the public alias for callers selecting the HTTP/2 transport.
 export const HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST = DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST;
+
+// Fork policy (BLU-592, approved on BLU-588): only these agents may write
+// instructions-bundle files through the bridge. The bridge takes the caller
+// identity from the host-side run JWT, never from sandbox-supplied headers or
+// bodies; the controller still enforces its own instruction permissions.
+export const SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITER_AGENT_IDS: readonly string[] = [
+  "d3c5140e-2a8e-4e08-a78b-276b0ca3b955", // Milo
+  "475f9a6f-5d99-408b-bba5-9322acbf315a", // Atlas
+];
+
+export const SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITE_ROUTE: SandboxCallbackBridgeRouteRule = {
+  method: "PUT",
+  path: /^\/api\/agents\/[^/]+\/instructions-bundle\/file$/,
+};
+
+/**
+ * Read the agent id (`sub`) from a host-side Paperclip run JWT without
+ * verifying it. Only call this with the token the host itself injects; the
+ * server verifies the same token on every forwarded request.
+ */
+export function readAgentIdFromHostApiToken(token: string | null | undefined): string | null {
+  const parts = token?.trim().split(".") ?? [];
+  if (parts.length !== 3 || !parts[1]) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as unknown;
+    const sub = claims && typeof claims === "object" ? (claims as { sub?: unknown }).sub : undefined;
+    return typeof sub === "string" && sub.length > 0 ? sub : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The route allowlist for one run, given the agent id from its run JWT. */
+export function resolveSandboxCallbackBridgeRoutesForAgent(
+  agentId: string | null | undefined,
+  routes: readonly SandboxCallbackBridgeRouteRule[] = DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
+): readonly SandboxCallbackBridgeRouteRule[] {
+  if (!agentId || !SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITER_AGENT_IDS.includes(agentId)) return routes;
+  return [...routes, SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITE_ROUTE];
+}
 
 export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_HEADER_ALLOWLIST = [
   "accept",
