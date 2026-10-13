@@ -911,6 +911,17 @@ function isRepeatedProductiveContinuationRecovery(
   );
 }
 
+/**
+ * Status a recovery escalation may park an issue in. `blocked` requires at
+ * least one unresolved first-class blocker; otherwise the issue would be
+ * unwakeable, so it is parked in `backlog` (paperclipai/paperclip#14792).
+ */
+export function recoveryParkStatus(
+  unresolvedBlockerIssueIds: readonly string[],
+): "blocked" | "backlog" {
+  return unresolvedBlockerIssueIds.length > 0 ? "blocked" : "backlog";
+}
+
 export function recoveryService(
   db: Db,
   deps: {
@@ -2718,6 +2729,7 @@ export function recoveryService(
     previousStatus: StrandedPreviousStatus;
     latestRun: LatestIssueRun;
     prefix: string;
+    parkedStatus: "blocked" | "backlog";
   }) {
     const runLink = input.latestRun
       ? runUiLink(
@@ -2744,7 +2756,7 @@ export function recoveryService(
         : "- Failure: none recorded",
       "- Guard: recovery issues do not create nested `stranded_issue_recovery` issues.",
       "",
-      "Next action: the current recovery owner should inspect the failed run evidence, restore a live execution path or record the manual resolution, then move this recovery issue out of `blocked`.",
+      `Next action: the current recovery owner should inspect the failed run evidence, restore a live execution path or record the manual resolution, then move this recovery issue out of \`${input.parkedStatus}\`.`,
     ].join("\n");
   }
 
@@ -2753,8 +2765,12 @@ export function recoveryService(
     previousStatus: StrandedPreviousStatus;
     latestRun: LatestIssueRun;
   }) {
+    const park = await resolveRecoveryParkStatus(
+      input.issue.companyId,
+      input.issue.id,
+    );
     const updated = await issuesSvc.update(input.issue.id, {
-      status: "blocked",
+      status: park.status,
     });
     if (!updated) return null;
 
@@ -2766,12 +2782,13 @@ export function recoveryService(
         previousStatus: input.previousStatus,
         latestRun: input.latestRun,
         prefix,
+        parkedStatus: park.status,
       }),
       {},
       {
         authorType: "system",
         presentation: compactRecoveryPresentation(
-          "Recovery: recovery attempt failed — remains blocked",
+          `Recovery: recovery attempt failed — parked in ${park.status}`,
         ),
         metadata: {
           version: 1,
@@ -2818,7 +2835,7 @@ export function recoveryService(
       entityId: input.issue.id,
       details: {
         identifier: input.issue.identifier,
-        status: "blocked",
+        status: park.status,
         previousStatus: input.previousStatus,
         source: "recovery.reconcile_stranded_recovery_issue",
         latestRunId: input.latestRun?.id ?? null,
@@ -2877,6 +2894,11 @@ export function recoveryService(
     return existingUnresolvedBlockerIssues(companyId, issueId).then((rows) =>
       rows.map((row) => row.id),
     );
+  }
+
+  async function resolveRecoveryParkStatus(companyId: string, issueId: string) {
+    const blockerIds = await existingUnresolvedBlockerIssueIds(companyId, issueId);
+    return { status: recoveryParkStatus(blockerIds), blockerIds };
   }
 
   async function openChildIssues(issue: typeof issues.$inferSelect) {
@@ -3610,8 +3632,12 @@ export function recoveryService(
         ),
       );
 
+    const park = await resolveRecoveryParkStatus(
+      input.issue.companyId,
+      input.issue.id,
+    );
     const updated = await issuesSvc.update(input.issue.id, {
-      status: "blocked",
+      status: park.status,
     });
     if (!updated) return null;
     const sourceAssigneePreserved =
@@ -3667,7 +3693,7 @@ export function recoveryService(
       entityId: input.issue.id,
       details: {
         identifier: input.issue.identifier,
-        status: "blocked",
+        status: park.status,
         previousStatus: input.issue.status,
         sourceStateFingerprint: input.fingerprint,
         attemptCount: input.attemptCount,
@@ -3968,13 +3994,17 @@ export function recoveryService(
         agentId: recoveryAction.returnOwnerAgentId,
       });
     }
-    const blockerIds = await existingUnresolvedBlockerIssueIds(
+    const park = await resolveRecoveryParkStatus(
       input.issue.companyId,
       input.issue.id,
     );
+    const blockerIds = park.blockerIds;
+    // A provider-quota wait owns a scheduled retry monitor that wakes the
+    // original assignee, so it keeps its existing blocked hold.
+    const parkStatus = isProviderQuotaWait ? "blocked" : park.status;
     const updated = await issuesSvc.update(input.issue.id, {
-      status: "blocked",
-      blockedByIssueIds: blockerIds,
+      status: parkStatus,
+      ...(parkStatus === "blocked" ? { blockedByIssueIds: blockerIds } : {}),
     });
     if (!updated) return null;
     if (isProviderQuotaWait) return updated;
@@ -4131,7 +4161,7 @@ export function recoveryService(
       entityId: input.issue.id,
       details: {
         identifier: input.issue.identifier,
-        status: "blocked",
+        status: parkStatus,
         previousStatus: input.previousStatus,
         source:
           input.recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
