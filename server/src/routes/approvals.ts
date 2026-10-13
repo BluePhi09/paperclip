@@ -40,9 +40,29 @@ function isStatusOnlyRecoveryContext(contextSnapshot: unknown) {
     context.resumeRequiresNormalModel === true;
 }
 
+type ToolActionReviewInput = {
+  companyId: string;
+  actionRequestId: string;
+  actor: { agentId?: string | null; userId?: string | null };
+};
+
+// A high-risk tool action carries both a formal board approval and the
+// confirmation card that holds the signed arguments. Return the linked action
+// request so a board decision on the approval also settles the card.
+function linkedToolActionRequestId(payload: Record<string, unknown> | null | undefined) {
+  if (!payload || payload.source !== "tool_gateway") return null;
+  return typeof payload.actionRequestId === "string" && payload.actionRequestId.length > 0
+    ? payload.actionRequestId
+    : null;
+}
+
 export function approvalRoutes(
   db: Db,
-  options: { pluginWorkerManager?: PluginWorkerManager } = {},
+  options: {
+    pluginWorkerManager?: PluginWorkerManager;
+    approveToolActionRequest?: (input: ToolActionReviewInput) => Promise<unknown>;
+    declineToolActionRequest?: (input: ToolActionReviewInput & { reason?: string }) => Promise<unknown>;
+  } = {},
 ) {
   const router = Router();
   const svc = approvalService(db);
@@ -316,6 +336,24 @@ export function approvalRoutes(
         },
       });
 
+      const toolActionRequestId = linkedToolActionRequestId(approval.payload);
+      if (toolActionRequestId && options.approveToolActionRequest) {
+        try {
+          await options.approveToolActionRequest({
+            companyId: approval.companyId,
+            actionRequestId: toolActionRequestId,
+            actor: { userId: decidedByUserId },
+          });
+        } catch (err) {
+          // The approval itself stays approved; the confirmation card remains
+          // available as the fallback path to run the action.
+          logger.warn(
+            { err, approvalId: approval.id, actionRequestId: toolActionRequestId },
+            "failed to settle tool action after board approval",
+          );
+        }
+      }
+
       let primaryReviewPathWakeCovered = false;
       if (approval.requestedByAgentId) {
         try {
@@ -421,6 +459,22 @@ export function approvalRoutes(
         entityId: approval.id,
         details: { type: approval.type },
       });
+      const toolActionRequestId = linkedToolActionRequestId(approval.payload);
+      if (toolActionRequestId && options.declineToolActionRequest) {
+        try {
+          await options.declineToolActionRequest({
+            companyId: approval.companyId,
+            actionRequestId: toolActionRequestId,
+            reason: req.body.decisionNote ?? undefined,
+            actor: { userId: decidedByUserId },
+          });
+        } catch (err) {
+          logger.warn(
+            { err, approvalId: approval.id, actionRequestId: toolActionRequestId },
+            "failed to decline tool action after board rejection",
+          );
+        }
+      }
       await queueAdditionalApprovalReviewPathWakes({
         approvalId: approval.id,
         approvalStatus: approval.status,
