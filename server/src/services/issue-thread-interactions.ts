@@ -1118,6 +1118,17 @@ async function resolveLinkedToolActionRequests(
     );
 }
 
+// Governed cards (tool actions, secret proposals) carry their own lifecycle and
+// may also be linked to a formal board approval. A newer card from the same
+// agent must not supersede them, or a still-valid approval loses its card.
+function isGovernedConfirmationPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const record = payload as Record<string, unknown>;
+  return record.toolAction != null || record.secretProposal != null;
+}
+
+const notGovernedConfirmationPayloadSql = sql`(${issueThreadInteractions.payload} -> 'toolAction') is null and (${issueThreadInteractions.payload} -> 'secretProposal') is null`;
+
 function linkedSecretProposalId(
   interaction: Pick<IssueThreadInteractionRow, "kind" | "payload">,
 ) {
@@ -3328,6 +3339,7 @@ export function issueThreadInteractionService(
       }> = [];
       for (const row of rows) {
         if (!row.createdByAgentId) continue;
+        if (isGovernedConfirmationPayload(row.payload)) continue;
         const groupKey = `${row.companyId}:${row.issueId}:${row.kind}:${row.createdByAgentId}`;
         const newest = newestByGroup.get(groupKey);
         if (!newest) {
@@ -3812,7 +3824,7 @@ export function issueThreadInteractionService(
                 eq(issueThreadInteractions.createdByAgentId, actor.agentId),
                 eq(issueThreadInteractions.status, "pending"),
                 ne(issueThreadInteractions.id, row.id),
-
+                notGovernedConfirmationPayloadSql,
               ),
             )
             .returning();

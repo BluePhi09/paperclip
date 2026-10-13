@@ -1,7 +1,7 @@
 import { subscribeDeliveryWork } from "../services/delivery-work-notifications.js";
 import { DELIVERY_QUEUES } from "../services/delivery-work-notifications.js";
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   activityLog,
@@ -2508,6 +2508,61 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     });
     expect(interactions.find((interaction) => interaction.id === secondAgentIds[1])?.status).toBe("pending");
     expect(interactions.find((interaction) => interaction.id === checkboxId)?.status).toBe("pending");
+  });
+
+  it("never supersedes a pending tool-action card with a newer card from the same agent", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Tool card survives newer card");
+    const agentId = randomUUID();
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Tool agent",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    const toolCardIds = [randomUUID(), randomUUID()];
+    await db.insert(issueThreadInteractions).values(toolCardIds.map((id, index) => ({
+      id,
+      companyId,
+      issueId,
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      createdByAgentId: agentId,
+      payload: {
+        version: 1 as const,
+        prompt: `Approve tool action ${index + 1}?`,
+        toolAction: {
+          version: 1,
+          actionRequestId: randomUUID(),
+          invocationId: randomUUID(),
+          toolName: "unifi.firewall_update",
+          toolDisplayName: "Firewall update",
+          risk: "destructive",
+          argumentsHash: `hash-${index}`,
+        },
+      } as never,
+      createdAt: new Date(`2026-07-01T12:0${index}:00.000Z`),
+      updatedAt: new Date(`2026-07-01T12:0${index}:00.000Z`),
+    })));
+
+    await interactionsSvc.create({ id: issueId, companyId }, {
+      kind: "request_confirmation",
+      idempotencyKey: "confirmation:after-tool-card",
+      payload: { version: 1, prompt: "Approve the plain draft?" },
+    }, { agentId });
+    await expect(interactionsSvc.sweepSupersededPendingRequestConfirmations())
+      .resolves.toEqual({ expired: 0 });
+
+    const rows = await db
+      .select({ id: issueThreadInteractions.id, status: issueThreadInteractions.status })
+      .from(issueThreadInteractions)
+      .where(inArray(issueThreadInteractions.id, toolCardIds));
+    expect(rows.map((row) => row.status)).toEqual(["pending", "pending"]);
   });
 
   it("refuses to create an interaction on a closed issue", async () => {
