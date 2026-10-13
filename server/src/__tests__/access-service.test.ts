@@ -1224,11 +1224,13 @@ describeEmbeddedPostgres("access service", () => {
     const member = await createMemberWithRoleDefaults(company.id, "operator");
     const access = accessService(db);
     const scoped = { projectId: "project-1" };
+    // Fork patch: the operator role defaults to tasks:assign only (see
+    // company-member-roles.ts), so collide on that key instead of tools:use.
 
     await access.setMemberPermissions(
       company.id,
       member.id,
-      [{ permissionKey: "tools:use", scope: scoped }],
+      [{ permissionKey: "tasks:assign", scope: scoped }],
       "admin-user",
     );
 
@@ -1236,7 +1238,7 @@ describeEmbeddedPostgres("access service", () => {
     expect(grants.map((grant) => grant.permissionKey).sort()).toEqual(
       grantsForHumanRole("operator").map((grant) => grant.permissionKey).sort(),
     );
-    expect(grants.find((grant) => grant.permissionKey === "tools:use")?.scope).toEqual(scoped);
+    expect(grants.find((grant) => grant.permissionKey === "tasks:assign")?.scope).toEqual(scoped);
   });
 
   it("updateMemberAndPermissions re-applies the new role's defaults over an empty set (#15842)", async () => {
