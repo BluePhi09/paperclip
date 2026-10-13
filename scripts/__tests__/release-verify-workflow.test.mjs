@@ -47,8 +47,11 @@ test("Docker Hub mirrors apply to both image builders without widening publicati
   assert.match(docker, /platform: linux\/amd64/);
   assert.match(docker, /platform: linux\/arm64/);
   assert.match(docker, /permissions:\n\s+contents: read\n\s+packages: write/);
-  assert.match(docker, /outputs: type=image,name=ghcr\.io\/\$\{\{ github\.repository \}\},push-by-digest=true,name-canonical=true,push=true/);
-  assert.match(docker, /cache-to: type=registry,ref=ghcr\.io\/\$\{\{ github\.repository \}\}:buildcache-\$\{\{ matrix\.arch \}\},mode=max/);
+  // Fork (BluePhi09/paperclip): GHCR rejects the mixed-case repository name, so
+  // the fork pins the lowercase image path instead of github.repository.
+  const image = String.raw`ghcr\.io\/(?:\$\{\{ github\.repository \}\}|bluephi09\/paperclip)`;
+  assert.match(docker, new RegExp(String.raw`outputs: type=image,name=${image},push-by-digest=true,name-canonical=true,push=true`));
+  assert.match(docker, new RegExp(String.raw`cache-to: type=registry,ref=${image}:buildcache-\$\{\{ matrix\.arch \}\},mode=max`));
   assert.match(preview, /permissions:\n\s+contents: read\n\s+steps:/);
   assert.match(preview, /platforms: linux\/amd64\n\s+push: false/);
   assert.match(preview, /outputs: type=docker,dest=\$\{\{ runner\.temp \}\}\/preview-image\.tar/);
