@@ -9016,9 +9016,15 @@ async function executePaperclipNativeSessionWithinScope(
     // persistence, reporting, logging, or rethrow at this boundary.
     if (error instanceof Error) {
       const originalMessage = error.message;
-      error.message = redactIdentityText(originalMessage);
-      if (error.stack) error.stack = redactIdentityText(originalMessage
-        ? error.stack.split(originalMessage).join(error.message) : error.stack);
+      const redactedMessage = redactIdentityText(originalMessage);
+      // DOMException (AbortError/TimeoutError) exposes `message` as a
+      // prototype getter: redact by shadowing it instead of assigning.
+      Object.defineProperty(error, "message", { value: redactedMessage, configurable: true, writable: true });
+      if (error.stack) {
+        const redactedStack = redactIdentityText(originalMessage
+          ? error.stack.split(originalMessage).join(redactedMessage) : error.stack);
+        Object.defineProperty(error, "stack", { value: redactedStack, configurable: true, writable: true });
+      }
     } else {
       error = identityRedactor.redact(error);
     }
