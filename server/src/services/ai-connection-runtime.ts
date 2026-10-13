@@ -336,6 +336,10 @@ export async function prepareManagedAiRuntime(
       return (await db.select({ epoch: companySecrets.aiSessionEpoch, version: companySecrets.latestVersion })
         .from(companySecrets).where(and(eq(companySecrets.companyId, input.companyId), eq(companySecrets.id, credentialRef.secretId))).limit(1))[0];
     };
+    // A Claude subscription token refresh writes a new secret version but keeps
+    // the session epoch; a reconnect changes the epoch, so the epoch alone
+    // detects it for that credential type.
+    const refreshesToken = !noAuth && input.binding.provider === "anthropic" && selection.attribution.method === "subscription";
     const { value, freshness } = await (async () => {
       if (noAuth) return { value: "", freshness: undefined };
       // Recovering a rotated quota token can advance the secret version during
@@ -345,7 +349,7 @@ export async function prepareManagedAiRuntime(
         const before = await readFreshness();
         const value = await service.runtimeCredential(selection);
         const after = await readFreshness();
-        if (before && after && before.version === after.version && before.epoch === after.epoch) {
+        if (before && after && before.epoch === after.epoch && (refreshesToken || before.version === after.version)) {
           return { value, freshness: after };
         }
         if (!before || before.epoch !== after?.epoch) break;
