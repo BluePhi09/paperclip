@@ -800,7 +800,12 @@ export async function createApp(
   api.use(goalRoutes(db));
   api.use(onboardingSeedRoutes(db));
   api.use(boardChatRoutes(db, { deploymentMode: opts.deploymentMode }));
-  api.use(approvalRoutes(db, { pluginWorkerManager: workerManager }));
+  api.use(approvalRoutes(db, {
+    pluginWorkerManager: workerManager,
+    // Resolved lazily: the gateway is constructed further below.
+    approveToolActionRequest: (input) => toolGateway.approveActionRequest(input),
+    declineToolActionRequest: (input) => toolGateway.declineActionRequest(input),
+  }));
   api.use(secretRoutes(db));
   api.use(managedAgentProfileRoutes(db));
   api.use(remoteAgentProfileRoutes(db));

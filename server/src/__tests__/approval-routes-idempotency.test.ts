@@ -50,7 +50,10 @@ const routeModules = hoistModuleGraph(registerModuleMocks, async () => {
   return { errorHandler, approvalRoutes };
 });
 
-async function createApp(actorOverrides: Record<string, unknown> = {}) {
+async function createApp(
+  actorOverrides: Record<string, unknown> = {},
+  routeOptions: Record<string, unknown> = {},
+) {
   const { errorHandler, approvalRoutes } = routeModules.value;
   const app = express();
   app.use(express.json());
@@ -65,7 +68,7 @@ async function createApp(actorOverrides: Record<string, unknown> = {}) {
     };
     next();
   });
-  app.use("/api", approvalRoutes(createRouteDb()));
+  app.use("/api", approvalRoutes(createRouteDb(), routeOptions));
   app.use(errorHandler);
   return app;
 }
@@ -437,5 +440,100 @@ describe("approval routes idempotent retries", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(403);
     expect(res.body.error).toContain("Status-only recovery runs cannot create or modify approvals");
     expect(mockApprovalService.addComment).not.toHaveBeenCalled();
+  });
+});
+
+describe("approval routes settle linked tool actions", () => {
+  const toolApproval = (status: "approved" | "rejected") => ({
+    id: "approval-tool",
+    companyId: "company-1",
+    type: "request_board_approval",
+    status,
+    payload: {
+      source: "tool_gateway",
+      actionRequestId: "action-request-1",
+      invocationId: "invocation-1",
+      tool: "unifi.firewall_update",
+    },
+    requestedByAgentId: "agent-1",
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccessService.decide.mockResolvedValue({
+      allowed: true,
+      action: "company_scope:read",
+      reason: "allow_test",
+      explanation: "Allowed by test mock.",
+    });
+    mockHeartbeatService.wakeup.mockResolvedValue({ id: "wake-1" });
+    mockIssueApprovalService.listIssuesForApproval.mockResolvedValue([]);
+    mockLogActivity.mockResolvedValue(undefined);
+  });
+
+  it("approves the linked tool action so its confirmation card does not stay pending", async () => {
+    mockApprovalService.getById.mockResolvedValue(toolApproval("pending" as never));
+    mockApprovalService.approve.mockResolvedValue({ approval: toolApproval("approved"), applied: true });
+    const approveToolActionRequest = vi.fn().mockResolvedValue({ status: "executed" });
+
+    const res = await request(await createApp({}, { approveToolActionRequest }))
+      .post("/api/approvals/approval-tool/approve")
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(approveToolActionRequest).toHaveBeenCalledWith({
+      companyId: "company-1",
+      actionRequestId: "action-request-1",
+      actor: { userId: "user-1" },
+    });
+  });
+
+  it("keeps the approval when settling the tool action fails", async () => {
+    mockApprovalService.getById.mockResolvedValue(toolApproval("pending" as never));
+    mockApprovalService.approve.mockResolvedValue({ approval: toolApproval("approved"), applied: true });
+    const approveToolActionRequest = vi.fn().mockRejectedValue(new Error("expired"));
+
+    const res = await request(await createApp({}, { approveToolActionRequest }))
+      .post("/api/approvals/approval-tool/approve")
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("approved");
+  });
+
+  it("declines the linked tool action when the board rejects", async () => {
+    mockApprovalService.getById.mockResolvedValue(toolApproval("pending" as never));
+    mockApprovalService.reject.mockResolvedValue({ approval: toolApproval("rejected"), applied: true });
+    const declineToolActionRequest = vi.fn().mockResolvedValue({});
+
+    const res = await request(await createApp({}, { declineToolActionRequest }))
+      .post("/api/approvals/approval-tool/reject")
+      .send({ decisionNote: "nein" });
+
+    expect(res.status).toBe(200);
+    expect(declineToolActionRequest).toHaveBeenCalledWith({
+      companyId: "company-1",
+      actionRequestId: "action-request-1",
+      reason: "nein",
+      actor: { userId: "user-1" },
+    });
+  });
+
+  it("does not touch tool actions for other approval types or repeated decisions", async () => {
+    const approveToolActionRequest = vi.fn();
+    mockApprovalService.getById.mockResolvedValue(toolApproval("approved"));
+    mockApprovalService.approve.mockResolvedValue({ approval: toolApproval("approved"), applied: false });
+    await request(await createApp({}, { approveToolActionRequest }))
+      .post("/api/approvals/approval-tool/approve")
+      .send({});
+
+    const hire = { ...toolApproval("approved"), type: "hire_agent", payload: {} };
+    mockApprovalService.getById.mockResolvedValue({ ...hire, status: "pending" });
+    mockApprovalService.approve.mockResolvedValue({ approval: hire, applied: true });
+    await request(await createApp({}, { approveToolActionRequest }))
+      .post("/api/approvals/approval-tool/approve")
+      .send({});
+
+    expect(approveToolActionRequest).not.toHaveBeenCalled();
   });
 });
