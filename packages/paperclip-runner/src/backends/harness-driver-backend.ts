@@ -442,7 +442,10 @@ class HarnessNativeSession implements NativeSession {
     steeringSupported = false,
   ) {
     this.#steeringSupported = steeringSupported;
-    this.#input = structuredClone(input);
+    // The in-process admission callback is not cloneable and never part of
+    // the persisted session input.
+    const { onOperationAdmission: _admission, ...cloneable } = input;
+    this.#input = structuredClone(cloneable);
     this.#session = session;
     this.#terminal = terminal === undefined ? null : structuredClone(terminal);
   }
