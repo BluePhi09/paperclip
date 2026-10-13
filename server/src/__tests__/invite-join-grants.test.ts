@@ -98,22 +98,9 @@ describe("human invite roles", () => {
     ]);
   });
 
-  it("maps operator to company editing grants without join approval or member permissions", () => {
+  it("keeps operators on task assignment only (fork patch)", () => {
     expect(grantsForHumanRole("operator")).toEqual([
-      { permissionKey: "agents:create", scope: null },
-      { permissionKey: "agents:configure", scope: null },
-      { permissionKey: "skills:create", scope: null },
-      { permissionKey: "environments:manage", scope: null },
-      { permissionKey: "users:invite", scope: null },
       { permissionKey: "tasks:assign", scope: null },
-      { permissionKey: "pipelines:write", scope: null },
-      { permissionKey: "tools:manage_connections", scope: null },
-      { permissionKey: "tools:manage_profiles", scope: null },
-      { permissionKey: "tools:manage_runtime", scope: null },
-      { permissionKey: "tools:use", scope: null },
-      { permissionKey: "tools:admin", scope: null },
-      { permissionKey: "tools:view_audit", scope: null },
-      { permissionKey: "audit:view_agent_actions", scope: null },
     ]);
   });
 

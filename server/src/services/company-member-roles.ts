@@ -55,22 +55,10 @@ export function grantsForHumanRole(
         { permissionKey: "tools:admin", scope: null },
       ];
     case "operator":
-      return [
-        { permissionKey: "agents:create", scope: null },
-        { permissionKey: "agents:configure", scope: null },
-        { permissionKey: "skills:create", scope: null },
-        { permissionKey: "environments:manage", scope: null },
-        { permissionKey: "users:invite", scope: null },
-        { permissionKey: "tasks:assign", scope: null },
-        { permissionKey: "pipelines:write", scope: null },
-        { permissionKey: "tools:manage_connections", scope: null },
-        { permissionKey: "tools:manage_profiles", scope: null },
-        { permissionKey: "tools:manage_runtime", scope: null },
-        { permissionKey: "tools:use", scope: null },
-        { permissionKey: "tools:admin", scope: null },
-        { permissionKey: "tools:view_audit", scope: null },
-        { permissionKey: "audit:view_agent_actions", scope: null },
-      ];
+      // Fork-Patch (BLU-599, Vera): Operators keep only tasks:assign. Upstream
+      // #15377 widened this to 14 grants, which the startup backfill would write
+      // to every active operator/legacy membership and a revert would not undo.
+      return [{ permissionKey: "tasks:assign", scope: null }];
     case "viewer":
       return [];
   }
