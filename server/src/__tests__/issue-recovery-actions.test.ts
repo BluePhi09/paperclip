@@ -1718,7 +1718,9 @@ describeEmbeddedPostgres("issue recovery actions", () => {
       .from(issues)
       .where(and(eq(issues.companyId, companyId), eq(issues.originKind, "stranded_issue_recovery")));
     expect(recoveryIssues).toHaveLength(1);
-    expect(recoveryIssues[0]?.status).toBe("blocked");
+    // No blocker and no recovery action can resume the failed recovery issue,
+    // so it is parked in backlog rather than an unwakeable blocked (#14792).
+    expect(recoveryIssues[0]?.status).toBe("backlog");
   });
 
   it("exposes active recovery actions on the issue read API", async () => {
