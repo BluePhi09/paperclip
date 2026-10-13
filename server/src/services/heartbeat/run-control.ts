@@ -386,7 +386,9 @@ export function createHeartbeatRunControl(db: Db, dependencies: HeartbeatRunCont
     // while cleanup is unknown; afterwards it must not hold dispatch for the
     // remainder of the 60s lease. Only this process's own claim is relinquished,
     // and only for a terminal run, so a live or foreign controller is untouched.
-    if (releaseResult && !releaseResult.errors.length) {
+    // The run read above already shows whether this process ever claimed it.
+    if (releaseResult && !releaseResult.errors.length &&
+        (!leaseOwnerRun || leaseOwnerRun.controllerBootId === legacyControllerBootId)) {
       await db.update(heartbeatRuns).set({ controllerBootId: null, controllerLeaseExpiresAt: null }).where(and(
         eq(heartbeatRuns.id, input.runId), eq(heartbeatRuns.companyId, input.companyId),
         eq(heartbeatRuns.runtimeMode, "legacy"), eq(heartbeatRuns.controllerBootId, legacyControllerBootId),
