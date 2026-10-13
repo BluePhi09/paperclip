@@ -8,6 +8,7 @@ import { hasConversationContinuationPolicy, conversationRecoveryActionPredicate 
 import { preserveWorkspaceRestoreRecoveryMetadataSql } from "../services/legacy-workspace-restore-recovery.js";
 import { hasConfirmedSandboxStopAndRetain, prepareSandboxStopAndRetain, settleStopOnlyCleanup } from "../services/sandbox-stop-and-retain.js";
 import { environmentService } from "../services/environments.js";
+import { legacyControllerClaim } from "../services/legacy-controller-lease.js";
 import { hasRequiredWorkspaceRecovery } from "../services/workspace-restore-recovery-state.js";
 
 const externalTestDatabaseUrl = process.env.PAPERCLIP_TEST_DATABASE_URL?.trim();
@@ -276,7 +277,9 @@ const support = externalTestDatabaseUrl ? { supported: true } : await getEmbedde
     await stopAndRetain(f);
     const newerRunId = randomUUID();
     await db.insert(heartbeatRuns).values({ id: newerRunId, companyId: f.companyId, agentId: f.run.agentId,
-      status: "running", runtimeMode: "legacy", contextSnapshot: { issueId: f.issueId } });
+      status: "running", runtimeMode: "legacy", contextSnapshot: { issueId: f.issueId },
+      // Fork: acquisition authority requires a live legacy controller lease.
+      ...legacyControllerClaim("legacy") });
     // The production handoff also checks the immutable task/agent scope.
     [f.lease] = await db.update(environmentLeases).set({ metadata: {
       ...(await readLease(f.lease.id)).metadata, agentId: f.run.agentId,

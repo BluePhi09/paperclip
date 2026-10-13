@@ -5803,7 +5803,9 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
 
   it("destroys a failed retained lease when the agent stops", async () => {
     const { lease, workerManager, runtimeWithPlugin, runId } = await seedStaleLifecycleReusableLease("retain_on_failure");
-    await db.update(heartbeatRuns).set({ status: "failed", finishedAt: new Date() }).where(eq(heartbeatRuns.id, runId));
+    // Fork: the seeded run holds a live controller lease; a stopped controller relinquishes it.
+    await db.update(heartbeatRuns).set({ status: "failed", finishedAt: new Date(), controllerBootId: null, controllerLeaseExpiresAt: null })
+      .where(eq(heartbeatRuns.id, runId));
     await runtimeWithPlugin.releaseRunLeases(runId, "failed");
     await expect(environmentService(db).getLeaseById(lease.id)).resolves.toMatchObject({ status: "retained", cleanupStatus: "failed" });
     vi.mocked(workerManager.getWorker).mockReturnValue({ supportedMethods: ["environmentDestroyLease"] } as never);
