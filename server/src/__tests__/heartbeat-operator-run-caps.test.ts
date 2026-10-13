@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agents,
@@ -13,6 +12,7 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 import { heartbeatService } from "../services/heartbeat.ts";
 import { runningProcesses } from "../adapters/index.ts";
 
@@ -69,7 +69,7 @@ describeEmbeddedPostgres("heartbeat operator run caps", () => {
     mockAdapterExecute.mockReset();
     mockAdapterExecute.mockImplementation(async () => ({ ...adapterResult }));
     runningProcesses.clear();
-    await db.execute(sql`truncate table ${companies} cascade`);
+    await truncateTablesWithDeadlockRetry(db, "TRUNCATE companies CASCADE");
   });
 
   afterAll(async () => {
