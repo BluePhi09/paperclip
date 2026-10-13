@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { issueRelations } from "@paperclipai/db";
+import { issueRecoveryActions, issueRelations } from "@paperclipai/db";
 
-// paperclipai/paperclip#14792: recovery escalations must never park an issue
-// in `blocked` without an unresolved first-class blocker, because nothing can
-// ever wake such an issue.
+// paperclipai/paperclip#14792: recovery escalations park an issue in `blocked`
+// only when something can resume it: an unresolved first-class blocker or an
+// active recovery action. Otherwise they park it in `backlog` with a comment.
 
 const mocks = vi.hoisted(() => ({
   update: vi.fn(),
@@ -41,9 +41,13 @@ import { recoveryParkStatus, recoveryService } from "./service.js";
 /**
  * Minimal chainable Drizzle stand-in: every query builder method returns the
  * chain, and awaiting it yields `blockerRows` for `issue_relations` reads and
- * an empty result for everything else.
+ * `activeRecoveryActionRows` for `issue_recovery_actions` reads, and an empty
+ * result for everything else.
  */
-function fakeDb(blockerRows: Array<{ id: string; identifier: string | null }>) {
+function fakeDb(
+  blockerRows: Array<{ id: string; identifier: string | null }>,
+  activeRecoveryActionRows: Array<{ id: string }> = [],
+) {
   const select = () => {
     let table: unknown = null;
     const chain: Record<string, unknown> = {};
@@ -65,7 +69,13 @@ function fakeDb(blockerRows: Array<{ id: string; identifier: string | null }>) {
       resolve: (rows: unknown[]) => unknown,
       reject?: (error: unknown) => unknown,
     ) =>
-      Promise.resolve(table === issueRelations ? blockerRows : []).then(
+      Promise.resolve(
+        table === issueRelations
+          ? blockerRows
+          : table === issueRecoveryActions
+            ? activeRecoveryActionRows
+            : [],
+      ).then(
         resolve,
         reject,
       );
@@ -119,12 +129,44 @@ describe("recovery escalation park status (#14792)", () => {
     });
   });
 
-  it("only allows blocked when an unresolved blocker exists", () => {
-    expect(recoveryParkStatus([])).toBe("backlog");
-    expect(recoveryParkStatus(["blocker-1"])).toBe("blocked");
+  it("allows blocked only when a blocker or an active recovery action can wake the issue", () => {
+    expect(
+      recoveryParkStatus({ unresolvedBlockerIssueIds: [], hasActiveRecoveryAction: false }),
+    ).toBe("backlog");
+    expect(
+      recoveryParkStatus({ unresolvedBlockerIssueIds: ["blocker-1"], hasActiveRecoveryAction: false }),
+    ).toBe("blocked");
+    expect(
+      recoveryParkStatus({ unresolvedBlockerIssueIds: [], hasActiveRecoveryAction: true }),
+    ).toBe("blocked");
   });
 
-  it("parks stranded assigned work in backlog, not blocked, when it has no unresolved blockers", async () => {
+  it("keeps stranded assigned work blocked while its active recovery action can resume it", async () => {
+    // e.g. a configuration_incomplete escalation waiting on an AI connection:
+    // connection-intent delivery resumes the issue only from `blocked`.
+    const recovery = recoveryService(fakeDb([], [{ id: "action-1" }]), {
+      enqueueWakeup: vi.fn(),
+    });
+
+    await recovery.escalateStrandedAssignedIssue({
+      issue: baseIssue,
+      previousStatus: "in_progress",
+      latestRun,
+      recoveryCause: "configuration_incomplete",
+    });
+
+    expect(mocks.update).toHaveBeenCalledWith("issue-1", {
+      status: "blocked",
+      blockedByIssueIds: [],
+    });
+    expect(
+      mocks.addComment.mock.calls.some(([, body]) =>
+        String(body).includes("Parked in `backlog`"),
+      ),
+    ).toBe(false);
+  });
+
+  it("parks exhausted stranded assigned work in backlog with an explanation when nothing can wake it", async () => {
     const recovery = recoveryService(fakeDb([]), { enqueueWakeup: vi.fn() });
 
     await recovery.escalateStrandedAssignedIssue({
@@ -137,6 +179,10 @@ describe("recovery escalation park status (#14792)", () => {
     const patch = mocks.update.mock.calls[0]![1];
     expect(patch.status).toBe("backlog");
     expect(patch).not.toHaveProperty("blockedByIssueIds");
+    const backlogComment = mocks.addComment.mock.calls.find(([, body]) =>
+      String(body).includes("Parked in `backlog`"),
+    );
+    expect(backlogComment?.[1]).toContain("no unresolved blocker issue and no active recovery action");
     expect(mocks.logActivity).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -163,7 +209,7 @@ describe("recovery escalation park status (#14792)", () => {
     });
   });
 
-  it("parks a failed stranded-recovery issue in backlog when it has no unresolved blockers", async () => {
+  it("parks a failed stranded-recovery issue in backlog with an explanation when nothing can wake it", async () => {
     const recovery = recoveryService(fakeDb([]), { enqueueWakeup: vi.fn() });
 
     await recovery.escalateStrandedRecoveryIssueInPlace({
@@ -176,8 +222,26 @@ describe("recovery escalation park status (#14792)", () => {
     });
 
     expect(mocks.update).toHaveBeenCalledWith("issue-1", { status: "backlog" });
-    expect(mocks.addComment.mock.calls[0]![1]).toContain(
-      "move this recovery issue out of `backlog`",
-    );
+    const body = mocks.addComment.mock.calls[0]![1];
+    expect(body).toContain("move this recovery issue out of `backlog`");
+    expect(body).toContain("Parked in `backlog`");
+  });
+
+  it("keeps a failed stranded-recovery issue blocked while it has an active recovery action", async () => {
+    const recovery = recoveryService(fakeDb([], [{ id: "action-1" }]), {
+      enqueueWakeup: vi.fn(),
+    });
+
+    await recovery.escalateStrandedRecoveryIssueInPlace({
+      issue: {
+        ...(baseIssue as object),
+        originKind: "stranded_issue_recovery",
+      } as never,
+      previousStatus: "in_progress",
+      latestRun,
+    });
+
+    expect(mocks.update).toHaveBeenCalledWith("issue-1", { status: "blocked" });
+    expect(mocks.addComment.mock.calls[0]![1]).not.toContain("Parked in `backlog`");
   });
 });
