@@ -923,6 +923,29 @@ describeEmbeddedPostgres("access service", () => {
     await expect(access.canUser(company.id, viewer.principalId, "environments:manage")).resolves.toBe(false);
   });
 
+  it("keeps default operators on task assignment without editing agents or administering membership (fork patch)", async () => {
+    const { company, owner } = await createCompanyWithOwner(db);
+    const access = accessService(db);
+    const operator = await access.ensureMembership(company.id, "user", `operator-${randomUUID()}`, "operator");
+    await access.setPrincipalGrants(
+      company.id,
+      "user",
+      operator.principalId,
+      grantsForHumanRole("operator"),
+      owner.principalId,
+    );
+
+    await expect(access.canUser(company.id, operator.principalId, "tasks:assign")).resolves.toBe(true);
+    for (const permissionKey of [
+      "agents:create", "agents:configure", "skills:create", "environments:manage",
+      "users:invite", "pipelines:write", "tools:manage_connections", "tools:manage_profiles",
+      "tools:manage_runtime", "tools:use", "tools:admin", "tools:view_audit",
+      "audit:view_agent_actions", "joins:approve", "users:manage_permissions",
+    ] as const) {
+      await expect(access.canUser(company.id, operator.principalId, permissionKey)).resolves.toBe(false);
+    }
+  });
+
   it("backfills pre-upgrade human memberships with missing role grants without replacing custom grants", async () => {
     const { company, owner } = await createCompanyWithOwner(db);
     const scopedEnvironmentGrant = { environmentId: "env-1" };

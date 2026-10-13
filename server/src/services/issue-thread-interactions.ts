@@ -1,3 +1,6 @@
+import { normalizeEscapedLineBreaks } from "@paperclipai/shared/validators/text";
+import { notifyDeliveryWork, DELIVERY_QUEUES } from "./delivery-work-notifications.js";
+import { activeIssueInteractionCondition, historicalQuestionCondition } from "./issue-question-context.js";
 import {
   currentContinuationOrigins,
   deliveredContinuationCommentIds,
@@ -24,6 +27,7 @@ import {
 import type { Db } from "@paperclipai/db";
 import {
   agents,
+  chatVoiceSessions,
   authUsers,
   companySecretProposals,
   companies,
@@ -115,6 +119,7 @@ import {
 } from "./issue-review-policy.js";
 import {
   issueService,
+  ensureAssignmentIssueAccessGrant,
   readAcceptedPlanConfirmationTarget,
   runWorkspaceIsFinalized,
 } from "./issues.js";
@@ -1693,6 +1698,7 @@ function resolveRequestItemVerdictSubmissions(args: {
 
 function normalizeQuestionAnswers(args: {
   questions: AskUserQuestionsInteraction["payload"]["questions"];
+  textQuestionIds?: ReadonlySet<string>;
   answers: RespondIssueThreadInteraction["answers"];
 }) {
   const questionById = new Map(
@@ -1727,7 +1733,11 @@ function normalizeQuestionAnswers(args: {
       );
     }
 
-    const otherText = answer.otherText?.trim() ?? "";
+    // Canonical text fields may contain code or intentional whitespace. The
+    // legacy custom-answer path keeps its historical newline/trim behavior.
+    const otherText = args.textQuestionIds?.has(answer.questionId)
+      ? answer.otherText ?? ""
+      : normalizeEscapedLineBreaks(answer.otherText ?? "").trim();
     answerByQuestionId.set(answer.questionId, {
       questionId: answer.questionId,
       optionIds: uniqueOptionIds,
@@ -1739,7 +1749,7 @@ function normalizeQuestionAnswers(args: {
     const answer = answerByQuestionId.get(question.id);
     if (
       question.required &&
-      (!answer || (answer.optionIds.length === 0 && !answer.otherText))
+      (!answer || (answer.optionIds.length === 0 && !answer.otherText?.trim()))
     ) {
       throw unprocessable(`Question ${question.id} requires an answer`);
     }
@@ -2757,6 +2767,7 @@ export function issueThreadInteractionService(
         }
         await touchIssue(tx, issue.id);
         inserted = true;
+        await notifyDeliveryWork(tx, DELIVERY_QUEUES.connection);
         return row;
       });
 
@@ -2849,6 +2860,7 @@ export function issueThreadInteractionService(
         .returning();
         if (!row) throw interactionAlreadyResolvedError();
         if (status === "accepted" || status === "rejected") {
+          await notifyDeliveryWork(tx, DELIVERY_QUEUES.connection);
           await tx.insert(connectionIntentDeliveries).values({ interactionId, companyId: issue.companyId }).onConflictDoNothing();
         }
         return row;
@@ -3686,6 +3698,7 @@ export function issueThreadInteractionService(
                     isNotNull(issueComments.authorUserId),
                     ne(issueComments.authorUserId, "board-concierge"),
                     isNull(issueComments.createdByRunId),
+              eq(issueComments.origin, "comment"),
                     isNull(issueComments.deletedAt),
                     gte(issueComments.createdAt, sourceRunCreatedAt),
                   ),
@@ -3725,6 +3738,15 @@ export function issueThreadInteractionService(
           ) {
             assertHumanInteractionContext(data, policy.effectiveResolverPolicy);
           }
+          // An unverified phone caller has no authenticated human identity.
+          // Their clarifications use the ordinary task-comment/follow-up queue;
+          // a protected native question would otherwise wait indefinitely.
+          if (data.kind === "ask_user_questions" && !actor.userId) {
+            const [guest] = await tx.select({id: chatVoiceSessions.id}).from(chatVoiceSessions)
+              .where(and(eq(chatVoiceSessions.companyId, issue.companyId), eq(chatVoiceSessions.issueId, issue.id),
+                eq(chatVoiceSessions.callerAuthority, "guest_intake"))).limit(1);
+            if (guest) throw unprocessable("Ask this unverified caller a clarification in a task comment; submit_request will deliver their spoken follow-up. Protected human-input questions require authenticated access.", {code: "voice_guest_use_task_comment"});
+          }
           const [row] = await tx
             .insert(issueThreadInteractions)
             .values({
@@ -3752,6 +3774,13 @@ export function issueThreadInteractionService(
               payload: data.payload,
             })
             .returning();
+
+          if (row.addresseeAgentId || row.addresseeUserId) {
+            const [privacyIssue] = await tx.select().from(issues).where(and(eq(issues.id, issue.id), eq(issues.companyId, issue.companyId)));
+            await ensureAssignmentIssueAccessGrant(tx, { ...privacyIssue!,
+              assigneeAgentId: row.addresseeAgentId, assigneeUserId: row.addresseeUserId,
+            }, null, { agentId: actor.agentId, userId: actor.userId });
+          }
 
           // An agent replacing its own still-pending card supersedes the older
           // one so the thread never accumulates stale sibling cards. This covers
@@ -4376,10 +4405,11 @@ export function issueThreadInteractionService(
         createdAt: Date | string;
         authorUserId?: string | null;
         createdByRunId?: string | null;
+        origin?: string | null;
       },
       actor: InteractionActor,
     ) => {
-      if (!comment.authorUserId) return [];
+      if (!comment.authorUserId || comment.origin === "fast_response") return [];
       // Local-CLI adapters post under user auth, so authorUserId can't tell a human from a
       // machine; createdByRunId can. Only genuine human comments (no run context) supersede.
       if (comment.createdByRunId) return [];
@@ -4490,6 +4520,7 @@ export function issueThreadInteractionService(
               isNotNull(issueComments.authorUserId),
               // Only genuine human comments supersede; machine-originated ones carry createdByRunId.
               isNull(issueComments.createdByRunId),
+              eq(issueComments.origin, "comment"),
             ),
           )
           .orderBy(asc(issueComments.createdAt)),
@@ -4797,6 +4828,9 @@ export function issueThreadInteractionService(
             eq(issueThreadInteractions.companyId, issue.companyId),
             eq(issueThreadInteractions.issueId, issue.id),
             eq(issueThreadInteractions.status, "pending"),
+            // Completed work retains ordinary historical questions for later
+            // human answers. Cancellation and governed requests still expire.
+            issue.status === "done" ? activeIssueInteractionCondition() : undefined,
           ),
         );
       if (rows.length === 0) return [];
@@ -4978,7 +5012,6 @@ export function issueThreadInteractionService(
       actor: InteractionActor,
       mutationOptions: InteractionResolutionMutationOptions = {},
     ) => {
-      assertIssueOpenForInteractionResolution(issue);
       const current = await db
         .select()
         .from(issueThreadInteractions)
@@ -5007,6 +5040,9 @@ export function issueThreadInteractionService(
       ) as AskUserQuestionsInteraction;
       const normalizedAnswers = normalizeQuestionAnswers({
         questions: interaction.payload.questions,
+        textQuestionIds: new Set((interaction.payload.questionSet?.questions ?? [])
+          .filter((question) => question.answerMode === "text")
+          .map((question) => question.id)),
         answers: input.answers,
       });
       if (interaction.payload.questionSet) {
@@ -5021,6 +5057,21 @@ export function issueThreadInteractionService(
       }
 
       const updated = await db.transaction(async (tx) => {
+        // Serialize against task completion/cancellation and use the persisted
+        // status, including when the caller read the task before it closed.
+        const [issueRow] = await tx.select({ status: issues.status }).from(issues)
+          .where(and(eq(issues.id, issue.id), eq(issues.companyId, issue.companyId))).for("update");
+        if (!issueRow) throw interactionNotFoundError();
+        let historicalAnswer = false;
+        if (isTerminalIssueStatus(issueRow.status)) {
+          if (issueRow.status === "done" && actor.userId && !actor.agentId && !actor.runId && !actor.systemId) {
+            historicalAnswer = (await tx.select({ id: issueThreadInteractions.id }).from(issueThreadInteractions)
+              .where(and(eq(issueThreadInteractions.id, interactionId),
+                eq(issueThreadInteractions.companyId, issue.companyId), eq(issueThreadInteractions.issueId, issue.id),
+                historicalQuestionCondition())).limit(1)).length > 0;
+          }
+          if (!historicalAnswer) throw interactionIssueClosedError();
+        }
         await assertInteractionRunWriteAllowed(tx as unknown as Db, issue, actor);
         await mutationOptions.beforeResolveInTransaction?.(tx);
         const resolvedAt = new Date();
@@ -5049,9 +5100,14 @@ export function issueThreadInteractionService(
 
         if (!row) throw interactionAlreadyResolvedError();
         const answered = hydrateInteraction(row) as AskUserQuestionsInteraction;
-        await tx
-          .insert(issueQuestionResponseDeliveries)
-          .values(questionResponseDeliveryValues(answered));
+        // This answer updates conversation history only. It must not resume
+        // the completed source run or enqueue new work for the closed task.
+        if (!historicalAnswer) {
+          await notifyDeliveryWork(tx, DELIVERY_QUEUES.question);
+          await tx
+            .insert(issueQuestionResponseDeliveries)
+            .values(questionResponseDeliveryValues(answered));
+        }
         // Provider callbacks use this hook to atomically claim and complete
         // the action that resolved the interaction. Settle all remaining
         // provider controls only after that winner is durable; otherwise the

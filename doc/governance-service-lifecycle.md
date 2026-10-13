@@ -122,9 +122,9 @@ or writes an intent:
   service) is implemented and tested but not exposed on any route.
 - The external Synology MCP source has not been found; no provider API names are
   invented. The register content must come from that source.
-- Migration numbers 0311/0312 must be re-checked if another branch adds migrations.
+- Migration numbers 0336/0337 (formerly 0311/0312) must be re-checked if another branch adds migrations.
 
-## Rolling back migrations 0311/0312
+## Rolling back migrations 0336/0337 (formerly 0311/0312)
 
 There is no down migration. Roll back the application code first, export
 `governance_audit_events` if its history must be kept, and then run in one
@@ -133,17 +133,17 @@ UPDATE, DELETE and TRUNCATE, not on DROP):
 
 ```sql
 BEGIN;
--- 0312
+-- 0337
 DROP TRIGGER governance_audit_append_only ON governance_audit_events;
 DROP TABLE governance_audit_events;
 DROP TABLE governance_verifications;
 DROP TABLE governance_invocations;
 DROP FUNCTION governance_audit_append_only();
--- 0311
+-- 0336
 DROP TABLE governance_credentials;
 DROP TABLE governance_services;
 -- Migration history: hash is the SHA-256 of each migration file's content.
-DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ('<sha256 of 0312>', '<sha256 of 0311>');
+DELETE FROM drizzle.__drizzle_migrations WHERE hash IN ('<sha256 of 0337>', '<sha256 of 0336>');
 COMMIT;
 ```
 

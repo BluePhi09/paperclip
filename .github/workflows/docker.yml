@@ -3,9 +3,13 @@ name: Docker
 on:
   push:
     branches:
-      # Fork: only the integration branch publishes ghcr.io/bluephi09/paperclip:sha-<short>.
-      # Upstream master and release tags (v*, nightly/v*, beta/v*) are not built here.
+      - "master"
+      # Fork integration branch: every merge publishes ghcr.io/bluephi09/paperclip:sha-<short>.
       - "integration/bluephi09-paperclip"
+    tags:
+      - "v*"
+      - "nightly/v*"
+      - "beta/v*"
   # Release workflows push lane tags with GITHUB_TOKEN, and GitHub suppresses
   # push-triggered runs for those, so release.yml dispatches this workflow at
   # the new tag ref instead. The tag mapping below keys off github.ref either
@@ -181,6 +185,10 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
 
       # Deployment tooling reads these labels from the registry to verify an
       # image's schema expectations against a migrator before deploying it,

@@ -59,6 +59,7 @@ export function attentionRoutes(db: Db) {
       audience: audience as "human" | "agent" | "unclassified" | "all" | undefined,
       resolverAgentId,
       includeDismissed,
+      actor: req.actor,
       archived,
       all,
       allowUnscopedAll: all,

@@ -16,7 +16,7 @@ import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
 let db: ReturnType<typeof createDb>;
 beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("runtime-acquisition-authority-"); db = createDb(database.connectionString); }, 120000);
-afterEach(async () => { await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`truncate companies, plugins, environments cascade`); }); });
+afterEach(async () => { await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`set local session_replication_role = replica`); await tx.execute(sql`truncate companies, plugins, environments cascade`); }); });
 afterAll(async () => { await database?.cleanup(); });
 async function waitForLock() {
   for (let attempt = 0; attempt < 100; attempt++) {

@@ -55,6 +55,9 @@ export function grantsForHumanRole(
         { permissionKey: "tools:admin", scope: null },
       ];
     case "operator":
+      // Fork-Patch (BLU-599, Vera): Operators keep only tasks:assign. Upstream
+      // #15377 widened this to 14 grants, which the startup backfill would write
+      // to every active operator/legacy membership and a revert would not undo.
       return [{ permissionKey: "tasks:assign", scope: null }];
     case "viewer":
       return [];

@@ -54,7 +54,7 @@ beforeEach(async () => {
   transfer.duringSyncIn = null; transfer.duringSyncOut = null; transfer.syncOutError = null; transfer.restoreCalls = 0;
 });
 afterEach(async () => {
-  await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`truncate companies, environments cascade`); });
+  await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`set local session_replication_role = replica`); await tx.execute(sql`truncate companies, environments cascade`); });
   await rm(home, { recursive: true, force: true });
   if (originalHome === undefined) delete process.env.PAPERCLIP_HOME; else process.env.PAPERCLIP_HOME = originalHome;
   if (originalInstance === undefined) delete process.env.PAPERCLIP_INSTANCE_ID; else process.env.PAPERCLIP_INSTANCE_ID = originalInstance;

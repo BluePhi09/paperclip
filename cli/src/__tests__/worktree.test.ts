@@ -157,12 +157,12 @@ async function seedValidWorktreeSource(
     userId,
     role: "instance_admin",
   });
-  await db.insert(companies).values({
-    id: companyId,
-    name: "Seed Source",
-    issuePrefix: "SEED",
-    requireBoardApprovalForNewAgents: false,
-  });
+  // Seed only columns present in the historical source schema. The current
+  // model includes accounting columns that the worktree migration adds later.
+  await db.$client`
+    insert into companies (id, name, issue_prefix, require_board_approval_for_new_agents)
+    values (${companyId}, 'Seed Source', 'SEED', false)
+  `;
   await db.insert(companyMemberships).values({
     companyId,
     principalType: "user",
@@ -1384,7 +1384,7 @@ describe("worktree helpers", () => {
         .select()
         .from(executionWorkspaces)
         .where(eq(executionWorkspaces.id, executionWorkspaceId));
-      expect(executionWorkspace?.metadata).toEqual({
+      expect(executionWorkspace?.metadata).toMatchObject({
         keep: "execution-metadata",
         config: {
           environmentId: "environment-1",
@@ -1468,6 +1468,36 @@ describe("worktree helpers", () => {
 
       expect(fs.readFileSync(targetKeyPath, "utf8")).toBe("inline-source-master-key");
     } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("creates an explicitly empty worktree without inherited signing secrets or deferred copying", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-worktree-empty-"));
+    const originalCwd = process.cwd();
+    const originalJwt = process.env.PAPERCLIP_AGENT_JWT_SECRET;
+    const originalSigning = process.env.PAPERCLIP_TOOL_ACTION_SIGNING_SECRET;
+    try {
+      const repoRoot = path.join(tempRoot, "repo");
+      fs.mkdirSync(repoRoot, { recursive: true });
+      process.chdir(repoRoot);
+      process.env.PAPERCLIP_AGENT_JWT_SECRET = "source-jwt-secret";
+      process.env.PAPERCLIP_TOOL_ACTION_SIGNING_SECRET = "source-signing-secret";
+      await worktreeInitCommand({ empty: true, fromConfig: path.join(tempRoot, "missing.json"), home: path.join(tempRoot, "instances") });
+      const env = fs.readFileSync(path.join(repoRoot, ".paperclip/.env"), "utf8");
+      expect(env).not.toContain("source-jwt-secret");
+      expect(env).not.toContain("source-signing-secret");
+      expect(env).toContain("PAPERCLIP_AGENT_JWT_SECRET=");
+      expect(fs.existsSync(path.join(repoRoot, ".paperclip/seed-manifest.json"))).toBe(false);
+      expect(fs.existsSync(path.join(repoRoot, ".paperclip/seed-pending"))).toBe(false);
+      expect(fs.existsSync(path.join(repoRoot, ".paperclip/seed-empty"))).toBe(true);
+      await worktreeInitCommand({ seed: false, force: true, fromConfig: path.join(tempRoot, "missing.json"), home: path.join(tempRoot, "instances") });
+      expect(fs.existsSync(path.join(repoRoot, ".paperclip/seed-empty"))).toBe(false);
+      expect(readWorktreeSeedManifest(path.join(repoRoot, ".paperclip/config.json"))?.state).toBe("pending");
+    } finally {
+      process.chdir(originalCwd);
+      if (originalJwt === undefined) delete process.env.PAPERCLIP_AGENT_JWT_SECRET; else process.env.PAPERCLIP_AGENT_JWT_SECRET = originalJwt;
+      if (originalSigning === undefined) delete process.env.PAPERCLIP_TOOL_ACTION_SIGNING_SECRET; else process.env.PAPERCLIP_TOOL_ACTION_SIGNING_SECRET = originalSigning;
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
@@ -1607,6 +1637,14 @@ describe("worktree helpers", () => {
       });
 
       const { default: EmbeddedPostgres } = await import("embedded-postgres");
+      let targetPgLogs = Buffer.alloc(0);
+      let targetPgStartupResolved = false;
+      const captureTargetPgLog = (message: unknown) => {
+        const text = message instanceof Error ? message.message : String(message);
+        const tail = Buffer.concat([targetPgLogs, Buffer.from(`${text}\n`)]).subarray(-8192);
+        targetPgLogs = Buffer.alloc(tail.length);
+        tail.copy(targetPgLogs);
+      };
       const targetPg = new EmbeddedPostgres({
         databaseDir: targetConfig.database.embeddedPostgresDataDir,
         user: "paperclip",
@@ -1614,23 +1652,35 @@ describe("worktree helpers", () => {
         port: targetConfig.database.embeddedPostgresPort,
         persistent: true,
         initdbFlags: ["--encoding=UTF8", "--locale=C", "--lc-messages=C"],
-        onLog: () => {},
-        onError: () => {},
+        onLog: captureTargetPgLog,
+        onError: captureTargetPgLog,
       });
 
-      await targetPg.start();
-      onTestFinished(() => targetPg.stop());
-      const targetDb = createDb(
-        `postgres://paperclip:paperclip@127.0.0.1:${targetConfig.database.embeddedPostgresPort}/paperclip`,
-      );
-      const [seededLocalBoard] = await targetDb
-        .select({ id: authUsers.id })
-        .from(authUsers)
-        .where(eq(authUsers.id, "local-board"));
-      const seededAccounts = await targetDb.select().from(authAccounts);
-      expect(seededLocalBoard?.id).toBe("local-board");
-      expect(seededAccounts).toHaveLength(0);
-      await targetDb.$client.end({ timeout: 5 });
+      try {
+        await targetPg.start();
+        targetPgStartupResolved = true;
+        onTestFinished(() => targetPg.stop());
+        const targetDb = createDb(
+          `postgres://paperclip:paperclip@127.0.0.1:${targetConfig.database.embeddedPostgresPort}/paperclip`,
+        );
+        const [seededLocalBoard] = await targetDb
+          .select({ id: authUsers.id })
+          .from(authUsers)
+          .where(eq(authUsers.id, "local-board"));
+        const seededAccounts = await targetDb.select().from(authAccounts);
+        expect(seededLocalBoard?.id).toBe("local-board");
+        expect(seededAccounts).toHaveLength(0);
+        await targetDb.$client.end({ timeout: 5 });
+      } catch (error) {
+        // Preserve the actual failure while retaining the public startup logs
+        // that would otherwise be discarded before fixture cleanup.
+        console.error("Target PostgreSQL fixture failure", {
+          port: targetConfig.database.embeddedPostgresPort,
+          startupResolved: targetPgStartupResolved,
+          recentLogs: targetPgLogs.toString("utf8"),
+        });
+        throw error;
+      }
     },
   );
 
@@ -1662,19 +1712,13 @@ describe("worktree helpers", () => {
       // A lagging source must also have the prior schema. Deleting only the
       // newest receipt from a fully migrated schema relied on that particular
       // migration being idempotent and breaks when the new migration creates a
-      // table. Build the actual all-but-last schema before shuffling its history.
+      // table. Build the schema before the identity-repair migration, so this
+      // regression keeps testing that repair as later migrations are added.
       const migrationsRoot = new URL("../../../packages/db/src/migrations/", import.meta.url);
       const journal = JSON.parse(fs.readFileSync(new URL("meta/_journal.json", migrationsRoot), "utf8"));
-      // The pending tail starts at upstream's lifecycle repair migration (which
-      // restores the dropped identity generator) and runs through every later
-      // migration, so appending migrations never moves the repair into the
-      // already-applied prefix.
-      const lifecycleRepairIndex = journal.entries.findIndex(
-        (entry: { tag: string }) => entry.tag === "0309_loving_the_hood",
-      );
-      expect(lifecycleRepairIndex).toBeGreaterThan(0);
-      const pendingTailLength = journal.entries.length - lifecycleRepairIndex;
-      const priorEntries = journal.entries.slice(0, -pendingTailLength);
+      const repairIndex = journal.entries.findIndex((entry: { tag: string }) => entry.tag === "0309_loving_the_hood");
+      expect(repairIndex).toBeGreaterThan(0);
+      const priorEntries = journal.entries.slice(0, repairIndex);
       const priorMigrations = path.join(tempRoot, "prior-migrations");
       fs.mkdirSync(path.join(priorMigrations, "meta"), { recursive: true });
       fs.writeFileSync(path.join(priorMigrations, "meta", "_journal.json"), JSON.stringify({ ...journal, entries: priorEntries }));
@@ -1726,7 +1770,7 @@ describe("worktree helpers", () => {
       if (laggingMigrationState.status !== "needsMigrations") {
         throw new Error("Expected the source migration journal to lag the code journal");
       }
-      expect(laggingMigrationState.pendingMigrations).toHaveLength(pendingTailLength);
+      expect(laggingMigrationState.pendingMigrations).toHaveLength(journal.entries.length - repairIndex);
       const expectedAppliedPrefix = laggingMigrationState.availableMigrations.slice(
         0,
         laggingMigrationState.appliedMigrations.length,

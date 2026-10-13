@@ -195,6 +195,7 @@ async function runExecutor(
   const meta: Record<string, unknown>[] = [];
   const logs: Array<{ stream: string; text: string }> = [];
   const events: Array<{ eventType: string; payload?: Record<string, unknown> }> = [];
+  const receipts: unknown[] = [];
   const execute = createAcpxEngineExecutor({
     ...(options.prepareRemoteManagedHome
       ? { prepareRemoteManagedHome: options.prepareRemoteManagedHome }
@@ -233,10 +234,11 @@ async function runExecutor(
     onEvent: async (event: { eventType: string; payload?: Record<string, unknown> }) => {
       events.push(event);
     },
+    onUsage: async (receipt: unknown) => { receipts.push(receipt); },
   } as never);
 
   expect(result.exitCode).toBe(0);
-  return { logs, meta, events, runtimeOptions, configOptions, sessionInputs, turnInputs, result };
+  return { logs, meta, events, receipts, runtimeOptions, configOptions, sessionInputs, turnInputs, result };
 }
 
 // Under `vi.useFakeTimers()`, setup before `ensureSession` still performs real
@@ -390,6 +392,54 @@ const ALLOWED_TURN_SPAN_ATTRIBUTE_KEYS = new Set<string>([
 ]);
 
 describe("shared ACPX engine runtime behavior", () => {
+  it("passes the current prompt, session, cancellation and diagnostic inputs to the runtime turn", async () => {
+    const root = await makeTempRoot();
+    const { result, turnInputs, meta } = await runExecutor({
+      agent: "custom", agentCommand: "node ./fake-acp.js", stateDir: path.join(root, "state"),
+      cwd: root, timeoutSec: 120,
+    });
+    expect(turnInputs).toHaveLength(1);
+    expect(turnInputs[0]).toMatchObject({
+      handle: { backendSessionId: "backend-session", agentSessionId: "agent-session", runtimeSessionName: "runtime-session" },
+      text: meta[0]?.prompt, mode: "prompt", requestId: "run-1", timeoutMs: 120_000,
+      onTerminalSessionFailure: expect.any(Function),
+    });
+    expect(meta[0]?.prompt).toBeTypeOf("string");
+    expect(turnInputs[0]?.text).toBeTypeOf("string");
+    expect((meta[0]?.prompt as string).length).toBeGreaterThan(0);
+    expect((turnInputs[0]?.text as string).length).toBeGreaterThan(0);
+    expect(turnInputs[0]?.signal).toBeInstanceOf(AbortSignal);
+    expect((turnInputs[0]?.signal as AbortSignal).aborted).toBe(false);
+    expect(result.summary).toBe("end_turn");
+    expect(result.sessionParams?.configFingerprint).toBeTypeOf("string");
+    expect((result.sessionParams?.configFingerprint as string).length).toBeGreaterThan(0);
+    expect(result.sessionParams?.sessionKey).toBe(`paperclip:company-1:agent-1:default:${result.sessionParams?.configFingerprint}`);
+  });
+
+  it.each(["agentCommand", "cwd", "model", "thinkingEffort", "mode", "fastMode"] as const)(
+    "folds configured %s into the engine session fingerprint",
+    async (dimension) => {
+      const root = await makeTempRoot();
+      const config = {
+        agent: dimension === "fastMode" ? "codex" : "custom", agentCommand: "node ./fake-acp.js",
+        stateDir: path.join(root, "state"), cwd: root,
+        env: { CODEX_HOME: path.join(root, "codex-home") },
+        paperclipRuntimeSkills: [], paperclipSkillSync: { desiredSkills: [] },
+      };
+      const changed: Record<string, unknown> = {
+        agentCommand: "node ./other-acp.js", cwd: path.join(root, "other-workspace"), model: "test-model",
+        thinkingEffort: "high", mode: "oneshot", fastMode: true,
+      };
+      const first = await runExecutor(config);
+      const second = await runExecutor({ ...config, [dimension]: changed[dimension] });
+      expect(first.result.sessionParams?.configFingerprint).toBeTypeOf("string");
+      expect(second.result.sessionParams?.configFingerprint).toBeTypeOf("string");
+      expect((first.result.sessionParams?.configFingerprint as string).length).toBeGreaterThan(0);
+      expect((second.result.sessionParams?.configFingerprint as string).length).toBeGreaterThan(0);
+      expect(second.result.sessionParams?.configFingerprint).not.toBe(first.result.sessionParams?.configFingerprint);
+    },
+  );
+
   it("integrates the env-free store while delivering current credentials and options to the provider", async () => {
     const root = await makeTempRoot();
     const stateDir = path.join(root, "state");
@@ -540,7 +590,7 @@ describe("shared ACPX engine runtime behavior", () => {
   });
 
   it("sets Codex model, effort, and fast mode through CODEX_CONFIG without session config calls", async () => {
-    const { configOptions, meta } = await runExecutor({
+    const { configOptions, meta, receipts, result } = await runExecutor({
       agent: "codex",
       model: "gpt-5.6-sol",
       modelReasoningEffort: "high",
@@ -554,6 +604,8 @@ describe("shared ACPX engine runtime behavior", () => {
       features: { fast_mode: true },
     });
     expect(configOptions).toEqual([]);
+    expect(result.pricingContext).toEqual({ serviceTier: "fast" });
+    expect(receipts).toContainEqual(expect.objectContaining({ pricingContext: { serviceTier: "fast" }, complete: true }));
     expect(meta[0]?.commandNotes).toContain(
       "Requested ACPX model: gpt-5.6-sol (set via CODEX_CONFIG at startup).",
     );
@@ -998,10 +1050,11 @@ describe("shared ACPX engine runtime behavior", () => {
           events: (async function* () {
             yield {
               type: "text_delta",
-              text: "streamed hello",
+              text: "  streamed ",
               stream: "output",
               tag: "agent_message_chunk",
             };
+            yield { type: "text_delta", text: "hello  ", stream: "output", tag: "agent_message_chunk" };
             yield { type: "done", stopReason: "end_turn" };
           })(),
           result: Promise.resolve({ status: "completed", stopReason: "end_turn" }),
@@ -1027,15 +1080,13 @@ describe("shared ACPX engine runtime behavior", () => {
     } as never);
 
     expect(result.exitCode).toBe(0);
-    expect(logs).toContainEqual({
-      stream: "stdout",
-      text: `${JSON.stringify({
-        type: "acpx.text_delta",
-        text: "streamed hello",
-        channel: "output",
-        tag: "agent_message_chunk",
-      })}\n`,
-    });
+    expect(result.summary).toBe("streamed hello");
+    for (const text of ["  streamed ", "hello  "]) {
+      expect(logs).toContainEqual({
+        stream: "stdout",
+        text: `${JSON.stringify({ type: "acpx.text_delta", text, channel: "output", tag: "agent_message_chunk" })}\n`,
+      });
+    }
   });
 
   it("defaults run summaries to the final output segment without thought text", async () => {
@@ -1399,6 +1450,7 @@ describe("shared ACPX engine runtime behavior", () => {
     const stateDir = path.join(root, "state");
     const logs: Array<{ stream: string; text: string }> = [];
     let statusCalls = 0;
+    const onUsage = vi.fn();
     const execute = createAcpxEngineExecutor({
       createRuntime: () => ({
         ensureSession: async () => ({
@@ -1409,8 +1461,9 @@ describe("shared ACPX engine runtime behavior", () => {
         getStatus: async () => {
           statusCalls += 1;
           return statusCalls === 1
-            ? { usage: { cost: { amount: 0.4, currency: "USD" } } }
+            ? { models: { currentModelId: "claude-observed-default", availableModelIds: [] }, usage: { cost: { amount: 0.4, currency: "USD" } } }
             : {
+                models: { currentModelId: "claude-observed-default", availableModelIds: [] },
                 usage: {
                   cumulative: {
                     inputTokens: 120,
@@ -1444,6 +1497,7 @@ describe("shared ACPX engine runtime behavior", () => {
 
     const result = await execute({
       runId: "run-usage-capture",
+      onUsage,
       agent: {
         id: "agent-1",
         companyId: "company-1",
@@ -1467,6 +1521,8 @@ describe("shared ACPX engine runtime behavior", () => {
     expect(result.provider).toBe("anthropic");
     expect(result.biller).toBe("anthropic");
     expect(result.billingType).toBe("api");
+    expect(result.model).toBe("claude-observed-default");
+    expect(onUsage).toHaveBeenLastCalledWith(expect.objectContaining({ model: "claude-observed-default", complete: true }));
     expect((result.resultJson as Record<string, unknown>)?.cumulativeCostUsd).toBeCloseTo(1.15);
     expect((result.resultJson as Record<string, unknown>)?.usage).toEqual({
       inputTokens: 120,
@@ -1476,6 +1532,45 @@ describe("shared ACPX engine runtime behavior", () => {
     });
     const statusLine = logs.find((entry) => entry.text.includes('"acpx.status"'));
     expect(statusLine?.text).toContain('"cost"');
+  });
+
+  it.each(["checkpoint", "terminal"])("returns received usage after the %s receipt sink rejects and still closes the runtime", async (failedSave) => {
+    const root = await makeTempRoot();
+    const close = vi.fn(async () => {});
+    const cancel = vi.fn(async () => {});
+    let reads = 0;
+    const execute = createAcpxEngineExecutor({
+      resolveBillingIdentity: () => ({ provider: "anthropic", biller: "anthropic", billingType: "api" }),
+      createRuntime: () => ({
+        ...buildRuntime(),
+        getStatus: async () => ++reads === 1
+          ? { usage: { cost: { amount: 0.4, currency: "USD" } } }
+          : { usage: { cumulative: { inputTokens: 120, outputTokens: 4500, cachedReadTokens: 900, cachedWriteTokens: 30 }, cost: { amount: 1.15, currency: "USD" } } },
+        startTurn: () => ({
+          events: (async function* () {
+            yield { type: "status", text: "usage", tag: "usage_update",
+              breakdown: { inputTokens: 100, outputTokens: 4000, cachedReadTokens: 800, cachedWriteTokens: 20 }, cost: { amount: 1.1, currency: "USD" } };
+          })(),
+          result: Promise.resolve({ status: "completed", stopReason: "end_turn" }), cancel,
+        }), close,
+      }) as never,
+    });
+    const onUsage = vi.fn(async (receipt: { complete: boolean }) => {
+      if (failedSave === "checkpoint" || receipt.complete) throw new Error("Receipt storage unavailable");
+    });
+    const result = await execute({ runId: `failed-${failedSave}-save`, agent: { id: "agent-1", companyId: "company-1" },
+      runtime: {}, config: { agent: "custom", agentCommand: "node ./fake-acp.js", stateDir: path.join(root, "state") },
+      context: {}, onMeta: async () => {}, onLog: async () => {}, onUsage } as never);
+    expect(result).toMatchObject({ exitCode: 1, usageBasis: "per_run", usageComplete: failedSave === "terminal",
+      provider: "anthropic", biller: "anthropic", billingType: "api" });
+    expect(result.errorMessage).toContain("Receipt storage unavailable");
+    expect(result.usage).toEqual(failedSave === "terminal"
+      ? { inputTokens: 150, outputTokens: 4500, cachedInputTokens: 900 }
+      : { inputTokens: 120, outputTokens: 4000, cachedInputTokens: 800 });
+    expect(result.costUsd).toBeCloseTo(failedSave === "terminal" ? 0.75 : 0.7);
+    expect(onUsage).toHaveBeenCalledTimes(failedSave === "terminal" ? 2 : 1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to usage_update events when the runtime lacks getStatus", async () => {
@@ -1520,6 +1615,64 @@ describe("shared ACPX engine runtime behavior", () => {
     } as never);
 
     expect(result.exitCode).toBe(0);
+    expect(result.usage).toEqual({ inputTokens: 40, outputTokens: 700, cachedInputTokens: 60 });
+    expect(result.usageBasis).toBe("per_run");
+    expect(result.costUsd).toBeCloseTo(0.31);
+    expect(result.provider).toBe("acpx");
+    expect(result.billingType).toBe("unknown");
+  });
+
+  it.each(["failed", "cancelled"] as const)("keeps %s in-stream usage provisional without a final receipt", async (status) => {
+    const root = await makeTempRoot();
+    const stateDir = path.join(root, "state");
+    const execute = createAcpxEngineExecutor({
+      createRuntime: () => ({
+        ensureSession: async () => ({
+          backendSessionId: "backend-session",
+          agentSessionId: "agent-session",
+          runtimeSessionName: "runtime-session",
+        }),
+        startTurn: () => ({
+          events: (async function* () {
+            yield {
+              type: "status",
+              text: "usage",
+              tag: "usage_update",
+              cost: { amount: 0.31, currency: "USD" },
+              breakdown: { inputTokens: 40, outputTokens: 700, cachedReadTokens: 60 },
+            };
+
+          })(),
+          result: Promise.resolve({ status, error: { code: "INTERNAL", message: "fixture failure" } }),
+          cancel: async () => {},
+        }),
+        close: async () => {},
+      }) as never,
+    });
+
+    const onUsage = vi.fn();
+    const result = await execute({
+      runId: "run-usage-event-fallback",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+      },
+      runtime: {},
+      config: { agent: "custom", agentCommand: "node ./fake-acp.js", stateDir },
+      context: {},
+      onLog: async () => {},
+      onMeta: async () => {},
+      onUsage,
+    } as never);
+
+    expect(result.exitCode).not.toBe(0);
+    if (status === "failed") {
+      expect(result.errorCode).toBe("acpx_turn_failed");
+      expect(result.summary).toBe("fixture failure");
+      expect(result.resultJson?.stopReason).toBe("fixture failure");
+    }
+    expect(result.usageComplete).toBe(false);
+    expect(onUsage).toHaveBeenLastCalledWith(expect.objectContaining({ complete: false, costUsd: 0.31 }));
     expect(result.usage).toEqual({ inputTokens: 40, outputTokens: 700, cachedInputTokens: 60 });
     expect(result.usageBasis).toBe("per_run");
     expect(result.costUsd).toBeCloseTo(0.31);
@@ -2814,7 +2967,9 @@ describe("shared ACPX engine runtime behavior", () => {
 
   it.each(["claude", "codex", "grok", "gemini", "kimi"])("resumes %s with added and removed MCP servers and current credentials", async (agent) => {
     const root = await makeTempRoot();
-    const config = { agent, cwd: root, stateDir: path.join(root, "state"), paperclipRuntimeSkills: [], paperclipSkillSync: { desiredSkills: [] } };
+    // This fixture injects its runtime. Keep session identity independent of
+    // host CLI discovery/version probes while testing MCP credential changes.
+    const config = { agent, agentCommand: "node ./fake-acp.js", cwd: root, stateDir: path.join(root, "state"), paperclipRuntimeSkills: [], paperclipSkillSync: { desiredSkills: [] } };
     const first = await runExecutor(config);
     const server = { name: "github", url: "https://example.test/github/mcp", connectionId: "github", token: "current-token" };
     const second = await runExecutor(config, {
@@ -3163,6 +3318,7 @@ describe("gemini ACP flag selection", () => {
       "Run exceeded the adapter execution timeout (timeoutSec=1, configured via adapterConfig.timeoutSec). " +
       "Set adapterConfig.timeoutSec to raise it.";
     expect(result.timedOut).toBe(true);
+    expect(result.signal).toBe("SIGTERM");
     expect(result.errorCode).toBe("acpx_timeout");
     expect(result.resultJson?.adapterExecutionTimeout).toEqual({ timeoutSec: 1, source: "configured" });
     expect(result.errorMessage).toBe(expectedMessage);
@@ -3428,8 +3584,10 @@ describe("ACPX engine remote sandbox staging seam (PR 1: workspace + cwd)", () =
     // Decode the process-session LAUNCH payload (the base64 command blob) — the
     // in-sandbox process env is carried there, NOT in the exec's own `env`.
     let launchPayload: Record<string, unknown> | null = null;
+    let bridgeExecEnv: Record<string, string> | undefined;
     (executionTarget as { runner: unknown }).runner = createLocalSandboxRunner((input) => {
       if (input.env?.PAPERCLIP_SANDBOX_EXEC_CHANNEL === "bridge") {
+        bridgeExecEnv = input.env;
         const script = input.args?.[1] ?? "";
         const match = script.match(/PAPERCLIP_PROCESS_SESSION_COMMAND_B64='([^']+)'/);
         if (match) {
@@ -3464,6 +3622,8 @@ describe("ACPX engine remote sandbox staging seam (PR 1: workspace + cwd)", () =
     expect(String(payloadEnv.PAPERCLIP_API_URL ?? "")).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     expect(payloadEnv.PAPERCLIP_API_KEY).toBeTruthy();
     expect(payloadEnv.PAPERCLIP_API_KEY).not.toBe("real-run-jwt");
+    expect(bridgeExecEnv?.PAPERCLIP_SANDBOX_EXEC_CHANNEL).toBe("bridge");
+    expect(bridgeExecEnv?.PAPERCLIP_API_KEY).toBeUndefined();
   });
 
   it("publishes referenced-project workspace hints repointed at their staged sandbox directories", async () => {
@@ -3600,12 +3760,17 @@ describe("ACPX engine remote sandbox staging seam (PR 1: workspace + cwd)", () =
     expect(sessionInputs[0]?.cwd).toBe(remoteCwd);
   });
 
-  it("test_remote_warm_handle_reused_after_cwd_change", async () => {
+  it("recreates the remote runtime while resuming after the cwd is staged", async () => {
     const { stateDir, localCwd, remoteCwd, executionTarget } = await setupRemoteSandbox();
     const ensureInputs: Array<Record<string, unknown>> = [];
+    let created = 0;
+    const warmHandles = new Map();
     const execute = createAcpxEngineExecutor({
-      warmHandles: new Map(),
-      createRuntime: () => buildRuntime(undefined, (input) => ensureInputs.push(input)) as never,
+      warmHandles,
+      createRuntime: () => {
+        created += 1;
+        return buildRuntime(undefined, (input) => ensureInputs.push(input)) as never;
+      },
     });
     const base = {
       agent: { id: "agent-1", companyId: "company-1" },
@@ -3633,6 +3798,9 @@ describe("ACPX engine remote sandbox staging seam (PR 1: workspace + cwd)", () =
 
     expect(first.exitCode).toBe(0);
     expect(second.exitCode).toBe(0);
+    expect(created).toBe(2);
+    expect(warmHandles.size).toBe(0);
+    expect(ensureInputs).toHaveLength(2);
     // Both runs resolve session/new to the in-sandbox cwd...
     expect(ensureInputs[0]?.cwd).toBe(remoteCwd);
     expect(ensureInputs[1]?.cwd).toBe(remoteCwd);
@@ -3765,6 +3933,7 @@ describe("ACPX engine remote managed-home seam (PR 2: per-adapter home seed)", (
 
     // The seam's asset was threaded through the shared staging seam...
     const stageArgs = vi.mocked(prepareAdapterExecutionTargetRuntime).mock.calls[0]![0];
+    expect(stageArgs.workspaceLocalDir).toBe(localCwd);
     expect(stageArgs.assets).toEqual([
       { key: "home", localDir: managedHomeDir, followSymlinks: true },
     ]);
@@ -6156,10 +6325,11 @@ describe("ACPX engine per-step startup timing (run.startup.step events)", () => 
     const root = await makeTempRoot();
     const stateDir = path.join(root, "state");
     const warmHandles = new Map();
+    let created = 0;
     const secondEvents: Array<{ eventType: string; payload?: Record<string, unknown> }> = [];
     const execute = createAcpxEngineExecutor({
       warmHandles,
-      createRuntime: () => buildRuntime() as never,
+      createRuntime: () => { created += 1; return buildRuntime() as never; },
     });
     const config = {
       agent: "custom",
@@ -6197,6 +6367,7 @@ describe("ACPX engine per-step startup timing (run.startup.step events)", () => 
     const handshakeEvents = secondEvents.filter(
       (event) => event.eventType === "run.startup.step" && event.payload?.step === "acp.handshake",
     );
+    expect(created).toBe(2);
     expect(handshakeEvents).toHaveLength(1);
     expect(handshakeEvents[0]!.payload?.outcome).not.toBe("skipped");
   });
@@ -6317,9 +6488,10 @@ describe("ACPX engine run lifecycle corrections (F1: settle every failure after 
     expect(stagingLocks.size).toBe(0);
   });
 
-  it("test_prompt_build_failure_returns_error_result_with_phase_prepare_turn", async () => {
+  it.each(["prompt", "metadata", "dispatch"])("records whether provider work could have started on %s failure", async (failure) => {
     const root = await makeTempRoot();
     const close = vi.fn(async () => {});
+    const startTurn = vi.fn(() => { throw new Error("dispatch failed"); });
     const execute = createAcpxEngineExecutor({
       createRuntime: () =>
         ({
@@ -6328,11 +6500,7 @@ describe("ACPX engine run lifecycle corrections (F1: settle every failure after 
             agentSessionId: "agent-session",
             runtimeSessionName: "runtime-session",
           }),
-          startTurn: () => ({
-            events: (async function* () {})(),
-            result: Promise.resolve({ status: "completed", stopReason: "end_turn" }),
-            cancel: async () => {},
-          }),
+          startTurn,
           close,
         }) as never,
     });
@@ -6343,7 +6511,8 @@ describe("ACPX engine run lifecycle corrections (F1: settle every failure after 
     Object.defineProperty(context, "paperclipSessionHandoffMarkdown", {
       enumerable: false,
       get() {
-        throw new Error("prompt build boom");
+        if (failure === "prompt") throw new Error("prompt build boom");
+        return undefined;
       },
     });
 
@@ -6354,11 +6523,19 @@ describe("ACPX engine run lifecycle corrections (F1: settle every failure after 
       config: { agent: "custom", agentCommand: "node ./fake-acp.js", stateDir: path.join(root, "state") },
       context,
       onLog: async () => {},
-      onMeta: async () => {},
+      onMeta: async () => { if (failure === "metadata") throw new Error("metadata failed"); },
     } as never);
 
     expect(result.exitCode).toBe(1);
-    expect(result.resultJson?.phase).toBe("prepare_turn");
+    if (failure === "dispatch") {
+      expect(startTurn).toHaveBeenCalledTimes(1);
+      expect(result.executionRecovery).toBeUndefined();
+      expect(result.usageComplete).toBe(false);
+    } else {
+      expect(result.resultJson?.phase).toBe("prepare_turn");
+      expect(startTurn).not.toHaveBeenCalled();
+      expect(result.executionRecovery).toEqual({ kind: "bootstrap", providerWorkStarted: false });
+    }
     // The established runtime is closed on the pre-turn failure, so no session
     // leaks.
     expect(close).toHaveBeenCalledTimes(1);
@@ -6727,6 +6904,229 @@ describe("ACPX engine run lifecycle corrections (F3: one teardown error policy)"
       ...overrides,
     };
   }
+
+  it.each(["close_session", "stop_transport", "instruction_collection", "workspace_restore", "phase_reporting", "close_error_reporting"])(
+    "keeps %s visible while its real settlement await is stalled",
+    async (blockedPhase) => {
+      const { stateDir, localCwd, executionTarget } = await setupRemoteSandbox();
+      stubBridges();
+      let resume!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => { resume = resolve; });
+      const reached = new Promise<void>((resolve) => { entered = resolve; });
+      const block = () => { entered(); return gate; };
+      const scopes = new Map<symbol, string>();
+      if (blockedPhase === "stop_transport") {
+        vi.mocked(startAdapterExecutionTargetPaperclipBridge).mockImplementation(async () => ({ env: {}, stop: block }) as never);
+      }
+      const execute = createAcpxEngineExecutor({
+        createRuntime: () => ({
+          ensureSession: async () => okHandle,
+          startTurn: () => blockedPhase === "close_error_reporting" ? throwingTurn() : completedTurn(),
+          close: blockedPhase === "close_session" ? block : async () => {
+            if (blockedPhase === "close_error_reporting") throw new Error("close fixture failed");
+          },
+        }) as never,
+        prepareRemoteManagedHome: async (input) => ({
+          stagedRuntime: await input.stage([]),
+          teardown: async () => {
+            if (blockedPhase === "workspace_restore") await block();
+            return { ok: true };
+          },
+        }),
+      });
+      const execution = execute({
+        runId: "pending-settlement-fixture",
+        ...remoteArgs(stateDir, localCwd, executionTarget),
+        onProviderStopped: blockedPhase === "instruction_collection" ? block : async () => {},
+        onExecutionPhase: (phase: string) => {
+          const token = Symbol();
+          scopes.set(token, phase);
+          return () => { scopes.delete(token); };
+        },
+        onEvent: async (event: { eventType: string; payload?: Record<string, unknown> }) => {
+          if (blockedPhase === "phase_reporting" && event.eventType === "run.phase.timing" && event.payload?.phase === "end_session") await block();
+        },
+        onLog: async (_stream: string, text: string) => {
+          if (blockedPhase === "close_error_reporting" && text.includes("close fixture failed")) await block();
+        },
+      } as never);
+      try {
+        await reached;
+        expect([...scopes.values()].at(-1)).toBe(blockedPhase === "close_error_reporting" ? "phase_reporting" : blockedPhase);
+      } finally {
+        resume();
+        expect((await execution).exitCode).toBe(blockedPhase === "close_error_reporting" ? 1 : 0);
+      }
+      expect(scopes.size).toBe(0);
+    },
+  );
+
+  it("keeps the primary Stop cancellation visible until its await settles", async () => {
+    const { stateDir, localCwd, executionTarget } = await setupRemoteSandbox();
+    stubBridges();
+    const controller = new AbortController();
+    let started!: () => void;
+    let cancelled!: () => void;
+    let resume!: () => void;
+    const turnStarted = new Promise<void>((resolve) => { started = resolve; });
+    const cancellationStarted = new Promise<void>((resolve) => { cancelled = resolve; });
+    const gate = new Promise<void>((resolve) => { resume = resolve; });
+    const scopes = new Map<symbol, string>();
+    const execute = createAcpxEngineExecutor({
+      createRuntime: () => ({
+        ensureSession: async () => okHandle,
+        startTurn: () => {
+          started();
+          return {
+            events: (async function* () { await gate; })(),
+            result: gate.then(() => ({ status: "cancelled", stopReason: "cancelled" })),
+            cancel: async () => { cancelled(); await gate; },
+          };
+        },
+        close: async () => {},
+      }) as never,
+    });
+    const execution = execute({
+      runId: "pending-cancel-fixture",
+      ...remoteArgs(stateDir, localCwd, executionTarget),
+      signal: controller.signal,
+      onExecutionPhase: (phase: string) => {
+        const token = Symbol();
+        scopes.set(token, phase);
+        return () => { scopes.delete(token); };
+      },
+    } as never);
+    try {
+      await turnStarted;
+      controller.abort();
+      await cancellationStarted;
+      expect([...scopes.values()].at(-1)).toBe("cancel_turn");
+    } finally {
+      resume();
+      expect((await execution).exitCode).toBe(1);
+    }
+    expect(scopes.size).toBe(0);
+  });
+
+  it("test_clean_completed_remote_teardown_runs_bridge_stop_then_sync_back_then_lease_release", async () => {
+    // cleanupRemoteBridges (execute.ts:2306-2326) fixes the sub-order for a clean
+    // exit: stop both bridges (allSettled) → run the managed-home sync-back
+    // (remoteManagedHomeTeardown) → release the per-session staging lease LAST in
+    // a finally. Record the order through spies threaded into the stubbed bridges
+    // and the seam teardown, and read the still-held lease during the sync-back.
+    const { stateDir, localCwd, executionTarget } = await setupRemoteSandbox();
+    const order: string[] = [];
+    vi.mocked(startAdapterExecutionTargetPaperclipBridge).mockImplementation(async () => ({
+      env: {},
+      stop: vi.fn(async () => {
+        order.push("bridge-stop");
+      }),
+    }) as never);
+    vi.mocked(startAdapterExecutionTargetProcessSessionBridge).mockImplementation(async () => ({
+      agentCommand: null,
+      stop: vi.fn(async () => {
+        order.push("bridge-stop");
+      }),
+    }) as never);
+
+    const stagingLocks = new Map<string, Promise<unknown>>();
+    let leaseSizeDuringSyncBack = -1;
+    const execute = createAcpxEngineExecutor({
+      stagingLocks,
+      warmHandles: new Map(),
+      stagedRuntimes: new Map(),
+      createRuntime: () =>
+        ({
+          ensureSession: async () => okHandle,
+          startTurn: () => completedTurn(),
+          close: vi.fn(async () => {}),
+        }) as never,
+      prepareRemoteManagedHome: async (input) => {
+        const stagedRuntime = await input.stage([]);
+        return {
+          stagedRuntime,
+          teardown: async () => {
+            order.push("sync-back");
+            // The lease is still held while the sync-back runs; it releases only
+            // afterward, in the cleanupRemoteBridges finally.
+            leaseSizeDuringSyncBack = stagingLocks.size;
+            return { ok: true };
+          },
+        };
+      },
+    });
+
+    const result = await execute({
+      runId: "clean-order",
+      ...remoteArgs(stateDir, localCwd, executionTarget),
+    } as never);
+
+    expect(result.exitCode).toBe(0);
+    // Both bridge stops precede the sync-back; the sync-back is the last recorded
+    // step before the lease release.
+    expect(order).toEqual(["bridge-stop", "bridge-stop", "sync-back"]);
+    // The lease was still held during the sync-back...
+    expect(leaseSizeDuringSyncBack).toBe(1);
+    // ...and released last, so the lock map never strands the next run.
+    expect(stagingLocks.size).toBe(0);
+  });
+
+
+  it("test_terminal_close_reason_and_discard_persistent_state_per_outcome", async () => {
+    const cases: Array<{
+      status: "completed" | "failed" | "cancelled";
+      reason: string;
+      discard: boolean;
+      exitCode: number;
+    }> = [
+      { status: "completed", reason: "paperclip completed turn cleanup", discard: false, exitCode: 0 },
+      { status: "failed", reason: "paperclip turn failed", discard: false, exitCode: 1 },
+      { status: "cancelled", reason: "paperclip turn cancelled", discard: true, exitCode: 1 },
+    ];
+
+    for (const testCase of cases) {
+      const root = await makeTempRoot();
+      const closeSpy = vi.fn(async () => {});
+      const execute = createAcpxEngineExecutor({
+        createRuntime: () =>
+          ({
+            ensureSession: async () => okHandle,
+            startTurn: () => ({
+              events: (async function* () {
+                yield { type: "done", stopReason: "end_turn" };
+              })(),
+              result:
+                testCase.status === "failed"
+                  ? Promise.resolve({ status: "failed", error: new Error("turn boom") })
+                  : testCase.status === "cancelled"
+                    ? Promise.resolve({ status: "cancelled", stopReason: "cancelled" })
+                    : Promise.resolve({ status: "completed", stopReason: "end_turn" }),
+              cancel: async () => {},
+            }),
+            close: closeSpy,
+          }) as never,
+      });
+
+      const result = await execute({
+        runId: `terminal-${testCase.status}`,
+        agent: { id: "agent-1", companyId: "company-1" },
+        runtime: {},
+        config: { agent: "custom", agentCommand: "node ./fake-acp.js", stateDir: path.join(root, "state") },
+        context: {},
+        onLog: async () => {},
+        onMeta: async () => {},
+      } as never);
+
+      expect(result.exitCode, `${testCase.status} exit`).toBe(testCase.exitCode);
+      expect(closeSpy, `${testCase.status} closes once`).toHaveBeenCalledTimes(1);
+      expect((closeSpy.mock.calls[0]! as unknown[])[0], `${testCase.status} close args`).toMatchObject({
+        reason: testCase.reason,
+        discardPersistentState: testCase.discard,
+      });
+    }
+  });
+
 
   it("collects instructions after confirmed close on a thrown provider turn, before workspace restore", async () => {
     const { stateDir, localCwd, executionTarget } = await setupRemoteSandbox();
@@ -7316,6 +7716,7 @@ describe("ACPX engine sandbox bridge run-disposition seam (fail-closed)", () => 
     // The lost channel overrides the nominally completed terminal to a failure.
     expect(result.exitCode).not.toBe(0);
     expect(result.errorCode).toBe("duplex_channel_lost");
+    expect(result.usageComplete).toBe(false);
     // The message carries only the typed loss reason, not raw provider text.
     expect(result.errorMessage).toContain("provider_exit");
     expect(result.resultJson).toMatchObject({ status: "failed" });
@@ -7335,6 +7736,7 @@ describe("ACPX engine sandbox bridge run-disposition seam (fail-closed)", () => 
 
     expect(result.exitCode).toBe(0);
     expect(result.errorCode ?? null).toBeNull();
+    expect(result.usageComplete).toBe(true);
     // The atomic settle step marked the orderly completion for the
     // success-eligible terminal.
     expect(fake.settleRunDisposition).toHaveBeenCalledTimes(1);
