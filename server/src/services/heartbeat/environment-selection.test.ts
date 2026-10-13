@@ -13,6 +13,7 @@ import { instanceSettingsService } from "../instance-settings.js";
 import { buildNativeExecutionInput } from "../native-runtime/native-execution-input.js";
 import { nativeRuntimeContextFixture } from "../native-runtime/runtime-context.test-fixture.js";
 import { selectHeartbeatEnvironment, type HeartbeatEnvironmentSelectionInput } from "./environment-selection.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 const support = await getEmbeddedPostgresTestSupport();
 describe.skipIf(!support.supported)("heartbeat environment selection boundary", () => {
@@ -35,7 +36,7 @@ describe.skipIf(!support.supported)("heartbeat environment selection boundary", 
     if (home) await rm(home, { recursive: true, force: true });
   });
   beforeEach(async () => {
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
   });
 
   async function fixture() {

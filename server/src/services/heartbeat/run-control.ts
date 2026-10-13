@@ -1,6 +1,7 @@
 import { isHeartbeatRunTerminalStatus } from "./run-lifecycle.js";
 import { DEFERRED_WAKE_CONTEXT_KEY } from "./queue.js";
-import { CANCELLABLE_HEARTBEAT_RUN_STATUSES } from "./recovery.js";
+import { CANCELLABLE_HEARTBEAT_RUN_STATUSES, HEARTBEAT_RUN_TERMINAL_STATUSES } from "./recovery.js";
+import { legacyControllerBootId } from "../legacy-controller-lease.js";
 import {
   type WakeupOptions,
 } from "./run-preparation.js";

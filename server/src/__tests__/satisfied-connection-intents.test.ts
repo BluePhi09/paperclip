@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { activityLog, agentWakeupRequests, agents, approvals, authUsers, companies, companyMemberships, connectionGrants, connectionGrantDelegations,
   connectionIntentDeliveries, createDb, environmentLeases, heartbeatRunEvents, heartbeatRuns, issueApprovals, issueRecoveryActions, issueThreadInteractions, issues, projects, toolApplications,
@@ -14,6 +14,7 @@ import { DELIVERY_QUEUES, subscribeDeliveryWork } from "../services/delivery-wor
 import { issueThreadInteractionService } from "../services/issue-thread-interactions.js";
 import { legacyExecutionNeedsReconciliationWithEvidence } from "../services/legacy-execution-recovery.js";
 import { remoteTerminationReceipt } from "../services/remote-execution-termination.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const support = await getEmbeddedPostgresTestSupport();
 const describePostgres = support.supported ? describe : describe.skip;
@@ -26,7 +27,7 @@ describePostgres("already available connection requests", () => {
     db = createDb(temp.connectionString);
     await db.insert(authUsers).values({ id: "connection-owner", name: "Owner", email: "owner@example.test", createdAt: new Date(), updatedAt: new Date() });
   }, 20_000);
-  beforeEach(async () => { await db.execute(sql`truncate table companies cascade`); });
+  beforeEach(async () => { await truncateTablesWithDeadlockRetry(db, "truncate table companies cascade"); });
   afterAll(async () => { await db.$client.end({ timeout: 1 }); await temp?.cleanup(); });
 
   async function seed() {

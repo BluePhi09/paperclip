@@ -10,6 +10,7 @@ import {
 } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { readIdleSleepSafety, type IdleSleepDrainStatus } from "../services/idle-sleep-safety.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const now = Date.UTC(2020, 0, 1);
 const held = (): IdleSleepDrainStatus => ({
@@ -171,7 +172,7 @@ if (!support.supported) console.warn(`Skipping idle sleep Postgres tests: ${supp
     database = await startEmbeddedPostgresTestDatabase("idle-sleep-safety-");
     db = createDb(database.connectionString);
   }, 60_000);
-  afterEach(async () => { await db.execute(sql`TRUNCATE companies, plugins, environments CASCADE`); });
+  afterEach(async () => { await truncateTablesWithDeadlockRetry(db, "TRUNCATE companies, plugins, environments CASCADE"); });
   afterAll(async () => { await database?.cleanup(); });
 
   const read = () => readIdleSleepSafety(db, owned, () => now, ownerId, emptyLocal);

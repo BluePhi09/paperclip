@@ -25,6 +25,7 @@ import {
   isWaitingConversation,
 } from "../agent-conversations.js";
 import { legacyControllerClaim } from "../legacy-controller-lease.js";
+import { admitEvidencePackRun } from "../evidence-pack.js";
 import {
   admitExplicitNativeContinuation,
   undeliveredLegacyUserCommentIds,

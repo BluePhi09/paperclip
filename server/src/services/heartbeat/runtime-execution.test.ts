@@ -22,6 +22,7 @@ import { createHeartbeatRunState } from "./run-state.js";
 import { buildEffectiveRunSessionConfigMetadata } from "./workspaces.js";
 import { revokeHeartbeatRunGatewayTokens } from "./run-preparation.js";
 import { executeHeartbeatRuntime, type HeartbeatRuntimeExecutionInput } from "./runtime-execution.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 // Keep real accounting, workspace barriers, and task-session persistence. Providers
 // and gateway delivery are external boundaries; browser acceptance covers their wiring.
@@ -51,7 +52,7 @@ describe.skipIf(!support.supported)("heartbeat runtime execution boundary", () =
   }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
   afterAll(async () => { await db?.$client.end(); await database?.cleanup(); vi.unstubAllEnvs(); if (home) await rm(home, { recursive: true, force: true }); });
   beforeEach(async () => {
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
     vi.clearAllMocks();
     vi.mocked(executePaperclipNativeSession).mockResolvedValue({ exitCode: 0, signal: null, timedOut: false });
   });

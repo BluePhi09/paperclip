@@ -4,13 +4,14 @@ import {
   agents, agentSessionGoalActions, agentTaskSessions, companies, createDb,
   EMBEDDED_POSTGRES_TEST_TIMEOUT_MS, heartbeatRuns, issues,
 } from "@paperclipai/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "../../__tests__/helpers/embedded-postgres.js";
 import { conflict } from "../../errors.js";
 import { createHeartbeatRunPreparation } from "./run-preparation.js";
 import { createHeartbeatRunState } from "./run-state.js";
 import { createHeartbeatScheduling, type HeartbeatSchedulingDependencies } from "./scheduling.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 vi.mock("../live-events.js", () => ({ publishLiveEvent: vi.fn() }));
 
@@ -85,7 +86,7 @@ describe.skipIf(!postgres.supported)("heartbeat scheduling database boundary", (
     await database?.cleanup();
   });
   beforeEach(async () => {
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
   });
 
   async function fixture() {

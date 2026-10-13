@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
 import { agents, agentWakeupRequests, companies, createDb, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS, heartbeatRuns, issues, projects } from "@paperclipai/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "../../__tests__/helpers/embedded-postgres.js";
 import { runningProcesses } from "../../adapters/index.js";
@@ -11,6 +11,7 @@ import { createHeartbeatRunState } from "./run-state.js";
 import { createHeartbeatRunPreparation } from "./run-preparation.js";
 import { createHeartbeatLifecycle, type HeartbeatLifecycleDependencies } from "./run-lifecycle.js";
 import { createHeartbeatRunControl, type HeartbeatRunControlDependencies } from "./run-control.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 vi.mock("../live-events.js", () => ({ publishLiveEvent: vi.fn() }));
 vi.mock("../local-service-supervisor.js", async (importOriginal) => ({
@@ -165,7 +166,7 @@ describe.skipIf(!support.supported)("heartbeat run-control database wiring", () 
   });
   beforeEach(async () => {
     vi.mocked(terminateLocalService).mockReset().mockResolvedValue(undefined);
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
   });
   afterEach(() => runningProcesses.clear());
 

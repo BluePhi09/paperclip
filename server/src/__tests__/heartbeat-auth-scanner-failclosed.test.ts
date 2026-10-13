@@ -45,7 +45,7 @@ beforeAll(async () => {
 }, 120000);
 afterEach(async () => {
   await drainHeartbeatRunsToQuiescence(db, heartbeat);
-  await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`truncate companies cascade`); });
+  await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`set local session_replication_role = replica`); await tx.execute(sql`truncate companies cascade`); });
   vi.restoreAllMocks(); adapter.mockClear();
 });
 afterAll(async () => { unregisterServerAdapter("codex_local"); await database?.cleanup(); if (cwd) await rm(cwd, { recursive: true, force: true }); });

@@ -9,7 +9,7 @@ import { settleUnrecoverableExecutions } from "./execution-recovery-resolution.j
 let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
 let db: ReturnType<typeof createDb>;
 beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("paperclip-conversation-dedup-"); db = createDb(database.connectionString); }, 120000);
-afterEach(async () => { await db?.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`truncate companies cascade`); }); });
+afterEach(async () => { await db?.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`set local session_replication_role = replica`); await tx.execute(sql`truncate companies cascade`); }); });
 afterAll(async () => { await database?.cleanup(); });
 it.each(["live_process", "live_controller"])("retains execution ownership before retiring a conversation hold (%s)", async mode => {
   const fixture = await seed();

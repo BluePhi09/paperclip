@@ -16,7 +16,7 @@ import { environmentRuntimeService } from "../services/environment-runtime.js";
 let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
 let db: ReturnType<typeof createDb>;
 beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("runtime-acquisition-ssh-"); db = createDb(database.connectionString); }, 120000);
-afterEach(async () => { await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`truncate companies, environments cascade`); }); });
+afterEach(async () => { await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`set local session_replication_role = replica`); await tx.execute(sql`truncate companies, environments cascade`); }); });
 afterAll(async () => { await database?.cleanup(); });
 
 async function seed() {

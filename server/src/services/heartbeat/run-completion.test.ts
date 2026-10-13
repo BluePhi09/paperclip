@@ -11,6 +11,7 @@ import { createHeartbeatRunPreparation, ConfigurationIncompleteFailure } from ".
 import { createHeartbeatRunState, getAdapterSessionCodec } from "./run-state.js";
 import { buildEffectiveRunSessionConfigMetadata } from "./workspaces.js";
 import { createHeartbeatRunCompletion, type CompleteHeartbeatRunInput, type FailHeartbeatRunInput, type HeartbeatRunCompletionDependencies } from "./run-completion.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 vi.mock("../live-events.js", () => ({ publishLiveEvent: vi.fn() }));
 
@@ -85,7 +86,7 @@ describe.skipIf(!support.supported)("heartbeat run completion boundary", () => {
     await db.execute(sql`set client_min_messages = warning`);
   }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
   afterAll(async () => { await db?.$client.end(); await database?.cleanup(); vi.restoreAllMocks(); });
-  beforeEach(async () => { await db.execute(sql`truncate table companies restart identity cascade`); });
+  beforeEach(async () => { await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade"); });
 
   async function fixture(patch: Partial<typeof heartbeatRuns.$inferInsert> = {}) {
     const [company] = await db.insert(companies).values({ name: "Completion", issuePrefix: "CMP" }).returning();

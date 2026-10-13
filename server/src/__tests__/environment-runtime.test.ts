@@ -224,6 +224,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     }
     await db.transaction(async tx => {
       await tx.execute(sql`set local client_min_messages = warning`);
+      await tx.execute(sql`set local session_replication_role = replica`);
       await tx.execute(sql`truncate companies, plugins, environments cascade`);
     });
   });

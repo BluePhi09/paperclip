@@ -1,6 +1,6 @@
 import type { Db } from "@paperclipai/db";
 import { agents, agentWakeupRequests, companies, createDb, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS, heartbeatRuns, issues } from "@paperclipai/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "../../__tests__/helpers/embedded-postgres.js";
 import { createRunDispatch } from "../../modules/run-dispatch/index.js";
@@ -8,6 +8,7 @@ import type { createWakeQueue } from "../../modules/wake-queue/index.js";
 import { createHeartbeatRunState } from "./run-state.js";
 import { createHeartbeatRunPreparation } from "./run-preparation.js";
 import { createHeartbeatQueue, type HeartbeatQueueDependencies } from "./queue.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 type Run = typeof heartbeatRuns.$inferSelect;
 function callbacks(db: Db) {
@@ -136,7 +137,7 @@ describe.skipIf(!support.supported)("heartbeat queue database wiring", () => {
     await database?.cleanup();
   });
   beforeEach(async () => {
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
   });
 
   async function fixture(status = "running") {

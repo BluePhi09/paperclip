@@ -1,6 +1,6 @@
 import type { Db } from "@paperclipai/db";
 import { agents, agentWakeupRequests, companies, createDb, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS, heartbeatRunEvents, heartbeatRuns } from "@paperclipai/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "../../__tests__/helpers/embedded-postgres.js";
 import type { CurrentUserRedactionOptions } from "../../log-redaction.js";
@@ -9,6 +9,7 @@ import { getHeartbeatRunRuntimeStatus } from "../heartbeat-run-runtime-status.js
 import { createHeartbeatRunState } from "./run-state.js";
 import { createHeartbeatRunPreparation } from "./run-preparation.js";
 import { createHeartbeatLifecycle, persistHeartbeatRunProcessMetadata, type HeartbeatLifecycleDependencies } from "./run-lifecycle.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 vi.mock("../live-events.js", () => ({ publishLiveEvent: vi.fn() }));
 
@@ -106,7 +107,7 @@ describe.skipIf(!support.supported)("heartbeat lifecycle database wiring", () =>
   });
   beforeEach(async () => {
     vi.mocked(publishLiveEvent).mockClear();
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
   });
 
   async function fixture(patch: Partial<typeof heartbeatRuns.$inferInsert> = {}) {

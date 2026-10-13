@@ -15,6 +15,7 @@ import { issueService } from "../issues.js";
 import { workspaceOperationService } from "../workspace-operations.js";
 import { createHeartbeatWorkspaceResolver, resolveExecutionWorkspaceReuseRequestForIssue } from "./workspaces.js";
 import { prepareHeartbeatWorkspace, type HeartbeatWorkspacePreparationInput } from "./workspace-preparation.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 const execFile = promisify(execFileCallback);
 const support = await getEmbeddedPostgresTestSupport();
@@ -39,7 +40,7 @@ describe.skipIf(!support.supported)("heartbeat workspace preparation boundary", 
   });
   beforeEach(async () => {
     vi.restoreAllMocks();
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
     await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: true });
   });
 

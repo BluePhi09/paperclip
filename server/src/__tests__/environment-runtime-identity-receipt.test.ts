@@ -9,7 +9,7 @@ import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
 let db: ReturnType<typeof createDb>;
 beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("runtime-identity-receipt-"); db = createDb(database.connectionString); }, 120000);
-afterEach(async () => { await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`truncate companies, plugins, environments cascade`); }); });
+afterEach(async () => { await db.transaction(async tx => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql`set local session_replication_role = replica`); await tx.execute(sql`truncate companies, plugins, environments cascade`); }); });
 afterAll(async () => { await database?.cleanup(); });
 it.each([['sandbox', true, false], ['sandbox', false, false], ['plugin', true, false], ['plugin', false, false], ['sandbox', true, true], ['plugin', true, true]] as const)("records requested/default/provider identity distinctly in actual %s acquire RPC (attested=%s, measured=%s)", async (driver, attested, measured) => {
   const companyId = randomUUID(), agentId = randomUUID(), runId = randomUUID(), environmentId = randomUUID(), pluginId = randomUUID();

@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { agents, companies, createDb, heartbeatRuns, type Db } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { createRunUsageRecorder } from "../services/usage-receipts.js";
 import { idleWorkSnapshot } from "../services/task-admission.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const support = await getEmbeddedPostgresTestSupport();
 (support.supported ? describe : describe.skip)("idle accounting work", () => {
@@ -19,7 +20,7 @@ const support = await getEmbeddedPostgresTestSupport();
     db = createDb(database.connectionString);
   }, 60_000);
   afterEach(async () => {
-    await db.execute(sql`TRUNCATE companies CASCADE`);
+    await truncateTablesWithDeadlockRetry(db, "TRUNCATE companies CASCADE");
     for (const directory of directories.splice(0)) await fs.rm(directory, { force: true, recursive: true });
   });
   afterAll(async () => { await database?.cleanup(); });

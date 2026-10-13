@@ -13,6 +13,7 @@ import { prepareNativeWorkspaceSync } from "../native-runtime/native-workspace-s
 import { resolveHeartbeatNativeRuntimeMode } from "../native-runtime/runtime-mode.js";
 import { canonicalNativeRuntimeContextDigest } from "../../vendor/paperclip-runner/index.js";
 import { selectHeartbeatRuntime, type HeartbeatRuntimeSelectionInput } from "./runtime-selection.js";
+import { truncateTablesWithDeadlockRetry } from "../../__tests__/helpers/truncate-with-deadlock-retry.js";
 
 // Keep the real contract, session, and runtime-selection transactions. Replace only
 // filesystem materialization and sandbox synchronization at their external boundaries.
@@ -39,7 +40,7 @@ describe.skipIf(!support.supported)("heartbeat runtime selection boundary", () =
   }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
   afterAll(async () => { await db?.$client.end(); await database?.cleanup(); if (instructionRoot) await rm(instructionRoot, { recursive: true, force: true }); });
   beforeEach(async () => {
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
     vi.clearAllMocks();
     vi.mocked(prepareNativeWorkspaceSync).mockResolvedValue(null);
     vi.mocked(buildNativeRuntimeContext).mockImplementation(async () => {
