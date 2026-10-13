@@ -1453,7 +1453,7 @@ Per-agent schedule fields in `adapter_config`:
 
 - `enabled` boolean
 - `intervalSec` integer (minimum 30)
-- `maxConcurrentRuns` integer; new agents default to `20`; scheduler clamps configured values to `1..50`
+- `maxConcurrentRuns` integer; new agents default to `20`; scheduler clamps configured values to `1..50`; operators can lower the effective per-agent ceiling with `PAPERCLIP_MAX_CONCURRENT_RUNS_PER_AGENT` and cap running runs instance-wide with `PAPERCLIP_MAX_CONCURRENT_RUNS_TOTAL`
 
 Scheduler must skip invocation when:
 

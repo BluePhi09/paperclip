@@ -69,7 +69,11 @@ import {
   sql,
 } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { AGENT_DEFAULT_MAX_CONCURRENT_RUNS } from "@paperclipai/shared";
+import {
+  computeAvailableRunSlots,
+  normalizeMaxConcurrentRuns,
+  readHeartbeatConcurrencyLimits,
+} from "../heartbeat-concurrency-limits.js";
 import {
   agents,
   agentWakeupRequests,
@@ -181,7 +185,7 @@ export interface HeartbeatQueueDependencies extends Pick<HeartbeatRetryDependenc
     "resolveSessionBeforeForWakeup" | "hasResolvablePriorSessionWorkspaceForWake">,
   Pick<HeartbeatRecoveryDependencies, "setRunStatus"> {
   sweepPendingCleanupLeases: ReturnType<typeof createHeartbeatRecovery>["sweepPendingCleanupLeases"];
-  options: Pick<HeartbeatServiceOptions, "beforeChatControlRecoveryCheck">;
+  options: Pick<HeartbeatServiceOptions, "beforeChatControlRecoveryCheck" | "runtimeEnv">;
   issuesSvc: Pick<ReturnType<typeof issueService>, "getDependencyReadiness" | "listDependencyReadiness">;
   treeControlSvc: Pick<ReturnType<typeof issueTreeControlService>, "getActivePauseHoldGate">;
   budgets: Pick<ReturnType<typeof budgetService>, "getInvocationBlock">;
@@ -209,12 +213,6 @@ export interface HeartbeatQueueDependencies extends Pick<HeartbeatRetryDependenc
   formatIssueIdentifierLink: (identifier: string | null, fallback: string) => string;
 }
 
-const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = AGENT_DEFAULT_MAX_CONCURRENT_RUNS;
-
-const HEARTBEAT_MAX_CONCURRENT_RUNS_MIN = 1;
-
-const HEARTBEAT_MAX_CONCURRENT_RUNS_MAX = 50;
-
 export const DEFERRED_WAKE_CONTEXT_KEY = "_paperclipWakeContext";
 
 export const EXECUTION_PATH_HEARTBEAT_RUN_STATUSES = [
@@ -239,17 +237,6 @@ const RUNNING_ISSUE_WAKE_REASONS_REQUIRING_FOLLOWUP = new Set([
   ISSUE_BLOCKERS_RESOLVED_WAKE_REASON,
   "issue_recovery_action_restored",
 ]);
-
-function normalizeMaxConcurrentRuns(value: unknown) {
-  const parsed = Math.floor(
-    asNumber(value, HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT),
-  );
-  if (!Number.isFinite(parsed)) return HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT;
-  return Math.max(
-    HEARTBEAT_MAX_CONCURRENT_RUNS_MIN,
-    Math.min(HEARTBEAT_MAX_CONCURRENT_RUNS_MAX, parsed),
-  );
-}
 
 export function shouldRequireIssueCommentForWake(
   contextSnapshot: Record<string, unknown> | null | undefined,
@@ -388,6 +375,16 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
     runTaskKey,
     filterZombieCoalesceTarget,
   } = dependencies;
+  const concurrencyLimits = readHeartbeatConcurrencyLimits(
+    options.runtimeEnv ?? process.env,
+  );
+  // Instance-wide run cap bookkeeping (PAPERCLIP_MAX_CONCURRENT_RUNS_TOTAL).
+  // Agents start queued runs under per-agent locks, so two agents can count
+  // the running total at the same time. Each dispatch reserves its slots
+  // before claiming, and a count that overlapped a released reservation is
+  // re-read, so concurrent dispatches in this process cannot overshoot.
+  let reservedTotalRunSlots = 0;
+  let totalRunSlotReleaseEpoch = 0;
 
   function parseHeartbeatPolicy(agent: typeof agents.$inferSelect) {
     const runtimeConfig = parseObject(agent.runtimeConfig);
@@ -401,7 +398,10 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       // their queue position instead of claiming a second run that cannot bind.
       maxConcurrentRuns: agent.adapterType === "paperclip_runner" &&
         parseObject(agent.adapterConfig).provider === "openai_dot"
-        ? 1 : normalizeMaxConcurrentRuns(heartbeat.maxConcurrentRuns),
+        ? 1 : normalizeMaxConcurrentRuns(
+          heartbeat.maxConcurrentRuns,
+          concurrencyLimits.perAgentCeiling,
+        ),
       skipTimerWhenNoActionableWork: asBoolean(
         heartbeat.skipTimerWhenNoActionableWork ??
           heartbeat.requireActionableTimerWork ??
@@ -670,6 +670,42 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       >();
     }
     return issuesSvc.listDependencyReadiness(companyId, issueIds);
+  }
+
+  async function countRunningRunsTotal() {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    return Number(count ?? 0);
+  }
+
+  // Reserve up to `wanted` instance-wide run slots. Returns how many were
+  // reserved; the caller must release them once its claims have settled.
+  async function reserveTotalRunSlots(agentLimit: number, agentRunning: number) {
+    const totalLimit = concurrencyLimits.total;
+    if (totalLimit === null) return Math.max(0, agentLimit - agentRunning);
+    for (;;) {
+      const epoch = totalRunSlotReleaseEpoch;
+      const running = await countRunningRunsTotal();
+      // A reservation released while we counted may belong to a run that
+      // turned "running" after our snapshot; count again rather than undercount.
+      if (epoch !== totalRunSlotReleaseEpoch) continue;
+      const reserved = computeAvailableRunSlots({
+        agentLimit,
+        agentRunning,
+        totalLimit,
+        totalInUse: running + reservedTotalRunSlots,
+      });
+      reservedTotalRunSlots += reserved;
+      return reserved;
+    }
+  }
+
+  function releaseTotalRunSlots(count: number) {
+    if (concurrencyLimits.total === null || count <= 0) return;
+    reservedTotalRunSlots = Math.max(0, reservedTotalRunSlots - count);
+    totalRunSlotReleaseEpoch += 1;
   }
 
   async function countRunningRunsForAgent(agentId: string) {
@@ -1946,6 +1982,10 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
     const rejectedClaims: Array<{ run: typeof heartbeatRuns.$inferSelect; err: HttpError }> = [];
     const deferredPostCommitEffects: WakeQueuePostCommitEffect[] = [];
     let cancellationReason: string | undefined;
+    // Instance-wide slots reserved for this dispatch. Released once the claims
+    // settle: a claimed run is "running" in the database by then, so the total
+    // count covers it.
+    let reservedTotalSlots = 0;
 
     return withAgentStartLock(agentId, async () => {
       const agent = await getAgent(agentId);
@@ -1959,11 +1999,23 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       }
       const policy = parseHeartbeatPolicy(agent);
       const runningCount = await countRunningRunsForAgent(agentId);
-      const availableSlots = Math.max(
+      const agentSlots = Math.max(
         0,
         policy.maxConcurrentRuns - runningCount,
       );
-      if (availableSlots <= 0) return [];
+      if (agentSlots <= 0) return [];
+      const availableSlots = await reserveTotalRunSlots(
+        policy.maxConcurrentRuns,
+        runningCount,
+      );
+      reservedTotalSlots = availableSlots;
+      if (availableSlots <= 0) {
+        logger.debug(
+          { agentId, totalLimit: concurrencyLimits.total },
+          "instance-wide concurrent run cap reached; leaving queued runs queued",
+        );
+        return [];
+      }
 
       const queuedRuns = await db
         .select()
@@ -2093,6 +2145,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       }
       return claimedRuns;
     }).finally(async () => {
+      releaseTotalRunSlots(reservedTotalSlots);
       // Dispatch promoted inputs after the agent start lock is released.
       try {
         await applyWakeQueuePostCommitEffects(deferredPostCommitEffects);

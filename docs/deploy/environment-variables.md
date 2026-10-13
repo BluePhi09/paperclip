@@ -28,6 +28,8 @@ All environment variables that Paperclip uses for server configuration.
 | `PAPERCLIP_RUNNER_REMOTE_PROVIDER_PACK_PATH` | `/opt/paperclip-runner/provider-pack` in Docker; otherwise unset | Host-local path to the immutable provider pack built by `pnpm --filter @paperclipai/paperclip-runner build:provider-pack`. Stamped standard Docker images include the pack; downstream compositions and the `cloud` target inherit it. Unstamped local Docker builds skip pack generation. The pack includes its target-built Node 24.11+ runtime, locked production dependencies, OpenCode proxy/executable, and ACPX sidecar. Remote OpenCode and ACPX fail closed without it. A preinstalled pack is accepted only when its complete digested manifest matches this build-owned pack; otherwise Paperclip stages this pack into the sandbox. |
 | `PAPERCLIP_HIDDEN_SETTINGS` | (unset) | Comma-separated settings surfaces to hide from the UI and floor at the API, for operators hosting Paperclip for others (managed cloud, internal shared server). See [Hiding settings surfaces](#hiding-settings-surfaces). |
 | `PAPERCLIP_SETTING_DEFAULTS` | (unset) | JSON object replacing the schema default of selected instance settings, for hosting operators. See [Operator setting defaults](#operator-setting-defaults). |
+| `PAPERCLIP_MAX_CONCURRENT_RUNS_PER_AGENT` | (unset) | Upper bound on every agent's effective `runtimeConfig.heartbeat.maxConcurrentRuns`, including the built-in default of `20` that new and imported agents receive. Positive integer, capped at `50`; unset, empty, `0`, negative, or non-numeric means no extra ceiling. The stored agent config is not rewritten; the scheduler uses `min(configured, ceiling)`. See [Run concurrency caps](#run-concurrency-caps). |
+| `PAPERCLIP_MAX_CONCURRENT_RUNS_TOTAL` | (unset) | Instance-wide ceiling on heartbeat runs in `running` state across all agents and companies. Positive integer; unset, empty, `0`, negative, or non-numeric means no instance cap. Runs that would exceed it stay `queued` and start once slots free up. See [Run concurrency caps](#run-concurrency-caps). |
 
 Daytona connectivity for `paperclip_runner` uses authenticated provider
 WebSocket ingress and follows the instance experimental setting
@@ -79,6 +81,28 @@ The Daytona environment editor's **Configure image** action can create this
 image without a separate container registry: install the executables in its
 setup sandbox, finish setup, and Paperclip captures and promotes the resulting
 Daytona snapshot for future leases.
+
+### Run concurrency caps
+
+Each agent run is a separate adapter process (for example a CLI coding agent),
+so the number of concurrently running heartbeat runs drives host memory use.
+By default every agent may run up to `20` heartbeat runs at once, and the
+server applies no instance-wide limit, so a large company import can start
+more processes than a small host can hold.
+
+- `PAPERCLIP_MAX_CONCURRENT_RUNS_PER_AGENT=2` clamps each agent's effective
+  concurrency to at most 2, whatever its stored `maxConcurrentRuns` is. Agents
+  configured lower keep their lower value.
+- `PAPERCLIP_MAX_CONCURRENT_RUNS_TOTAL=8` keeps at most 8 runs in `running`
+  state across the instance. The scheduler checks the cap when it starts
+  queued runs; runs over the cap are not cancelled, they stay `queued`. A
+  finishing run promotes its own agent's next queued run; other agents' queued
+  runs start on the next heartbeat scheduler sweep.
+
+The total cap is enforced per server process. It counts every `running` run in
+the database, so runs started by other replicas count against it, but two
+replicas starting runs at the same moment can briefly exceed it. Runs already
+`running` when the cap is lowered are not stopped.
 
 ### Hiding settings surfaces
 
