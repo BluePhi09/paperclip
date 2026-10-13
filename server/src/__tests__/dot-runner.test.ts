@@ -668,14 +668,15 @@ describe("durable Dot Runner integration", () => {
     { name: "local Rust", managed: false },
     ...(process.env.PAPERCLIP_DOT_DAYTONA_LIVE === "1" ? [{ name: "private Daytona Rust", managed: true }] : []),
   ])("signed readiness, native tools and finalization through $name", async ({ managed }) => {
+    const diagLimit = <T,>(label: string, p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, j) => setTimeout(() => j(new Error(`DIAG ${label} did not settle in ${ms}ms`)), ms))]);
     const remote = managed ? await (await import("./helpers/dot-daytona.js")).startDotDaytona(root) : null;
     try {
-      const f = await fixture();
+      const f = await diagLimit("fixture", fixture(), 60000);
       const [issue] = await db.insert(issues).values({ companyId: f.company.id, title: "Save the arithmetic report", description: "Save 17 + 25 = 42 as a task document.",
         status: "in_progress", workMode: "standard", assigneeAgentId: f.agent.id }).returning();
       const [run] = await db.insert(heartbeatRuns).values({ companyId: f.company.id, agentId: f.agent.id, status: "running", invocationSource: "assignment", triggerDetail: "system", contextSnapshot: { issueId: issue!.id } }).returning();
       await db.update(issues).set({ executionRunId: run!.id, checkoutRunId: run!.id }).where(eq(issues.id, issue!.id));
-      const prepared = await prepareNativeHeartbeatRun({ db, run: run!, issue: issue!, environmentLeaseId: randomUUID() });
+      const prepared = await diagLimit("prepare", prepareNativeHeartbeatRun({ db, run: run!, issue: issue!, environmentLeaseId: randomUUID() }), 30000);
       await db.insert(nativeRunFinalizations).values({ runId: run!.id, companyId: f.company.id, issueId: issue!.id, phase: "observed" });
       const [boundRun] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, run!.id));
       const [contract] = await db.select().from(completionContracts).where(eq(completionContracts.id, boundRun!.completionContractId!));
@@ -700,8 +701,8 @@ describe("durable Dot Runner integration", () => {
       vi.stubEnv("PAPERCLIP_CLOUD_TENANT_SERVER_TOKEN", "fixture-cloud");
       try {
         for (const useRunnerd of [false, true]) {
-          await expect(executePaperclipNativeSession({ db, execution, runnerInstanceId: prepared.runnerInstanceId,
-            useRunnerd, turnTimeoutMs: 1000, onEvent: async () => {} }))
+          await expect(diagLimit(`cloudGuard useRunnerd=${useRunnerd}`, executePaperclipNativeSession({ db, execution, runnerInstanceId: prepared.runnerInstanceId,
+            useRunnerd, turnTimeoutMs: 1000, onEvent: async () => {} }), 30000))
             .rejects.toThrow("dot_cloud_requires_managed_runner");
         }
       } finally { vi.stubEnv("PAPERCLIP_CLOUD_TENANT_SERVER_TOKEN", ""); }
@@ -775,25 +776,31 @@ describe("durable Dot Runner integration", () => {
           schema: "paperclip.run_result.v1", reportedWorkDisposition: "done", artifacts: [], attentionRequests: [],
           verification: [{ commandOrCheck: "17 + 25", status: "passed" }],
         } } });
-        await f.broker.operation(f.principal, assignment!.id, randomUUID(), "finish", { result });
-        await resultPromise;
+        await diagLimit("finish", f.broker.operation(f.principal, assignment!.id, randomUUID(), "finish", { result }), 30000);
+        await diagLimit("resultPromise", resultPromise, 60000);
         // The heartbeat records its controller workspace settlement before the
         // ordinary status finalizer commits the task disposition.
         await db.insert(workspaceOperations).values({ companyId: f.company.id, heartbeatRunId: run!.id, issueId: issue!.id,
           phase: "workspace_finalize", status: "succeeded", exitCode: 0, cwd: root, finishedAt: new Date() });
-        await finalizeNativeRun({ db, runId: run!.id, workspaceFinalizeStatus: "succeeded" });
-        await finalizeNativeRun({ db, runId: run!.id, workspaceFinalizeStatus: "succeeded" });
+        await diagLimit("finalize1", finalizeNativeRun({ db, runId: run!.id, workspaceFinalizeStatus: "succeeded" }), 30000);
+        await diagLimit("finalize2", finalizeNativeRun({ db, runId: run!.id, workspaceFinalizeStatus: "succeeded" }), 30000);
         expect(await db.select().from(nativeRunResults).where(eq(nativeRunResults.runId, run!.id))).toHaveLength(1);
         expect((await db.select().from(issues).where(eq(issues.id, issue!.id)))[0]?.status).toBe("done");
         expect(await db.select().from(dotRunnerOperations).where(eq(dotRunnerOperations.requestId, writeId))).toHaveLength(1);
         expect(startupOutcome).toMatchObject({ exitCode: 0, model: null, nativeFinalization: { providerSessionId: null, driverKind: "openai_dot_mcp" } });
         expect(observed.filter(event => event.eventType === "turn.started")).toHaveLength(1);
       } catch (error) {
+        console.error("DIAG dot-runner local Rust failure", error, "startupError", startupError);
         if (startupError) throw startupError;
         await Promise.race([resultPromise.catch(() => {}), new Promise(resolve => setTimeout(resolve, 1000))]);
         if (startupError) throw startupError;
         throw error;
-      } finally { await f.events.unsubscribe(f.principal, f.subscription); await f.events.stop(); server.closeAllConnections(); await new Promise<void>(done => server.close(() => done())); }
+      } finally {
+        // DIAG(sync): bound teardown so the original failure surfaces instead of a 360s timeout.
+        const bounded = (label: string, p: Promise<unknown>) => Promise.race([p, new Promise(r => setTimeout(() => { console.error(`DIAG teardown stuck: ${label}`); r(undefined); }, 5000))]);
+        await bounded("unsubscribe", f.events.unsubscribe(f.principal, f.subscription)); await bounded("events.stop", f.events.stop());
+        server.closeAllConnections(); await bounded("server.close", new Promise<void>(done => server.close(() => done())));
+      }
     } finally { await remote?.close(); }
   }, 360000);
 
