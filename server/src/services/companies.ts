@@ -14,7 +14,7 @@ import {
   heartbeatRuns,
   costEvents,
 } from "@paperclipai/db";
-import { conflict, notFound, unprocessable } from "../errors.js";
+import { notFound, unprocessable } from "../errors.js";
 import { isCloudManagedInstance } from "./cloud-instance.js";
 import { notifyCloudOfPrimaryCompanyLifecycleChange } from "./cloud-lifecycle-sync.js";
 import {

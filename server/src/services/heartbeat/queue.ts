@@ -25,7 +25,6 @@ import {
   isWaitingConversation,
 } from "../agent-conversations.js";
 import { legacyControllerClaim } from "../legacy-controller-lease.js";
-import { admitEvidencePackRun } from "../evidence-pack.js";
 import {
   admitExplicitNativeContinuation,
   undeliveredLegacyUserCommentIds,
@@ -205,7 +204,7 @@ export interface HeartbeatQueueDependencies extends Pick<HeartbeatRetryDependenc
   releaseIssueExecutionAndPromote: (run: Pick<HeartbeatRun, "id" | "companyId">, options?: { suppressImmediateRecovery?: boolean; deferredPostCommitEffects?: WakeQueuePostCommitEffect[] }) => Promise<unknown>;
   applyWakeQueuePostCommitEffects: (effects: WakeQueuePostCommitEffect[]) => Promise<void>;
   publishRunLifecyclePluginEvent: (run: HeartbeatRun) => void;
-  cancelRunInternal: (runId: string, reason?: string, options?: { errorCode?: string; suppressImmediateRecovery?: boolean }) => Promise<HeartbeatRun | null | undefined>;
+  cancelRunInternal: (runId: string, reason?: string, options?: { errorCode?: string }) => Promise<unknown>;
   cancelActiveForAgentInternal: (agentId: string, reason: string) => Promise<unknown>;
   resumeExecutionWaitComments: () => Promise<unknown>;
   resumeQueuedCommentInterrupt: (companyId: string, queueId: string) => Promise<unknown>;
@@ -1181,7 +1180,6 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       }).from(issues).where(and(
         eq(issues.id, issueId), eq(issues.companyId, run.companyId),
       )).for("update") : [];
-      await admitEvidencePackRun(tx, run);
       const ownsIssue = owner?.assigneeAgentId === run.agentId &&
         context.wakeReason !== "source_scoped_recovery_action";
       if (ownsIssue && ["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? "") &&
@@ -1899,42 +1897,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
   // (an unverifiable interrupt receipt, a manual wake with no user). Those rows
   // do not change, so the claim fails the same way on every pass and restart.
   function isPermanentClaimRejection(err: unknown): err is HttpError {
-    return err instanceof HttpError && (err.status === 403 || evidenceDenialCode(err) !== null);
-  }
-
-  // An evidence-pack denial is a policy verdict on the current issue state,
-  // not a transient claim conflict. Retrying it every pass would only repeat
-  // the denial; a corrected pack is picked up by a new wake.
-  function evidenceDenialCode(err: unknown): string | null {
-    const code = err instanceof HttpError ? (err.details as { code?: unknown } | undefined)?.code : null;
-    return typeof code === "string" && code.startsWith("evidence_pack_") ? code : null;
-  }
-
-  // Terminal and attributable: no immediate recovery/repair wake, and an
-  // activity entry so the board can see why execution was refused.
-  async function cancelEvidenceDeniedRun(runId: string, code: string) {
-    const before = await getRun(runId);
-    const cancelled = await cancelRunInternal(runId, "Evidence pack blocks execution", {
-      errorCode: code,
-      suppressImmediateRecovery: true,
-    });
-    // cancelRunInternal returns an already terminal run unchanged (for example
-    // a native run its finalizer already failed). Only a cancellation caused
-    // by this denial is attributed to it.
-    if (!cancelled || before?.status === "cancelled" || cancelled.status !== "cancelled" || cancelled.errorCode !== code) return;
-    const issueId = readNonEmptyString(parseObject(cancelled.contextSnapshot).issueId) ?? cancelled.nativeIssueId ?? null;
-    await logActivity(db, {
-      companyId: cancelled.companyId,
-      actorType: "system",
-      actorId: "heartbeat",
-      agentId: cancelled.agentId,
-      runId: cancelled.id,
-      issueId,
-      action: "heartbeat.evidence_denied",
-      entityType: "heartbeat_run",
-      entityId: cancelled.id,
-      details: { code, issueId, status: cancelled.status },
-    });
+    return err instanceof HttpError && err.status === 403;
   }
 
   // Other 4xx rejections can clear later (a responsible user gets assigned, a
@@ -1955,11 +1918,6 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
         "cancelling queued heartbeat run whose claim was rejected",
       );
       try {
-        const evidenceCode = evidenceDenialCode(err);
-        if (evidenceCode) {
-          await cancelEvidenceDeniedRun(run.id, evidenceCode);
-          continue;
-        }
         await cancelRunInternal(
           run.id,
           `Cancelled because the queued run cannot be claimed: ${err.message}`,
@@ -4761,7 +4719,5 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
     resumeQueuedRuns,
     parseHeartbeatPolicy,
     claimDueTimerHeartbeat,
-    evidenceDenialCode,
-    cancelEvidenceDeniedRun,
   };
 }

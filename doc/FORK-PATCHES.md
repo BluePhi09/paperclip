@@ -40,8 +40,14 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | AI-Connections | Modell-Discovery über AI-Gateways, archivierte Accounts ausblenden | `3b71215c5`, `175bd6929` | einreichen | upstream fix |
 | Decisions | Audiences, Briefs, native Agent-Diskussion | #7, #8 | – | **behalten** (Entscheidung 13.10.2026), mittelfristig als Plugin prüfen |
 | Environments | Run-Acquisitions reservieren, gemessene Runtime-Identität | #9 | – | **behalten** (Entscheidung 13.10.2026) |
-| Evidence | Evidence-Packs, Ausführung an reviewte Evidenz gebunden | #10 | – | **entfernen** (Entscheidung 13.10.2026) |
-| Governance | Governance-Verification-Service | #11 | – | **entfernen** (Entscheidung 13.10.2026) |
+| DB (Altlast) | Governance-Tabellen aus Migrationen 0336/0337 + Append-only-Trigger bleiben (Schema in `packages/db/src/schema/governance_verification.ts`, Lösch-Guard in `company-deletion.ts`, `session_replication_role` in Test-Cleanup) | #11 (Feature entfernt) | – | eigene, bewusst destruktive Drop-Migration nach Philipps OK |
 | CI | Fork-Workflows, GHCR lowercase, Integrations-Image mit k8s-Plugin | #18, #21, `65b8ffcf1` | – | dauerhaft (Fork-Infrastruktur) |
 | CI | `ci / policy` grün im Fork (lokaler pr-trusted, Sync-Lockfile) | #28 | – | dauerhaft |
 | E2B | Self-Hosted-Env an Worker durchreichen | #3 | einreichen | upstream fix |
+
+## Entfernt
+
+| Bereich | Zweck | Fork-PR | Entfernt |
+|---|---|---|---|
+| Evidence | Evidence-Packs, Ausführung an reviewte Evidenz gebunden | #10 | 15.10.2026 (Entscheidung 13.10.2026); keine Tabellen, nur JSON-Feld `executionPolicy.evidencePack` (wird jetzt ignoriert/verworfen) |
+| Governance | Governance-Verification-Service | #11 | 15.10.2026 (Entscheidung 13.10.2026); Tabellen bleiben, siehe Zeile „DB (Altlast)“ |

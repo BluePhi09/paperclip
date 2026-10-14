@@ -1042,12 +1042,6 @@ export async function selectHeartbeatRuntime(db: Db, input: HeartbeatRuntimeSele
         runnerProfileJson: sql`(case when ${heartbeatRuns.runnerProfileJson} ? ${CHAT_CONTROL_RECOVERY_ADMISSION_KEY}
                 then jsonb_build_object(${CHAT_CONTROL_RECOVERY_ADMISSION_KEY}::text, ${heartbeatRuns.runnerProfileJson}->${CHAT_CONTROL_RECOVERY_ADMISSION_KEY})
                 else '{}'::jsonb end)
-              || (case when ${heartbeatRuns.runnerProfileJson} ? 'evidenceAdmission'
-                then jsonb_build_object('evidenceAdmission', ${heartbeatRuns.runnerProfileJson}->'evidenceAdmission')
-                else '{}'::jsonb end)
-              || (case when ${heartbeatRuns.runnerProfileJson} ? 'evidenceReviewerAdmission'
-                then jsonb_build_object('evidenceReviewerAdmission', ${heartbeatRuns.runnerProfileJson}->'evidenceReviewerAdmission')
-                else '{}'::jsonb end)
               || (case when ${heartbeatRuns.runnerProfileJson} ? 'adapterDispatch'
                 then jsonb_build_object('adapterDispatch', ${heartbeatRuns.runnerProfileJson}->'adapterDispatch')
                 else '{}'::jsonb end) || ${JSON.stringify(providerTraceRequested ? { providerTrace: { mode: "raw", traceId: providerTraceCapture?.metadata.id ?? null, maxBytes: PROVIDER_TRACE_MAX_BYTES } } : {})}::jsonb`,

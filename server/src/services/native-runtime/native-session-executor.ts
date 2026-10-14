@@ -1,4 +1,3 @@
-import { revalidateEvidenceOperation } from "../evidence-pack.js";
 import { configuredEnvironment } from "../../vendor/paperclip-runner/index.js";
 import { apiKeyBillingType } from "@paperclipai/adapter-utils/api-billing-type";
 import { agents } from "@paperclipai/db";
@@ -6199,7 +6198,6 @@ export function nativeSessionFailureDisposition(
   sourceFailureCode?: ReturnType<typeof nativeSessionFailureSourceCode>,
 ) {
   const permanentFailure =
-    sourceFailureCode === "evidence_pack_denied" ||
     sourceFailureCode === "native_provider_runtime_missing" ||
     sourceFailureCode === "native_provider_model_rejected" ||
     sourceFailureCode === "native_provider_approval_required" ||
@@ -6254,7 +6252,6 @@ export function nativeSessionRecoveryProjection(input: {
 export function nativeSessionFailureSourceCode(
   error: unknown,
 ):
-  | "evidence_pack_denied"
   | "native_permission_declined"
   | "native_provider_terminal_failed"
   | "native_provider_approval_required"
@@ -6280,8 +6277,6 @@ export function nativeSessionFailureSourceCode(
   | "native_current_wake_comments_unread"
   | "native_current_wake_comments_changed_after_read"
   | "native_session_interrupted" {
-  const evidenceCode = (error as { details?: { code?: unknown } } | null)?.details?.code;
-  if (typeof evidenceCode === "string" && evidenceCode.startsWith("evidence_pack_")) return "evidence_pack_denied";
   if (error instanceof NativePermissionDeclinedError) return "native_permission_declined";
   if (error instanceof NativeProviderTerminalFailure) {
     if (error.providerCode === "approval_required") return "native_provider_approval_required";
@@ -8677,7 +8672,6 @@ async function executePaperclipNativeSessionWithinScope(
           executeNativeSession({
             resumeInterruptedTurn: input.restartRecovery?.kind === "resume_dead_runner",
             getFreshSessionHandoff: input.getFreshSessionHandoff,
-            onOperationAdmission: () => revalidateEvidenceOperation(input.db, input.execution.binding),
             onSessionAdmission: async () => {
               // Invalidate prior stop evidence before a backend can spawn.
               await appendHeartbeatRunEvent(input.db, {
@@ -9142,7 +9136,7 @@ async function executePaperclipNativeSessionWithinScope(
       const now = new Date();
       const classifiedFailureCode = nativeSessionFailureSourceCode(error);
       const sourceFailureCode =
-        classifiedFailureCode === "native_event_replay_conflict" || classifiedFailureCode === "evidence_pack_denied"
+        classifiedFailureCode === "native_event_replay_conflict"
           ? classifiedFailureCode
           : providerUsageLimitObserved
             ? "native_provider_usage_limit"

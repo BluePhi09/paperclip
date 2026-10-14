@@ -11,7 +11,6 @@ import { idleAdmissionMiddleware, trackIdleRequestHandlers } from "./middleware/
 import { isIdleTaskDrainActive, trackIdleWork } from "./services/task-admission.js";
 import { customerSuccessRoutes } from "./routes/customer-success.js";
 import { cloudWarmStandbyMiddleware } from "./middleware/cloud-warm-standby.js";
-import { governanceMachineBoundary, governanceOwnerRoutes } from "./routes/governance-verification.js";
 import type { CloudWarmStandby } from "./services/cloud-warm-standby.js";
 import { browserUseRoutes } from "./routes/browser-use.js";
 import { registerChatActionWork } from "./services/chat-action-work.js";
@@ -606,9 +605,6 @@ export async function createApp(
   const publicMcpOAuth = mcpConfig ? createPublicMcpOAuth(db, mcpConfig) : null;
   const publicMcpIngress = Router();
 
-  // Terminal machine credential boundary precedes all independent ingress and
-  // legacy actor resolution (especially local_trusted's implicit Board).
-  app.use(governanceMachineBoundary(db, { isStandby: isWarmStandby }));
   app.use(cloudRuntimeIdentityMiddleware(db));
   // A signed claim above commits identity before any normal request can seed
   // company data. Unclaimed probes bypass session resolution as well as SQL.
@@ -737,7 +733,6 @@ export async function createApp(
   const agentAvatars = agentAvatarRoutes();
   api.use(agentAvatars.router);
   api.use(boardMutationGuard());
-  api.use(governanceOwnerRoutes(db));
   api.use("/health", health);
   api.use(openApiRoutes());
   api.use("/cloud", cloudRoutes());
