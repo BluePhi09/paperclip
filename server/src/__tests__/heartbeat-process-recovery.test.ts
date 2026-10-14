@@ -11427,7 +11427,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     ).toBe(true);
   });
 
-  it("blocks an already stranded recovery issue without creating a recovery child", async () => {
+  it("parks an already stranded recovery issue with nothing to wake it in backlog without creating a recovery child", async () => {
     const { companyId, issueId } = await seedStrandedIssueFixture({
       status: "todo",
       runStatus: "failed",
@@ -11481,7 +11481,9 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(recoveryIssues).toHaveLength(1);
     expect(recoveryIssues[0]).toMatchObject({
       id: issueId,
-      status: "blocked",
+      // No unresolved blocker and no active recovery action: nothing can
+      // resume it, so it is parked in backlog (paperclipai/paperclip#14792).
+      status: "backlog",
       parentId: sourceIssueId,
       originId: sourceIssueId,
       originRunId: sourceRunId,
@@ -11516,10 +11518,11 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       `Recovery issue: [${recoveryIssues[0]?.identifier}]`,
     );
     expect(comments[0]?.body).toContain("Next action:");
+    expect(comments[0]?.body).toContain("Parked in `backlog`, not `blocked`");
     expect(comments[0]?.presentation).toMatchObject({
       kind: "system_notice",
       tone: "warning",
-      title: "Recovery: recovery attempt failed — remains blocked",
+      title: "Recovery: recovery attempt failed — parked in backlog",
       density: "compact",
     });
     expect(comments[0]?.metadata).toMatchObject({ version: 1 });
@@ -14074,7 +14077,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     );
   });
 
-  it("blocks stranded recovery issues in place instead of creating nested recovery issues", async () => {
+  it("parks stranded recovery issues in place instead of creating nested recovery issues", async () => {
     const sourceIssueId = randomUUID();
     const { companyId, agentId, issueId, runId } =
       await seedStrandedIssueFixture({
@@ -14118,7 +14121,9 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       .from(issues)
       .where(eq(issues.id, issueId))
       .then((rows) => rows[0] ?? null);
-    expect(recoveryIssue?.status).toBe("blocked");
+    // The recovery issue blocks its source but has no blocker or active
+    // recovery action of its own, so it is parked in backlog (#14792).
+    expect(recoveryIssue?.status).toBe("backlog");
     expect(recoveryIssue?.assigneeAgentId).toBe(agentId);
     expect(recoveryIssue?.originKind).toBe("stranded_issue_recovery");
     expect(recoveryIssue?.originId).toBe(sourceIssueId);
