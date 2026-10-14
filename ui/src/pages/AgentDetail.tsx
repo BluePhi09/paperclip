@@ -69,6 +69,7 @@ import { formatDate, relativeTime, formatTokens, visibleRunCostUsd, visibleRunTo
 import { cn } from "../lib/utils";
 import { RunRetryDetails } from "../components/RunRetryDetails";
 import { Button } from "@/components/ui/button";
+import { AgentGrantsEditor, type AgentGrantInput } from "../components/AgentGrantsEditor";
 import { Tabs } from "@/components/ui/tabs";
 import { PageTabBar } from "../components/PageTabBar";
 import { AuditFeed } from "./audit/AuditFeed";
@@ -2056,6 +2057,17 @@ export function ConfigurationTab({
   }, [agent, awaitingRefreshAfterSave]);
   const isConfigSaving = content !== "permissions" && (updateAgent.isPending || awaitingRefreshAfterSave);
 
+  const agentMembershipId = agent.access?.membership?.id ?? null;
+  const replaceAgentGrants = useMutation({
+    mutationFn: (grants: AgentGrantInput[]) =>
+      accessApi.updateMemberPermissions(agent.companyId, agentMembershipId!, { grants }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.urlKey) });
+      pushToast({ title: "Permission grants updated", tone: "success" });
+    },
+  });
+
   useEffect(() => {
     onSavingChange(isConfigSaving);
   }, [onSavingChange, isConfigSaving]);
@@ -2192,6 +2204,14 @@ export function ConfigurationTab({
           </div>
         </div>
       </div> : null}
+
+      {content === "permissions" ? <AgentGrantsEditor
+        grants={agent.access?.grants ?? []}
+        hasMembership={Boolean(agentMembershipId)}
+        pending={replaceAgentGrants.isPending}
+        error={replaceAgentGrants.error instanceof Error ? replaceAgentGrants.error.message : null}
+        onReplace={(grants) => replaceAgentGrants.mutate(grants)}
+      /> : null}
     </div>
   );
 }

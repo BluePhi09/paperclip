@@ -1308,7 +1308,13 @@ async function getProtectedMemberReason(
     // default "update" and "archive" paths still call loadCompanyMemberRecords
     // (human-only) after mutating, which would leak inconsistent state for
     // agent members — keep them blocked here.
-    if (operation === "update-grants") return null;
+    if (operation === "update-grants") {
+      // Agent grants are edited by humans only: an agent holding
+      // users:manage_permissions must not be able to widen its own (or a
+      // peer agent's) grants.
+      if (req.actor.type !== "board") return "Board access is required to edit agent grants.";
+      return null;
+    }
     return "Only human company members can be removed.";
   }
   if (req.actor.type !== "board") return "Board access is required to remove members.";
@@ -4675,6 +4681,9 @@ export function accessRoutes(
         details: {
           principalType: updated.principalType,
           grantCount: req.body.grants?.length ?? 0,
+          permissionKeys: (req.body.grants ?? []).map(
+            (grant: { permissionKey: string }) => grant.permissionKey,
+          ),
         },
       });
       if (agentGrants !== null) {

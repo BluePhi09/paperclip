@@ -289,4 +289,104 @@ describe("PATCH /companies/:companyId/members/:memberId/permissions", () => {
     expect(res.body.error).toContain("Only human company members can be removed");
     expect(mockAccessService.setMemberPermissions).not.toHaveBeenCalled();
   });
+  it("removes agent grants by replacing the set with the remaining grants", async () => {
+    mockAccessService.getMemberById.mockResolvedValue(agentMember);
+    const app = createApp(localImplicitBoardActor);
+
+    const res = await request(app)
+      .patch(`/api/companies/${companyId}/members/${agentMemberId}/permissions`)
+      .send({ grants: [{ permissionKey: "tasks:assign", scope: null }] });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAccessService.setMemberPermissions).toHaveBeenCalledWith(
+      companyId,
+      agentMemberId,
+      [{ permissionKey: "tasks:assign", scope: null }],
+      "local-board-user",
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId,
+        action: "company_member.permissions_updated",
+        entityId: agentMemberId,
+        details: expect.objectContaining({
+          principalType: "agent",
+          grantCount: 1,
+          permissionKeys: ["tasks:assign"],
+        }),
+      }),
+    );
+  });
+
+  it("rejects agent actors editing agent grants even when they hold users:manage_permissions", async () => {
+    mockAccessService.getMemberById.mockResolvedValue(agentMember);
+    mockAccessService.hasPermission.mockResolvedValue(true);
+    const app = createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_jwt",
+    } as unknown as Express.Request["actor"]);
+
+    const res = await request(app)
+      .patch(`/api/companies/${companyId}/members/${agentMemberId}/permissions`)
+      .send({ grants: [{ permissionKey: "users:manage_permissions", scope: null }] });
+
+    expect(res.status).toBe(403);
+    expect(mockAccessService.setMemberPermissions).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
+  it("rejects agent actors from another company", async () => {
+    const otherCompanyId = "88888888-8888-4888-8888-888888888888";
+    const app = createApp({
+      type: "agent",
+      agentId,
+      companyId: otherCompanyId,
+      runId: null,
+      source: "agent_jwt",
+    } as unknown as Express.Request["actor"]);
+
+    const res = await request(app)
+      .patch(`/api/companies/${companyId}/members/${agentMemberId}/permissions`)
+      .send({ grants: [] });
+
+    expect(res.status).toBe(403);
+    expect(mockAccessService.setMemberPermissions).not.toHaveBeenCalled();
+  });
+
+  it("rejects board users without users:manage_permissions in the company", async () => {
+    mockAccessService.getMemberById.mockResolvedValue(agentMember);
+    mockAccessService.canUser.mockResolvedValue(false);
+    const app = createApp({
+      type: "board",
+      userId: "viewer-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    } as unknown as Express.Request["actor"]);
+
+    const res = await request(app)
+      .patch(`/api/companies/${companyId}/members/${agentMemberId}/permissions`)
+      .send({ grants: [] });
+
+    expect(res.status).toBe(403);
+    expect(mockAccessService.setMemberPermissions).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for a member id that belongs to another company", async () => {
+    // getMemberById is scoped by (companyId, memberId), so a foreign member resolves to null.
+    mockAccessService.getMemberById.mockResolvedValue(null);
+    const app = createApp(localImplicitBoardActor);
+
+    const res = await request(app)
+      .patch(`/api/companies/${companyId}/members/${agentMemberId}/permissions`)
+      .send({ grants: [] });
+
+    expect(res.status).toBe(404);
+    expect(mockAccessService.getMemberById).toHaveBeenCalledWith(companyId, agentMemberId);
+    expect(mockAccessService.setMemberPermissions).not.toHaveBeenCalled();
+  });
 });
