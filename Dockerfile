@@ -50,14 +50,12 @@ COPY packages/plugins/plugin-workspace-diff/package.json packages/plugins/plugin
 COPY patches/ patches/
 COPY scripts/link-plugin-dev-sdk.mjs scripts/
 
-# PRs cannot commit lockfile updates. Preserve a current verified lockfile;
-# only resolve a newly added workspace package if frozen install rejects it.
+# Install exactly the checked-in lockfile. A stale lockfile must fail the
+# build instead of being re-resolved inside the image, so every image ships
+# the dependency graph that was reviewed and committed.
 # Never execute third-party lifecycle hooks as root; run only the trusted
 # repository hook required to link the excluded development plugins.
-RUN if ! pnpm install --frozen-lockfile --ignore-scripts; then \
-      pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile \
-      && pnpm install --frozen-lockfile --ignore-scripts; \
-    fi \
+RUN pnpm install --frozen-lockfile --ignore-scripts \
   && node scripts/link-plugin-dev-sdk.mjs
 
 FROM base AS rust-toolchain
