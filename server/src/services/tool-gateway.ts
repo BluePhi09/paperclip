@@ -1128,6 +1128,72 @@ const VIRTUAL_RUN_TOOL: ToolGatewayDescriptor = {
 
 const VIRTUAL_TOOLS = [VIRTUAL_SEARCH_TOOLS, VIRTUAL_RUN_TOOL];
 
+// A destructive tool call carries a formal request_board_approval next to its
+// confirmation card. Once the gateway expires or cancels the action request,
+// that approval can never authorize anything, so cancel it in the same
+// transaction instead of leaving it pending in the Board queue. Mirrors the
+// card-side cleanup in issue-thread-interactions (resolveLinkedToolActionRequests).
+export async function cancelFormalApprovalForResolvedToolAction(
+  tx: Pick<Db, "select" | "update" | "insert">,
+  input: {
+    companyId: string;
+    actionRequestId: string;
+    status: "expired" | "cancelled";
+    now: Date;
+  },
+) {
+  const [request] = await tx
+    .select({
+      approvalId: toolActionRequests.approvalId,
+      interactionId: toolActionRequests.interactionId,
+    })
+    .from(toolActionRequests)
+    .where(
+      and(
+        eq(toolActionRequests.id, input.actionRequestId),
+        eq(toolActionRequests.companyId, input.companyId),
+      ),
+    )
+    .limit(1);
+  if (!request?.approvalId) return null;
+  const [cancelled] = await tx
+    .update(approvals)
+    .set({
+      status: "cancelled",
+      decisionNote: `Linked tool action request ${input.status} before a decision`,
+      decidedAt: input.now,
+      updatedAt: input.now,
+    })
+    .where(
+      and(
+        eq(approvals.companyId, input.companyId),
+        eq(approvals.id, request.approvalId),
+        inArray(approvals.status, ["pending", "revision_requested"]),
+      ),
+    )
+    .returning({
+      id: approvals.id,
+      requestedByAgentId: approvals.requestedByAgentId,
+    });
+  if (!cancelled) return null;
+  await logActivity(tx as unknown as Db, {
+    companyId: input.companyId,
+    actorType: "system",
+    actorId: "tool-gateway",
+    action: "approval.cancelled",
+    entityType: "approval",
+    entityId: cancelled.id,
+    agentId: cancelled.requestedByAgentId ?? null,
+    details: {
+      reason: "linked_tool_action_request_resolved",
+      interactionId: request.interactionId ?? null,
+      actionRequestId: input.actionRequestId,
+      actionRequestStatus: input.status,
+    },
+  });
+  return cancelled.id;
+}
+
 export function createToolGatewayService(
   db: Db,
   options: {
@@ -6393,11 +6459,11 @@ export function createToolGatewayService(
       }
       if (payloadRecord.error !== undefined) {
         const errorRecord = asRecord(payloadRecord.error);
-        await markRemoteConnectionHealth(
-          connection,
-          "error",
-          "Remote MCP server returned a JSON-RPC error.",
-        );
+        // The server answered over MCP and rejected this one request (unknown
+        // tool, invalid arguments, a tool-level failure). That says nothing
+        // about the connection, so leave its health alone; marking it errored
+        // would hide every other tool of the connection until a reconnect.
+        // Same change as upstream paperclipai/paperclip#15448.
         throw new ToolGatewayHttpError(
           502,
           "Remote MCP server returned an error",
@@ -8417,15 +8483,26 @@ export function createToolGatewayService(
       pendingRequest.expiresAt.getTime() <= Date.now();
     if (pendingUnsigned || pendingExpired) {
       const now = new Date();
-      await db
-        .update(toolActionRequests)
-        .set({ status: "expired", resolvedAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(toolActionRequests.id, match.actionRequest.id),
-            eq(toolActionRequests.status, "pending"),
-          ),
-        );
+      await db.transaction(async (tx) => {
+        const [expired] = await tx
+          .update(toolActionRequests)
+          .set({ status: "expired", resolvedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(toolActionRequests.id, match.actionRequest.id),
+              eq(toolActionRequests.status, "pending"),
+            ),
+          )
+          .returning({ id: toolActionRequests.id });
+        if (expired) {
+          await cancelFormalApprovalForResolvedToolAction(tx, {
+            companyId: match.actionRequest.companyId,
+            actionRequestId: expired.id,
+            status: "expired",
+            now,
+          });
+        }
+      });
       await db
         .update(toolInvocations)
         .set({
@@ -9697,17 +9774,28 @@ export function createToolGatewayService(
             status === "failed"
               ? "Execution was interrupted; the external outcome is unknown. Inspect the provider before retrying."
               : "The approval request expired before a decision.";
-          const [changed] = await db
-            .update(toolActionRequests)
-            .set({ status, resolvedAt: now, updatedAt: now })
-            .where(
-              and(
-                eq(toolActionRequests.id, row.id),
-                eq(toolActionRequests.status, row.status),
-                eq(toolActionRequests.updatedAt, row.updatedAt),
-              ),
-            )
-            .returning();
+          const changed = await db.transaction(async (tx) => {
+            const [updated] = await tx
+              .update(toolActionRequests)
+              .set({ status, resolvedAt: now, updatedAt: now })
+              .where(
+                and(
+                  eq(toolActionRequests.id, row.id),
+                  eq(toolActionRequests.status, row.status),
+                  eq(toolActionRequests.updatedAt, row.updatedAt),
+                ),
+              )
+              .returning();
+            if (updated && status === "expired") {
+              await cancelFormalApprovalForResolvedToolAction(tx, {
+                companyId: row.companyId,
+                actionRequestId: row.id,
+                status,
+                now,
+              });
+            }
+            return updated;
+          });
           if (!changed) continue;
           await db
             .update(toolInvocations)
@@ -9836,19 +9924,31 @@ export function createToolGatewayService(
       }
       if (!signedPayload) {
         if (actionRequest.status === "pending") {
-          await db
-            .update(toolActionRequests)
-            .set({
-              status: "cancelled",
-              resolvedAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(toolActionRequests.id, actionRequest.id),
-                eq(toolActionRequests.status, "pending"),
-              ),
-            );
+          const cancelledAt = new Date();
+          await db.transaction(async (tx) => {
+            const [cancelled] = await tx
+              .update(toolActionRequests)
+              .set({
+                status: "cancelled",
+                resolvedAt: cancelledAt,
+                updatedAt: cancelledAt,
+              })
+              .where(
+                and(
+                  eq(toolActionRequests.id, actionRequest.id),
+                  eq(toolActionRequests.status, "pending"),
+                ),
+              )
+              .returning({ id: toolActionRequests.id });
+            if (cancelled) {
+              await cancelFormalApprovalForResolvedToolAction(tx, {
+                companyId: actionRequest.companyId,
+                actionRequestId: cancelled.id,
+                status: "cancelled",
+                now: cancelledAt,
+              });
+            }
+          });
         }
         await reflectToolActionInteractionLifecycle({
           actionRequestId: actionRequest.id,
@@ -10350,20 +10450,31 @@ export function createToolGatewayService(
           actionRequest.expiresAt.getTime() <= Date.now()
         ) {
           const expiredAt = new Date();
-          const [expired] = await db
-            .update(toolActionRequests)
-            .set({
-              status: "expired",
-              resolvedAt: expiredAt,
-              updatedAt: expiredAt,
-            })
-            .where(
-              and(
-                eq(toolActionRequests.id, actionRequest.id),
-                inArray(toolActionRequests.status, ["pending", "approved"]),
-              ),
-            )
-            .returning({ id: toolActionRequests.id });
+          const expired = await db.transaction(async (tx) => {
+            const [row] = await tx
+              .update(toolActionRequests)
+              .set({
+                status: "expired",
+                resolvedAt: expiredAt,
+                updatedAt: expiredAt,
+              })
+              .where(
+                and(
+                  eq(toolActionRequests.id, actionRequest.id),
+                  inArray(toolActionRequests.status, ["pending", "approved"]),
+                ),
+              )
+              .returning({ id: toolActionRequests.id });
+            if (row) {
+              await cancelFormalApprovalForResolvedToolAction(tx, {
+                companyId: actionRequest.companyId,
+                actionRequestId: row.id,
+                status: "expired",
+                now: expiredAt,
+              });
+            }
+            return row;
+          });
           if (expired) {
             await reflectToolActionInteractionLifecycle({
               actionRequestId: expired.id,
