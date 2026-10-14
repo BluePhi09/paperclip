@@ -35,6 +35,7 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | Server | Cross-Issue-Cap am ausgecheckten Issue (Timer-Runs) | #25 (Draft) | upstream #15090 offen | upstream merged #15090 |
 | Server | Cross-Issue-Limit per Env | Port von upstream #15320 | offen | upstream merged #15320 |
 | Server | Rollen-Default-Grants beim Schreiben erhalten | Port von upstream #15917 | offen | upstream merged #15917 |
+| Server/UI | Board bearbeitet Agent-Grants (PATCH /members/:id/permissions für Agent-Principals, nur Board; Grant-Editor auf Agent-Seite) | Port von upstream #6358 + Fork-Erweiterung | #6358 offen | upstream merged #6358 + Grant-Editor-UI |
 | Server | Wakeup/Release in offener Transaktion | upstream #14257 | offen | upstream merged #14257 |
 | Server | Adapter-Runtime für Environment-Tests | `de852e0cf` | einreichen | upstream fix |
 | AI-Connections | Modell-Discovery über AI-Gateways, archivierte Accounts ausblenden | `3b71215c5`, `175bd6929` | einreichen | upstream fix |

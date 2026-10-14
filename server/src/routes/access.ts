@@ -49,7 +49,7 @@ import {
   PERMISSION_KEYS,
   isUuidLike,
 } from "@paperclipai/shared";
-import type { DeploymentExposure, DeploymentMode, HumanCompanyMembershipRole } from "@paperclipai/shared";
+import type { DeploymentExposure, DeploymentMode, HumanCompanyMembershipRole, PrincipalType } from "@paperclipai/shared";
 import {
   forbidden,
   conflict,
@@ -1297,10 +1297,26 @@ async function getProtectedMemberReason(
   opts?: {
     actorRole?: HumanCompanyMembershipRole | null;
     instanceAdminUserIds?: ReadonlySet<string>;
-    operation?: "archive" | "update";
+    operation?: "archive" | "update" | "update-grants";
   },
 ): Promise<string | null> {
-  if (member.principalType !== "user") return "Only human company members can be removed.";
+  const operation = opts?.operation ?? "update";
+  if (member.principalType !== "user") {
+    // Non-human (e.g. agent) memberships: only the explicit "update-grants"
+    // path is allowed, so callers with users:manage_permissions can adjust
+    // scoped grants on agent principals through PATCH /permissions. The
+    // default "update" and "archive" paths still call loadCompanyMemberRecords
+    // (human-only) after mutating, which would leak inconsistent state for
+    // agent members — keep them blocked here.
+    if (operation === "update-grants") {
+      // Agent grants are edited by humans only: an agent holding
+      // users:manage_permissions must not be able to widen its own (or a
+      // peer agent's) grants.
+      if (req.actor.type !== "board") return "Board access is required to edit agent grants.";
+      return null;
+    }
+    return "Only human company members can be removed.";
+  }
   if (req.actor.type !== "board") return "Board access is required to remove members.";
   if (member.principalId === req.actor.userId) return "You cannot remove yourself.";
   const isTargetInstanceAdmin = opts?.instanceAdminUserIds
@@ -1332,7 +1348,7 @@ async function assertCanManageCompanyMember(
   access: ReturnType<typeof accessService>,
   companyId: string,
   member: { principalId: string; principalType: string; membershipRole: string | null },
-  operation: "archive" | "update" = "update",
+  operation: "archive" | "update" | "update-grants" = "update",
 ) {
   const reason = await getProtectedMemberReason(req, access, companyId, member, { operation });
   if (reason) throw forbidden(reason);
@@ -4635,7 +4651,7 @@ export function accessRoutes(
       await assertCompanyPermission(req, companyId, "users:manage_permissions");
       const memberToUpdate = await access.getMemberById(companyId, memberId);
       if (!memberToUpdate) throw notFound("Member not found");
-      await assertCanManageCompanyMember(req, access, companyId, memberToUpdate);
+      await assertCanManageCompanyMember(req, access, companyId, memberToUpdate, "update-grants");
       const updated = await access.setMemberPermissions(
         companyId,
         memberId,
@@ -4643,6 +4659,18 @@ export function accessRoutes(
         req.actor.userId ?? null
       );
       if (!updated) throw notFound("Member not found");
+      // For agent principals we read back grants directly because
+      // loadCompanyMemberRecords is human-only. Do the readback before
+      // writing the activity log so a readback failure does not leave a
+      // duplicate log row on the inevitable client retry.
+      let agentGrants: Awaited<ReturnType<typeof access.listPrincipalGrants>> | null = null;
+      if (updated.principalType !== "user") {
+        agentGrants = await access.listPrincipalGrants(
+          companyId,
+          updated.principalType as PrincipalType,
+          updated.principalId,
+        );
+      }
       await logActivity(db, {
         companyId,
         actorType: "user",
@@ -4651,9 +4679,20 @@ export function accessRoutes(
         entityType: "company_membership",
         entityId: memberId,
         details: {
+          principalType: updated.principalType,
           grantCount: req.body.grants?.length ?? 0,
+          permissionKeys: (req.body.grants ?? []).map(
+            (grant: { permissionKey: string }) => grant.permissionKey,
+          ),
         },
       });
+      if (agentGrants !== null) {
+        res.json({
+          ...updated,
+          grants: agentGrants,
+        });
+        return;
+      }
       const member = (await loadCompanyMemberRecords(db, companyId)).find(
         (entry) => entry.id === memberId,
       );
