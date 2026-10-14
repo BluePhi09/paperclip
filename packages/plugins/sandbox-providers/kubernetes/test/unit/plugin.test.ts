@@ -15,6 +15,24 @@ describe("plugin", () => {
     expect(properties.backend.enum).toEqual(["sandbox-cr"]);
     expect(properties.paperclipServerPodSelector.additionalProperties).toEqual({ type: "string" });
   });
+  it("exposes defaultResources and sandboxVolumes in the manifest schema so the board UI can render them", () => {
+    const properties = manifest.environmentDrivers?.[0]?.configSchema?.properties as Record<string, any>;
+    expect(properties.defaultResources.type).toBe("object");
+    for (const group of ["requests", "limits"]) {
+      expect(Object.keys(properties.defaultResources.properties[group].properties)).toEqual(["cpu", "memory"]);
+    }
+    expect(properties.sandboxVolumes.type).toBe("object");
+    expect(Object.keys(properties.sandboxVolumes.properties).sort()).toEqual([
+      "cacheSizeLimit",
+      "homeSizeLimit",
+      "tmpSizeLimit",
+      "workspaceSizeLimit",
+    ]);
+    expect(properties.sandboxVolumes.properties.tmpSizeLimit.description).toContain("8Gi");
+    const pattern = new RegExp(properties.sandboxVolumes.properties.tmpSizeLimit.pattern);
+    expect(pattern.test("8Gi")).toBe(true);
+    expect(pattern.test("8GB")).toBe(false);
+  });
   it("exports the kubernetes driver", () => {
     expect(plugin.definition.onEnvironmentAcquireLease).toBeTypeOf("function");
     expect(plugin.definition.onEnvironmentValidateConfig).toBeTypeOf("function");

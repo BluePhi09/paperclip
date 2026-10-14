@@ -1,4 +1,5 @@
 import { resolveImagePullPolicy } from "./image-allowlist.js";
+import { buildSandboxVolumes, type SandboxVolumesConfig } from "./sandbox-volumes.js";
 
 export interface BuildJobManifestInput {
   namespace: string;
@@ -22,6 +23,8 @@ export interface BuildJobManifestInput {
    * out-of-band and have no registry path at pod-start time.
    */
   preloadedImages?: boolean;
+  /** Optional emptyDir `sizeLimit` overrides; unset fields use the plugin defaults. */
+  volumes?: SandboxVolumesConfig;
 }
 
 export function buildJobManifest(input: BuildJobManifestInput): Record<string, unknown> {
@@ -94,12 +97,7 @@ export function buildJobManifest(input: BuildJobManifestInput): Record<string, u
               ],
             },
           ],
-          volumes: [
-            { name: "workspace", emptyDir: { sizeLimit: "8Gi" } },
-            { name: "home", emptyDir: { sizeLimit: "1Gi" } },
-            { name: "cache", emptyDir: { sizeLimit: "1Gi" } },
-            { name: "tmp", emptyDir: { sizeLimit: "2Gi" } },
-          ],
+          volumes: buildSandboxVolumes(input.volumes),
         },
       },
     },

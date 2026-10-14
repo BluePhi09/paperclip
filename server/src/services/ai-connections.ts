@@ -45,6 +45,7 @@ import { logger } from "../middleware/logger.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
 import { probeAiConnectionUsage } from "./ai-connection-usage.js";
+import { ClaudeOauthRefreshError, claudeAccessTokenOf, parseClaudeOauthCredential, resolveClaudeAccessToken } from "./claude-oauth-credential.js";
 import { createAiModelCatalog } from "./ai-connection-models.js";
 
 const readModelCatalog = createAiModelCatalog();
@@ -60,6 +61,22 @@ function canUseCredential(
   return grant.kind === "organization" && (
     audience.length === 0 || audience.some((member) => member.subjectType === "user" && member.subjectId === userId)
   );
+}
+
+const CLAUDE_REFRESH_REFUSED_MESSAGE = "The Claude subscription refresh token was refused. Sign in again to restore this AI connection.";
+const CLAUDE_REFUSAL_RECHECKS = 3;
+const CLAUDE_REFUSAL_RECHECK_MS = 1000;
+const claudeRefreshQueues = new Map<string, Promise<unknown>>();
+/** Run `fn` after earlier refreshes of the same secret finish. */
+function withClaudeRefreshMutex<T>(secretId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = claudeRefreshQueues.get(secretId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(fn);
+  const tail = next.catch(() => undefined);
+  claudeRefreshQueues.set(secretId, tail);
+  void tail.then(() => {
+    if (claudeRefreshQueues.get(secretId) === tail) claudeRefreshQueues.delete(secretId);
+  });
+  return next;
 }
 
 export function aiConnectionService(db: Db) {
@@ -495,7 +512,8 @@ export function aiConnectionService(db: Db) {
     }
     return { ...row, provider };
   }
-  async function credential(row: Pick<Awaited<ReturnType<typeof select>>, "connection" | "grant">, retry = 0, audit?: { responsibleUserId: string | null; actorType: "user" | "agent" | "system"; actorId: string; issueId?: string | null; heartbeatRunId?: string | null }): Promise<string> {
+  type CredentialAudit = { responsibleUserId: string | null; actorType: "user" | "agent" | "system"; actorId: string; issueId?: string | null; heartbeatRunId?: string | null };
+  async function credentialRaw(row: Pick<Awaited<ReturnType<typeof select>>, "connection" | "grant">, retry = 0, audit?: CredentialAudit): Promise<string> {
     const metadata = aiConnectionMetadataSchema.parse(row.connection.config.ai);
     if (metadata.routing?.auth === "none") return "";
     const ref = row.grant.credentialSecretRefs.find(
@@ -559,9 +577,128 @@ export function aiConnectionService(db: Db) {
     if (!latest || latest.status !== "active") throw unprocessable("Reconnect this AI account");
     if (latest.latestVersion !== secret.latestVersion) {
       if (retry >= 2) throw unprocessable("AI credentials are changing. Retry this execution.", { code: "ai_connection_busy" });
-      return credential(row, retry + 1, audit);
+      return credentialRaw(row, retry + 1, audit);
     }
     return value;
+  }
+  /**
+   * The credential to inject. A Claude subscription secret holds the full OAuth
+   * fields. This renews the access token under a lock on the secret row and
+   * returns only the access token. Other credentials are returned unchanged.
+   */
+  async function credential(row: Pick<Awaited<ReturnType<typeof select>>, "connection" | "grant">, retry = 0, audit?: CredentialAudit): Promise<string> {
+    const retriesLeft = Math.max(0, 1 - retry);
+    const raw = await credentialRaw(row, 0, audit);
+    const metadata = aiConnectionMetadataSchema.safeParse(row.connection.config?.ai);
+    if (!metadata.success || metadata.data.provider !== "anthropic" || metadata.data.method !== "subscription") return raw;
+    const ref = row.grant.credentialSecretRefs.find((r) => r.configPath === "ai.credential");
+    if (!ref) return raw;
+    let attempted = raw;
+    let version: number | undefined;
+    try {
+      return await resolveClaudeAccessToken(raw, {
+        // Refreshes of one secret run one at a time in this process. No database
+        // transaction or row lock is held while the provider request runs, so the
+        // lock order of rotate() is unchanged and no extra connection is held. The
+        // write uses expectedLatestVersion, so a reconnect always wins the race.
+        withLock: (fn) => withClaudeRefreshMutex(ref.secretId, () => fn({
+          readRaw: async () => {
+            const [secret] = await db
+              .select({ latestVersion: companySecrets.latestVersion })
+              .from(companySecrets)
+              .where(and(eq(companySecrets.id, ref.secretId), eq(companySecrets.companyId, row.connection.companyId)));
+            version = secret?.latestVersion;
+            attempted = await credentialRaw(row);
+            return attempted;
+          },
+          // A refresh is not a new login: keep the session epoch.
+          writeRaw: async (value) => {
+            await secretService(db).rotate(
+              ref.secretId,
+              { value, preserveAiSessionEpoch: true, ...(version !== undefined ? { expectedLatestVersion: version } : {}) },
+              { userId: row.grant.subjectUserId },
+            );
+            await restoreAfterRefusedRefresh(row);
+          },
+        })),
+      });
+    } catch (error) {
+      // A reconnect replaced the secret while the provider request ran. Use the new credential.
+      if ((error as { status?: number })?.status === 409 && retriesLeft > 0) return credential(row, retry + 1, audit);
+      if (error instanceof ClaudeOauthRefreshError) {
+        if (error.rejected && retriesLeft > 0) {
+          // Another server process may have rotated the refresh token first and
+          // not saved it yet. Wait a short time for its value before the refusal counts.
+          const refused = parseClaudeOauthCredential(attempted)?.claudeAiOauth.refreshToken;
+          for (let poll = 0; poll < CLAUDE_REFUSAL_RECHECKS; poll++) {
+            const current = parseClaudeOauthCredential(await credentialRaw(row))?.claudeAiOauth.refreshToken;
+            if (current && refused && current !== refused) return credential(row, retry + 1, audit);
+            await new Promise((resolve) => setTimeout(resolve, CLAUDE_REFUSAL_RECHECK_MS));
+          }
+        }
+        if (error.rejected) await markRefreshRefused(row, ref.secretId, attempted);
+        throw unprocessable(
+          error.rejected ? "Reconnect this AI account" : "The Claude subscription token could not be refreshed. Try again.",
+          {
+            code: error.rejected ? "ai_connection_reauth_required" : "ai_connection_refresh_unavailable",
+            reason: error.message,
+          },
+        );
+      }
+      throw error;
+    }
+  }
+  /**
+   * A renewal succeeded. Undo a refusal that another process recorded while this
+   * renewal was still in flight. Only a mark made by the refusal path is undone.
+   */
+  async function restoreAfterRefusedRefresh(row: Pick<Awaited<ReturnType<typeof select>>, "connection" | "grant">) {
+    await db.transaction(async (tx) => {
+      // Lock the grant before the connection, like save() does.
+      await tx.select({ id: connectionGrants.id }).from(connectionGrants)
+        .where(eq(connectionGrants.id, row.grant.id)).for("update");
+      const [connection] = await tx.select({ healthMessage: toolConnections.healthMessage }).from(toolConnections)
+        .where(eq(toolConnections.id, row.connection.id)).for("update");
+      if (connection?.healthMessage !== CLAUDE_REFRESH_REFUSED_MESSAGE) return;
+      await tx.update(connectionGrants).set({ status: "active", updatedAt: new Date() })
+        .where(and(eq(connectionGrants.id, row.grant.id), eq(connectionGrants.status, "needs_reauthorization")));
+      await tx.update(toolConnections).set({ healthStatus: "ok", healthMessage: null, updatedAt: new Date() })
+        .where(eq(toolConnections.id, row.connection.id));
+    });
+  }
+  /**
+   * The provider refused the refresh token. Mark the grant as needing sign-in,
+   * but only if the stored credential is still the one that was refused. A
+   * reconnect or another renewal in the meantime keeps the grant healthy.
+   */
+  async function markRefreshRefused(
+    row: Pick<Awaited<ReturnType<typeof select>>, "connection" | "grant">,
+    secretId: string,
+    refused: string,
+  ) {
+    await db.transaction(async (tx) => {
+      const [grant] = await tx.select().from(connectionGrants).where(and(
+        eq(connectionGrants.companyId, row.connection.companyId),
+        eq(connectionGrants.id, row.grant.id),
+      )).for("update");
+      if (!grant || grant.status !== "active") return;
+      await tx.select({ id: companySecrets.id }).from(companySecrets).where(and(
+        eq(companySecrets.companyId, row.connection.companyId), eq(companySecrets.id, secretId),
+      )).for("update");
+      const current = await aiConnectionService(tx as unknown as Db).credentialRaw({ connection: row.connection, grant });
+      const refusedToken = parseClaudeOauthCredential(refused)?.claudeAiOauth.refreshToken;
+      if (!refusedToken || parseClaudeOauthCredential(current)?.claudeAiOauth.refreshToken !== refusedToken) return;
+      await tx.update(connectionGrants).set({ status: "needs_reauthorization", updatedAt: new Date() })
+        .where(eq(connectionGrants.id, grant.id));
+      await tx.update(toolConnections).set({ healthStatus: "error", healthMessage: CLAUDE_REFRESH_REFUSED_MESSAGE, updatedAt: new Date() })
+        .where(eq(toolConnections.id, row.connection.id));
+      await logActivity(tx as unknown as Db, {
+        companyId: row.connection.companyId, actorType: "system", actorId: "ai_credential_refresh",
+        action: "ai_connection.authentication_failed",
+        entityType: "tool_connection", entityId: row.connection.id,
+        details: { provider: "anthropic", grantId: grant.id },
+      });
+    });
   }
   async function save(
     companyId: string,
@@ -1029,7 +1166,10 @@ export function aiConnectionService(db: Db) {
         await tx.select({ id: companySecrets.id }).from(companySecrets).where(and(
           eq(companySecrets.companyId, input.companyId), eq(companySecrets.id, ref.secretId),
         )).for("update");
-        const value = await aiConnectionService(tx as unknown as Db).credential({ connection, grant });
+        // The run injected the access token, so the identity hashes that token.
+        // After a Claude renewal the old token no longer matches, and a late failure is ignored.
+        const raw = await aiConnectionService(tx as unknown as Db).credentialRaw({ connection, grant });
+        const value = claudeAccessTokenOf(raw);
         const generation = createHash("sha256").update(value).digest("hex").slice(0, 16);
         if (attribution.identity !== `${grant.id}:${attribution.responsibleUserId ?? "shared"}:${generation}`) return;
         // A quota exchange may have consumed this run's token before a failed
@@ -1160,5 +1300,5 @@ export function aiConnectionService(db: Db) {
       return [{ ...row, summary }];
     });
   }
-  return { list, selectDecision, selectFastResponse, quotaAccounts, subscriptionAccounts: (companyId: string, userId: string) => quotaAccounts(companyId, userId, true), refreshQuotaCredential, select, credential, runtimeCredential, probeUsage, models, save, setDefault, membership, markAuthenticationFailed };
+  return { list, selectDecision, selectFastResponse, quotaAccounts, subscriptionAccounts: (companyId: string, userId: string) => quotaAccounts(companyId, userId, true), refreshQuotaCredential, select, credential, credentialRaw, runtimeCredential, probeUsage, models, save, setDefault, membership, markAuthenticationFailed };
 }

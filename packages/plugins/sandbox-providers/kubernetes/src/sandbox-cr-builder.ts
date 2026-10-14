@@ -17,6 +17,7 @@
  */
 
 import { resolveImagePullPolicy } from "./image-allowlist.js";
+import { buildSandboxVolumes, type SandboxVolumesConfig } from "./sandbox-volumes.js";
 
 export interface BuildSandboxCrManifestInput {
   namespace: string;
@@ -38,6 +39,8 @@ export interface BuildSandboxCrManifestInput {
    * out-of-band and have no registry path at pod-start time.
    */
   preloadedImages?: boolean;
+  /** Optional emptyDir `sizeLimit` overrides; unset fields use the plugin defaults. */
+  volumes?: SandboxVolumesConfig;
   /**
    * Provider-side hard stop for a lease with a caller-requested deadline. A
    * crash or an outage on paperclip-server must not leave the pod running
@@ -159,12 +162,7 @@ export function buildSandboxCrManifest(
               ],
             },
           ],
-          volumes: [
-            { name: "workspace", emptyDir: { sizeLimit: "8Gi" } },
-            { name: "home", emptyDir: { sizeLimit: "1Gi" } },
-            { name: "cache", emptyDir: { sizeLimit: "1Gi" } },
-            { name: "tmp", emptyDir: { sizeLimit: "2Gi" } },
-          ],
+          volumes: buildSandboxVolumes(input.volumes),
         },
       },
     },

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adapterRegistrySchema } from "./adapter-registry.js";
 import { KNOWN_ADAPTER_TYPES } from "./adapter-defaults.js";
+import { isValidStorageQuantity } from "./sandbox-volumes.js";
 
 const cidrRegex = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
 
@@ -19,6 +20,24 @@ export function isValidLabelKey(key: string): boolean {
 export function isValidLabelValue(value: string): boolean {
   return value === "" || labelNameRegex.test(value);
 }
+
+const storageQuantity = z
+  .string()
+  .refine(isValidStorageQuantity, "must be a positive Kubernetes storage quantity such as 8Gi or 512Mi");
+
+/**
+ * Optional `sizeLimit` overrides for the writable emptyDir volumes that back
+ * the read-only-rootFS agent container. Unset fields keep the defaults in
+ * `DEFAULT_SANDBOX_VOLUME_SIZE_LIMITS` (sandbox-volumes.ts).
+ */
+export const sandboxVolumesSchema = z
+  .object({
+    workspaceSizeLimit: storageQuantity.optional(),
+    homeSizeLimit: storageQuantity.optional(),
+    cacheSizeLimit: storageQuantity.optional(),
+    tmpSizeLimit: storageQuantity.optional(),
+  })
+  .strict();
 
 export const kubernetesProviderConfigSchema = z
   .object({
@@ -58,6 +77,13 @@ export const kubernetesProviderConfigSchema = z
         limits: z.object({ cpu: z.string(), memory: z.string() }).partial().optional(),
       })
       .optional(),
+
+    /**
+     * Optional `sizeLimit` overrides for the sandbox emptyDir volumes
+     * (`/workspace`, `/home/paperclip`, `/home/paperclip/.cache`, `/tmp`).
+     * Defaults: workspace 8Gi, home 1Gi, cache 1Gi, tmp 8Gi.
+     */
+    sandboxVolumes: sandboxVolumesSchema.optional(),
 
     runtimeClassName: z.string().optional(),
     serviceAccountAnnotations: z.record(z.string()).default({}),

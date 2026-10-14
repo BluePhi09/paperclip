@@ -58,4 +58,42 @@ describe("kubernetesProviderConfigSchema", () => {
     const result = kubernetesProviderConfigSchema.safeParse({ inCluster: true, paperclipServerPodSelector: selector });
     expect(result.success).toBe(false);
   });
+
+  it("accepts sandboxVolumes size limits as Kubernetes storage quantities", () => {
+    const parsed = parseKubernetesProviderConfig({
+      inCluster: true,
+      sandboxVolumes: { tmpSizeLimit: "8Gi", workspaceSizeLimit: "20G", homeSizeLimit: "1.5Gi", cacheSizeLimit: "512Mi" },
+    });
+    expect(parsed.sandboxVolumes).toEqual({
+      tmpSizeLimit: "8Gi",
+      workspaceSizeLimit: "20G",
+      homeSizeLimit: "1.5Gi",
+      cacheSizeLimit: "512Mi",
+    });
+  });
+
+  it("leaves sandboxVolumes unset by default", () => {
+    expect(parseKubernetesProviderConfig({ inCluster: true }).sandboxVolumes).toBeUndefined();
+  });
+
+  it.each([["8GB"], ["8 Gi"], ["-1Gi"], ["0"], ["0Gi"], ["Gi"], [""], ["8gi"], ["1e3"]])(
+    "rejects an invalid sandboxVolumes.tmpSizeLimit %j",
+    (value) => {
+      const result = kubernetesProviderConfigSchema.safeParse({ inCluster: true, sandboxVolumes: { tmpSizeLimit: value } });
+      expect(result.success).toBe(false);
+    },
+  );
+
+  it("rejects unknown sandboxVolumes keys", () => {
+    const result = kubernetesProviderConfigSchema.safeParse({ inCluster: true, sandboxVolumes: { tmp: "8Gi" } });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts defaultResources requests and limits", () => {
+    const parsed = parseKubernetesProviderConfig({
+      inCluster: true,
+      defaultResources: { requests: { cpu: "500m", memory: "1Gi" }, limits: { memory: "8Gi" } },
+    });
+    expect(parsed.defaultResources).toEqual({ requests: { cpu: "500m", memory: "1Gi" }, limits: { memory: "8Gi" } });
+  });
 });

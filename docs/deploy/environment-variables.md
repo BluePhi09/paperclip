@@ -30,6 +30,7 @@ All environment variables that Paperclip uses for server configuration.
 | `PAPERCLIP_SETTING_DEFAULTS` | (unset) | JSON object replacing the schema default of selected instance settings, for hosting operators. See [Operator setting defaults](#operator-setting-defaults). |
 | `PAPERCLIP_MAX_CONCURRENT_RUNS_PER_AGENT` | (unset) | Upper bound on every agent's effective `runtimeConfig.heartbeat.maxConcurrentRuns`, including the built-in default of `20` that new and imported agents receive. Positive integer, capped at `50`; unset, empty, `0`, negative, or non-numeric means no extra ceiling. The stored agent config is not rewritten; the scheduler uses `min(configured, ceiling)`. See [Run concurrency caps](#run-concurrency-caps). |
 | `PAPERCLIP_MAX_CONCURRENT_RUNS_TOTAL` | (unset) | Instance-wide ceiling on heartbeat runs in `running` state across all agents and companies. Positive integer; unset, empty, `0`, negative, or non-numeric means no instance cap. Runs that would exceed it stay `queued` and start once slots free up. See [Run concurrency caps](#run-concurrency-caps). |
+| `PAPERCLIP_CROSS_ISSUE_INFLUENCE_LIMIT` | `20` | Maximum number of writes one heartbeat run can make to issues other than its source issue. The value is a positive integer and applies to every agent on the server. An empty, zero, negative, or non-integer value is ignored and the default stays in force. |
 
 Daytona connectivity for `paperclip_runner` uses authenticated provider
 WebSocket ingress and follows the instance experimental setting

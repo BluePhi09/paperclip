@@ -6,6 +6,7 @@ import { readCodexAuthInfo, fetchCodexQuota } from "@paperclipai/adapter-codex-l
 import { parseGrokAuthPayload, hasUsableGrokAuthValue } from "@paperclipai/adapter-grok-local/server";
 import type { AiProvider } from "@paperclipai/shared";
 import { unprocessable } from "../errors.js";
+import { storedClaudeCredential } from "./claude-oauth-credential.js";
 
 /** Read and verify a connection-specific login home. */
 export async function readVerifiedLocalAiCredential(provider: AiProvider, loginHome?: string): Promise<string> {
@@ -18,13 +19,19 @@ export async function readVerifiedLocalAiCredential(provider: AiProvider, loginH
       // Never change process.env or fall back to the server account when an
       // authenticated user's isolated login is missing or invalid.
       let token: string | null = null;
+      // Full OAuth fields (with the refresh token) when the login file has them.
+      let stored: string | null = null;
       for (const name of [".credentials.json", "credentials.json"]) {
         const raw = await readLocalAiCredentialFile(path.join(loginHome, name)).catch(() => null);
         if (!raw) continue;
         let parsed;
         try { parsed = JSON.parse(raw); } catch { continue; }
         const value = parsed?.claudeAiOauth?.accessToken;
-        if (typeof value === "string" && value.length) { token = value; break; }
+        if (typeof value === "string" && value.length) {
+          token = value;
+          stored = storedClaudeCredential(parsed.claudeAiOauth);
+          break;
+        }
       }
       // On macOS the CLI stores the isolated login in the auth home's own
       // suffixed Keychain item rather than a credentials file. The helper
@@ -35,7 +42,7 @@ export async function readVerifiedLocalAiCredential(provider: AiProvider, loginH
       // requires user:profile and returns 403 for that valid token, so it cannot
       // serve as a sign-in check. This isolated credential is written only after
       // the provider CLI completes the code exchange successfully.
-      return token;
+      return stored ?? token;
     }
     if (provider === "openai") {
       const auth = await readCodexAuthInfo(loginHome);

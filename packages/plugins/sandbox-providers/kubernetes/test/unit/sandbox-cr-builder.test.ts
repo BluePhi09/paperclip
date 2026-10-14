@@ -178,4 +178,23 @@ describe("buildSandboxCrManifest", () => {
     });
     expect(cr.spec.podTemplate.spec.containers[0].imagePullPolicy).toBe("IfNotPresent");
   });
+
+  it("defaults emptyDir size limits to workspace 8Gi, home 1Gi, cache 1Gi, tmp 8Gi", () => {
+    const cr = buildSandboxCrManifest(baseInput);
+    const limits = Object.fromEntries(
+      cr.spec.podTemplate.spec.volumes.map((v: { name: string; emptyDir: { sizeLimit: string } }) => [v.name, v.emptyDir.sizeLimit]),
+    );
+    expect(limits).toEqual({ workspace: "8Gi", home: "1Gi", cache: "1Gi", tmp: "8Gi" });
+  });
+
+  it("applies configured emptyDir size limits and keeps defaults for unset volumes", () => {
+    const cr = buildSandboxCrManifest({
+      ...baseInput,
+      volumes: { tmpSizeLimit: "12Gi", homeSizeLimit: "2Gi", cacheSizeLimit: "4Gi" },
+    });
+    const limits = Object.fromEntries(
+      cr.spec.podTemplate.spec.volumes.map((v: { name: string; emptyDir: { sizeLimit: string } }) => [v.name, v.emptyDir.sizeLimit]),
+    );
+    expect(limits).toEqual({ workspace: "8Gi", home: "2Gi", cache: "4Gi", tmp: "12Gi" });
+  });
 });

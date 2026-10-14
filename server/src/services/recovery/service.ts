@@ -911,6 +911,29 @@ function isRepeatedProductiveContinuationRecovery(
   );
 }
 
+/**
+ * Status a recovery escalation may park an issue in
+ * (paperclipai/paperclip#14792). `blocked` means the issue waits on something
+ * specific and visible that resumes it: an unresolved first-class blocker, or
+ * an active source-scoped recovery action (connection intent, branch repair,
+ * board retry, provider-quota monitor, ...). Every resume path for those keys
+ * on `blocked`. With neither, nothing can ever wake the issue, so it is parked
+ * in `backlog` with a comment explaining why.
+ */
+export function recoveryParkStatus(input: {
+  unresolvedBlockerIssueIds: readonly string[];
+  hasActiveRecoveryAction: boolean;
+}): "blocked" | "backlog" {
+  return input.unresolvedBlockerIssueIds.length > 0 || input.hasActiveRecoveryAction
+    ? "blocked"
+    : "backlog";
+}
+
+/** Comment line explaining a `backlog` park, so the operator sees why. */
+export function recoveryBacklogParkExplanation(reason: string) {
+  return `Parked in \`backlog\`, not \`blocked\`: ${reason}, and there is no unresolved blocker issue and no active recovery action that could resume this issue automatically. Move it back to \`todo\` once it can proceed.`;
+}
+
 export function recoveryService(
   db: Db,
   deps: {
@@ -2718,6 +2741,7 @@ export function recoveryService(
     previousStatus: StrandedPreviousStatus;
     latestRun: LatestIssueRun;
     prefix: string;
+    parkedStatus: "blocked" | "backlog";
   }) {
     const runLink = input.latestRun
       ? runUiLink(
@@ -2744,7 +2768,15 @@ export function recoveryService(
         : "- Failure: none recorded",
       "- Guard: recovery issues do not create nested `stranded_issue_recovery` issues.",
       "",
-      "Next action: the current recovery owner should inspect the failed run evidence, restore a live execution path or record the manual resolution, then move this recovery issue out of `blocked`.",
+      `Next action: the current recovery owner should inspect the failed run evidence, restore a live execution path or record the manual resolution, then move this recovery issue out of \`${input.parkedStatus}\`.`,
+      ...(input.parkedStatus === "backlog"
+        ? [
+            "",
+            recoveryBacklogParkExplanation(
+              "the recovery attempt itself failed and its retry budget is spent",
+            ),
+          ]
+        : []),
     ].join("\n");
   }
 
@@ -2753,8 +2785,12 @@ export function recoveryService(
     previousStatus: StrandedPreviousStatus;
     latestRun: LatestIssueRun;
   }) {
+    const park = await resolveRecoveryParkStatus(
+      input.issue.companyId,
+      input.issue.id,
+    );
     const updated = await issuesSvc.update(input.issue.id, {
-      status: "blocked",
+      status: park.status,
     });
     if (!updated) return null;
 
@@ -2766,12 +2802,15 @@ export function recoveryService(
         previousStatus: input.previousStatus,
         latestRun: input.latestRun,
         prefix,
+        parkedStatus: park.status,
       }),
       {},
       {
         authorType: "system",
         presentation: compactRecoveryPresentation(
-          "Recovery: recovery attempt failed — remains blocked",
+          park.status === "blocked"
+            ? "Recovery: recovery attempt failed — remains blocked"
+            : "Recovery: recovery attempt failed — parked in backlog",
         ),
         metadata: {
           version: 1,
@@ -2818,7 +2857,7 @@ export function recoveryService(
       entityId: input.issue.id,
       details: {
         identifier: input.issue.identifier,
-        status: "blocked",
+        status: park.status,
         previousStatus: input.previousStatus,
         source: "recovery.reconcile_stranded_recovery_issue",
         latestRunId: input.latestRun?.id ?? null,
@@ -2877,6 +2916,72 @@ export function recoveryService(
     return existingUnresolvedBlockerIssues(companyId, issueId).then((rows) =>
       rows.map((row) => row.id),
     );
+  }
+
+  /**
+   * True when the issue is the source of an active/escalated recovery action.
+   * Such an action is a wake path: connection-intent delivery, branch repair,
+   * board retry and quota monitors all resume the issue from `blocked`.
+   */
+  async function hasActiveRecoveryWakePath(companyId: string, issueId: string) {
+    const rows = await db
+      .select({ id: issueRecoveryActions.id })
+      .from(issueRecoveryActions)
+      .where(
+        and(
+          eq(issueRecoveryActions.companyId, companyId),
+          eq(issueRecoveryActions.sourceIssueId, issueId),
+          inArray(issueRecoveryActions.status, ["active", "escalated"]),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async function addBacklogParkComment(input: {
+    issueId: string;
+    reason: string;
+    latestRunId: string | null;
+  }) {
+    await issuesSvc.addComment(
+      input.issueId,
+      recoveryBacklogParkExplanation(input.reason),
+      {},
+      {
+        authorType: "system",
+        presentation: compactRecoveryPresentation(
+          "Recovery: parked in backlog — nothing can resume it automatically",
+        ),
+        metadata: {
+          version: 1,
+          sourceRunId: input.latestRunId,
+          sections: [
+            {
+              title: "Recovery",
+              rows: [
+                { type: "key_value", label: "Parked in", value: "backlog" },
+                { type: "key_value", label: "Reason", value: input.reason },
+              ],
+            },
+          ],
+        },
+      },
+    );
+  }
+
+  async function resolveRecoveryParkStatus(companyId: string, issueId: string) {
+    const [blockerIds, hasActiveRecoveryAction] = await Promise.all([
+      existingUnresolvedBlockerIssueIds(companyId, issueId),
+      hasActiveRecoveryWakePath(companyId, issueId),
+    ]);
+    return {
+      status: recoveryParkStatus({
+        unresolvedBlockerIssueIds: blockerIds,
+        hasActiveRecoveryAction,
+      }),
+      blockerIds,
+      hasActiveRecoveryAction,
+    };
   }
 
   async function openChildIssues(issue: typeof issues.$inferSelect) {
@@ -3610,10 +3715,21 @@ export function recoveryService(
         ),
       );
 
+    const park = await resolveRecoveryParkStatus(
+      input.issue.companyId,
+      input.issue.id,
+    );
     const updated = await issuesSvc.update(input.issue.id, {
-      status: "blocked",
+      status: park.status,
     });
     if (!updated) return null;
+    if (park.status === "backlog") {
+      await addBacklogParkComment({
+        issueId: input.issue.id,
+        reason: `the bounded disposition repair is exhausted (\`${input.terminalReason}\`)`,
+        latestRunId: input.latestRun?.id ?? null,
+      });
+    }
     const sourceAssigneePreserved =
       updated.assigneeAgentId === input.issue.assigneeAgentId &&
       updated.assigneeUserId === input.issue.assigneeUserId;
@@ -3667,7 +3783,7 @@ export function recoveryService(
       entityId: input.issue.id,
       details: {
         identifier: input.issue.identifier,
-        status: "blocked",
+        status: park.status,
         previousStatus: input.issue.status,
         sourceStateFingerprint: input.fingerprint,
         attemptCount: input.attemptCount,
@@ -3968,15 +4084,27 @@ export function recoveryService(
         agentId: recoveryAction.returnOwnerAgentId,
       });
     }
-    const blockerIds = await existingUnresolvedBlockerIssueIds(
+    const park = await resolveRecoveryParkStatus(
       input.issue.companyId,
       input.issue.id,
     );
+    const blockerIds = park.blockerIds;
+    // The source-scoped recovery action ensured above (including a
+    // provider-quota wait's retry monitor) is the wake path, so this
+    // normally stays `blocked`; `backlog` only if that action is already gone.
+    const parkStatus = park.status;
     const updated = await issuesSvc.update(input.issue.id, {
-      status: "blocked",
-      blockedByIssueIds: blockerIds,
+      status: parkStatus,
+      ...(parkStatus === "blocked" ? { blockedByIssueIds: blockerIds } : {}),
     });
     if (!updated) return null;
+    if (parkStatus === "backlog") {
+      await addBacklogParkComment({
+        issueId: input.issue.id,
+        reason: `automatic recovery is exhausted (\`${recoveryCause}\`)`,
+        latestRunId: input.latestRun?.id ?? null,
+      });
+    }
     if (isProviderQuotaWait) return updated;
     const sourceAssigneePreserved =
       updated.assigneeAgentId === input.issue.assigneeAgentId &&
@@ -4131,7 +4259,7 @@ export function recoveryService(
       entityId: input.issue.id,
       details: {
         identifier: input.issue.identifier,
-        status: "blocked",
+        status: parkStatus,
         previousStatus: input.previousStatus,
         source:
           input.recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON

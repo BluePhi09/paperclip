@@ -7,6 +7,7 @@ import {
   companies,
   createDb,
   heartbeatRuns,
+  issues,
 } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -31,6 +32,7 @@ describeEmbeddedPostgres("cross-issue influence limit PostgreSQL serialization",
 
   afterEach(async () => {
     await db.delete(activityLog);
+    await db.delete(issues);
     await db.delete(heartbeatRuns);
     await db.delete(agents);
     await db.delete(companies);
@@ -112,5 +114,75 @@ describeEmbeddedPostgres("cross-issue influence limit PostgreSQL serialization",
       .where(and(eq(activityLog.companyId, companyId), eq(activityLog.runId, runId)));
     expect(recorded.filter((row) => row.action === "issue.cross_issue_influence_observed")).toHaveLength(20);
     expect(recorded.filter((row) => row.action === "issue.cross_issue_influence_cap_rejected")).toHaveLength(1);
+  });
+  it("anchors an unscoped timer run on the issue it checked out", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const runId = randomUUID();
+    const checkedOutIssueId = randomUUID();
+    const otherIssueId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      defaultResponsibleUserId: "board-user",
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Timer Coder",
+      role: "engineer",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    // Timer wakeups carry no issueId in their context snapshot.
+    await db.insert(heartbeatRuns).values({
+      id: runId,
+      companyId,
+      agentId,
+      status: "running",
+      responsibleUserId: "board-user",
+      contextSnapshot: { source: "scheduler", reason: "interval_elapsed" },
+    });
+    const input = {
+      companyId,
+      runId,
+      agentId,
+      targetIssueId: checkedOutIssueId,
+      kind: "comment" as const,
+      now: CROSS_ISSUE_INFLUENCE_ENFORCE_AT,
+    };
+
+    // Before any checkout the run is unattributable and still fails closed.
+    await expect(observeCrossIssueInfluence(db, input)).rejects.toMatchObject({ status: 403 });
+
+    await db.insert(issues).values([
+      {
+        id: checkedOutIssueId,
+        companyId,
+        title: "Checked out by the timer run",
+        status: "in_progress",
+        assigneeAgentId: agentId,
+        checkoutRunId: runId,
+        executionRunId: runId,
+      },
+      { id: otherIssueId, companyId, title: "Someone else's issue", status: "todo" },
+    ]);
+
+    // Writes to the checked-out issue are same-issue and uncharged.
+    await expect(observeCrossIssueInfluence(db, input)).resolves.toBeNull();
+    // Writes elsewhere are charged against the cap with the checkout as source.
+    await expect(observeCrossIssueInfluence(db, { ...input, targetIssueId: otherIssueId, kind: "update" }))
+      .resolves.toMatchObject({ allowed: true, count: 1 });
+
+    const recorded = await db
+      .select({ action: activityLog.action, details: activityLog.details })
+      .from(activityLog)
+      .where(and(eq(activityLog.companyId, companyId), eq(activityLog.runId, runId)));
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.details).toMatchObject({ sourceIssueId: checkedOutIssueId, targetIssueId: otherIssueId });
   });
 });
