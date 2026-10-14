@@ -4485,6 +4485,32 @@ rl.on("line", (line) => {
     }
   });
 
+  it("keeps connection health and discovery when a remote tool call returns a JSON-RPC error", async () => {
+    const { fake, gateway, session, connectedTool, healthOf } = await setupRemoteTimeoutScenario({
+      handler: (request) => ({
+        body: { jsonrpc: "2.0", id: request.body?.id, error: { code: -32000, message: "backup already running" } },
+      }),
+    });
+    try {
+      await gateway.executeTool({
+        sessionToken: session.token,
+        tool: connectedTool.name,
+        parameters: { key: "alpha", value: "one" },
+      }).then(
+        () => {
+          throw new Error("Expected remote MCP call to fail");
+        },
+        (error) => expectGatewayError(error, 502, "remote_mcp_error"),
+      );
+      // The server answered and rejected one request; the connection is fine.
+      expect(await healthOf()).toBe("ok");
+      const tools = await gateway.listToolsForSession(session.token);
+      expect(tools.map((tool) => tool.name)).toContain(connectedTool.name);
+    } finally {
+      await fake.close();
+    }
+  });
+
   function initializeFakeMcpSession(request: FakeMcpRequest, sessionId: string) {
     return {
       headers: { "mcp-session-id": sessionId },

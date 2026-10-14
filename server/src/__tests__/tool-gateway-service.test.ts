@@ -1221,6 +1221,85 @@ describeEmbeddedPostgres("tool gateway service", () => {
     expect((result.result as { result?: { data?: { target?: string } } }).result?.data?.target).toBe("repo");
   });
 
+  it("cancels the formal board approval when a destructive tool request expires on its own", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await db.insert(toolPolicies).values({
+      companyId: company.id,
+      name: "Review destructive tools",
+      policyType: "require_approval",
+      selectors: { toolName: "fixture:delete_everything" },
+    });
+    const gateway = createTestToolGatewayService(db, { pluginToolDispatcher: fakePluginDispatcher() });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    await expect(gateway.executeTool({
+      sessionToken: session.token,
+      tool: "fixture:delete_everything",
+      parameters: { target: "repo" },
+    })).rejects.toMatchObject({ reasonCode: "approval_required" });
+    const [actionRequest] = await db.select().from(toolActionRequests);
+    expect(actionRequest.approvalId).toEqual(expect.any(String));
+
+    // The one-hour review window passes without a decision.
+    await db.update(toolActionRequests)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(toolActionRequests.id, actionRequest.id));
+    await gateway.sweepActionReviews();
+
+    const [expired] = await db.select().from(toolActionRequests).where(eq(toolActionRequests.id, actionRequest.id));
+    expect(expired.status).toBe("expired");
+    const [approval] = await db.select().from(approvals).where(eq(approvals.id, actionRequest.approvalId!));
+    expect(approval.status).toBe("cancelled");
+    expect(approval.decidedAt).not.toBeNull();
+    const cancelledEvents = await db.select().from(activityLog).where(and(
+      eq(activityLog.action, "approval.cancelled"),
+      eq(activityLog.entityId, approval.id),
+    ));
+    expect(cancelledEvents).toHaveLength(1);
+    expect(cancelledEvents[0]).toMatchObject({
+      actorType: "system",
+      entityType: "approval",
+      details: {
+        reason: "linked_tool_action_request_resolved",
+        actionRequestId: actionRequest.id,
+        actionRequestStatus: "expired",
+      },
+    });
+
+    // A second sweep does not cancel or log again.
+    await gateway.sweepActionReviews();
+    expect(await db.select().from(activityLog).where(eq(activityLog.action, "approval.cancelled"))).toHaveLength(1);
+  });
+
+  it("cancels the formal board approval when an expired destructive request is replayed", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await db.insert(toolPolicies).values({
+      companyId: company.id,
+      name: "Review destructive tools",
+      policyType: "require_approval",
+      selectors: { toolName: "fixture:delete_everything" },
+    });
+    const gateway = createTestToolGatewayService(db, { pluginToolDispatcher: fakePluginDispatcher() });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const call = () => gateway.executeTool({
+      sessionToken: session.token,
+      tool: "fixture:delete_everything",
+      parameters: { target: "repo" },
+    });
+    await expect(call()).rejects.toMatchObject({ reasonCode: "approval_required" });
+    const [stale] = await db.select().from(toolActionRequests);
+    await db.update(toolActionRequests)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(toolActionRequests.id, stale.id));
+
+    // The retry expires the stale request inline and opens a fresh one.
+    await expect(call()).rejects.toMatchObject({ reasonCode: "approval_required" });
+    const [staleApproval] = await db.select().from(approvals).where(eq(approvals.id, stale.approvalId!));
+    expect(staleApproval.status).toBe("cancelled");
+    const pendingApprovals = await db.select().from(approvals).where(eq(approvals.status, "pending"));
+    expect(pendingApprovals).toHaveLength(1);
+    expect(pendingApprovals[0].id).not.toBe(stale.approvalId);
+  });
+
   it("shortens over-long tool names and arguments in the approval brief instead of failing the card", async () => {
     const { company, agent, run } = await createRunFixture(db);
     await db.insert(toolPolicies).values({
