@@ -441,13 +441,19 @@ Apply it with `pnpm db:migrate` on a direct connection before enabling the new
 sleep guard. The executor retries interrupted invalid builds and records history
 only after the index is valid. It does not delete delivery or wake records.
 
-## Governance verification tables
+## Governance verification tables (fork, retired)
 
 `governance_services`, `governance_credentials`, `governance_invocations`,
-`governance_verifications` and the append-only `governance_audit_events` back the
-governance verification boundary (fork migrations 0336/0337). Lifecycle, company and
-user deletion behavior, the manual rollback order and the test database
-requirement are in [governance-service-lifecycle.md](governance-service-lifecycle.md).
+`governance_verifications` and the append-only `governance_audit_events` were
+created by fork migrations 0336/0337 for the Governance Verification feature.
+The feature was removed on 2026-10-15; no code writes these tables anymore. The
+tables, their schema definitions and the `governance_audit_append_only` trigger
+are kept so no destructive migration is generated and existing rows survive.
+Company deletion still refuses (409) while a company has `governance_services`
+rows, because the FKs have no cascade. Test cleanups that truncate `companies`
+must use `truncateTablesWithDeadlockRetry`, which sets
+`session_replication_role = replica` locally so the trigger does not reject the
+cascaded TRUNCATE.
 
 ## Plugin database namespaces
 

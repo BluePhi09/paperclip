@@ -1,4 +1,3 @@
-import { admitEvidencePackRun } from "../../../services/evidence-pack.js";
 import { hasConversationContinuationPolicy } from "../../../services/conversation-continuation.js";
 import { getExecutionBlocker } from "../../../services/execution-blocker.js";
 import { getNativeReviewAssignment } from "../../../services/native-runtime/native-review-participant.js";
@@ -1156,7 +1155,6 @@ export function createPostgresRunDispatchAdapter(
         return { dispatched: false as const, cancellation };
       }
 
-      await admitEvidencePackRun(tx, run, true);
       // Hand off while ownership is still locked, but do not await the provider
       // promise. Bootstrap and failure finalization can update these same rows;
       // the transaction must commit independently of either callback completing.

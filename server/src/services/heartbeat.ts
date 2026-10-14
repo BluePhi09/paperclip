@@ -399,7 +399,6 @@ import {
 } from "./workspace-runtime.js";
 
 import { issueService } from "./issues.js";
-import { admitEvidenceAtRunStart, admitEvidencePackRun, runHasEvidenceState } from "./evidence-pack.js";
 import {
   failRunnerGoalAction,
 } from "./runner-goals.js";
@@ -1286,8 +1285,6 @@ export function heartbeatService(
     resumeQueuedRuns,
     parseHeartbeatPolicy,
     claimDueTimerHeartbeat,
-    evidenceDenialCode,
-    cancelEvidenceDeniedRun,
   } = heartbeatQueue;
 
   // Earlier factories capture these callbacks before queue construction.
@@ -1848,31 +1845,12 @@ export function heartbeatService(
     if (run.status !== "queued" && run.status !== "running") return;
 
     if (run.status === "queued") {
-      let claimed: Awaited<ReturnType<typeof claimQueuedRun>>;
-      try {
-        claimed = await claimQueuedRun(run);
-      } catch (err) {
-        const code = evidenceDenialCode(err);
-        if (!code) throw err;
-        await cancelEvidenceDeniedRun(run.id, code);
-        return;
-      }
+      const claimed = await claimQueuedRun(run);
       if (!claimed) {
         // claimQueuedRun can also leave the run queued when dependencies are unresolved.
         return;
       }
       run = claimed;
-    }
-
-    try {
-      const admitted = await admitEvidenceAtRunStart(db, run, (id) => getRun(id));
-      if (!admitted) return;
-      run = admitted;
-    } catch (err) {
-      const code = evidenceDenialCode(err);
-      if (!code) throw err;
-      await cancelEvidenceDeniedRun(run.id, code);
-      return;
     }
 
     const releaseInstructionCopy = createHeartbeatInstructionCopyRelease(run, instructionCopies, appendRunEvent);
@@ -2799,32 +2777,12 @@ export function heartbeatService(
           }
           return { dispatched: false };
         }
-        if (!issueId) {
-          return { dispatched: true, resultPromise: dispatch(() => {}) };
-        }
         if (
-          !isResolvedInteractionContinuationWakeContext(context) &&
-          !["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? "")
+          !issueId ||
+          (!isResolvedInteractionContinuationWakeContext(context) &&
+            !["native_safe_replacement", "native_provider_overloaded"].includes(run.scheduledRetryReason ?? ""))
         ) {
-          // Opt-in invariant: without a pack (and without a recorded evidence
-          // admission) the handoff is exactly the legacy one — no issue lock,
-          // no execution-ownership requirement. Mention and source-scoped
-          // recovery runs never own the issue execution lock.
-          if (!(await runHasEvidenceState(db, run))) {
-            return { dispatched: true, resultPromise: dispatch(() => {}) };
-          }
-          await options.beforeResolvedInteractionContinuationDispatchCheck?.({ runId: run.id, issueId });
-          await options.afterResolvedInteractionContinuationDispatchCheck?.({ runId: run.id, issueId });
-          // A run admitted without a pack can opt in during asynchronous setup:
-          // admit under issue -> run locks and hand off synchronously while
-          // they are held, without awaiting adapter work in the transaction.
-          const handoff = await db.transaction(async (tx) => {
-            await admitEvidencePackRun(tx as unknown as Db, run, true);
-            const resultPromise = dispatch(() => {});
-            void resultPromise.catch(() => {});
-            return { resultPromise };
-          });
-          return { dispatched: true, resultPromise: handoff.resultPromise };
+          return { dispatched: true, resultPromise: dispatch(() => {}) };
         }
         await options.beforeResolvedInteractionContinuationDispatchCheck?.({
           runId: run.id,
@@ -3485,7 +3443,6 @@ export function heartbeatService(
         });
       } catch (err) {
         await persistUsageCaptureFailure?.();
-        if (evidenceDenialCode(err)) throw err;
         if (err instanceof NativeControllerDetachedForRestartError) {
           nativeSessionResumeScheduled = true;
           return;
@@ -3614,10 +3571,7 @@ export function heartbeatService(
         });
       }
     } catch (outerErr) {
-      const evidenceCode = evidenceDenialCode(outerErr);
-      if (evidenceCode) {
-        await cancelEvidenceDeniedRun(run.id, evidenceCode);
-      } else if (
+      if (
         nativeOwnershipHeld ||
         outerErr instanceof NativeRunnerOwnershipUnverifiedError
       ) {

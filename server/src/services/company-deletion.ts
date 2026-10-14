@@ -44,6 +44,8 @@ import { conflict } from "../errors.js";
 
 // Governance services anchor an append-only dispatch audit ledger that is
 // never deleted silently. Refuse instead of failing on the FK.
+// fork: the Governance Verification feature was removed on 2026-10-15, but its
+// tables (and possibly rows) remain; keep this guard until they are dropped.
 async function assertNoGovernanceServices(db: Pick<Db, "select">, id: string) {
   const [governance] = await db
     .select({ id: governanceServices.id })

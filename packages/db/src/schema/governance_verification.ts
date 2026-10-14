@@ -1,4 +1,9 @@
-import type { GovernanceOperation } from "@paperclipai/shared";
+// fork: unused since 2026-10-15, kept to avoid destructive migration.
+// The Governance Verification feature (fork PR #11) was removed; these tables
+// (migrations 0336/0337, including the append-only governance_audit_events
+// trigger) stay in the database. Removing the definitions would make drizzle
+// generate DROP TABLE statements for data that may exist in production.
+// company-deletion.ts still refuses to delete a company with governance rows.
 import { pgTable, uuid, text, timestamp, uniqueIndex, jsonb, index } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { authUsers } from "./auth.js";
@@ -25,7 +30,7 @@ export const governanceInvocations = pgTable("governance_invocations", {
   serviceId: uuid("service_id").notNull().references(() => governanceServices.id),
   companyId: uuid("company_id").notNull().references(() => companies.id),
   issuer: text("issuer").notNull(),
-  operation: jsonb("operation").$type<GovernanceOperation>().notNull(),
+  operation: jsonb("operation").$type<Record<string, unknown>>().notNull(),
   opHash: text("op_hash").notNull(),
   operationDocumentId: uuid("operation_document_id").notNull(),
   operationRevisionId: uuid("operation_revision_id").notNull(),
