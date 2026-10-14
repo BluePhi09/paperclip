@@ -57,7 +57,11 @@ function createFakeDb(args: {
           where() {
             if (getTableName(table as never) === "tool_action_requests") {
               toolActionRequestUpdates.push(values);
-              return Promise.resolve(undefined);
+              // The service reads back settled requests to cancel their linked
+              // formal approvals; these fixtures carry no approval link.
+              return Object.assign(Promise.resolve(undefined), {
+                returning: async () => [],
+              });
             }
             if ("status" in values || "result" in values || "resolvedAt" in values) {
               interactionUpdates.push(values);
