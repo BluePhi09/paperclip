@@ -17,8 +17,7 @@ import {
   getSandboxBridgeProcessBodyLedgerSource,
   getSandboxCallbackBridgeServerSource,
   HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
-  readAgentIdFromHostApiToken,
-  resolveSandboxCallbackBridgeRoutesForAgent,
+  DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
   sandboxCallbackBridgeDirectories,
   syncRemoteTextFileWithHashSkip,
   syncSandboxCallbackBridgeEntrypoint,
@@ -1467,53 +1466,106 @@ describe("sandbox callback bridge", () => {
     await expect(readFile(remotePath, "utf8")).rejects.toThrow();
   });
 
-  describe("instructions-bundle file routes", () => {
-    const MILO = "d3c5140e-2a8e-4e08-a78b-276b0ca3b955";
-    const ATLAS = "475f9a6f-5d99-408b-bba5-9322acbf315a";
-    const PAX = "97ac1286-84c8-4430-8dc8-9e38505df1b5";
-    const filePath = "/api/agents/agent-1/instructions-bundle/file";
-    const runJwt = (claims: Record<string, unknown>) =>
-      ["e30", Buffer.from(JSON.stringify(claims)).toString("base64url"), "sig"].join(".");
-    const authorizeAs = (agentId: string | null, request: { method: string; path: string }) =>
-      authorizeSandboxCallbackBridgeRequestWithRoutes(request, resolveSandboxCallbackBridgeRoutesForAgent(agentId));
+  describe("route surface derived from server agent authorization", () => {
+    const deniedMessage = (request: { method: string; path: string }) =>
+      `Route not allowed: ${request.method.toUpperCase()} ${request.path}`;
 
-    it("reads the agent id from the run JWT sub claim only", () => {
-      expect(readAgentIdFromHostApiToken(runJwt({ sub: MILO, run_id: "run-1" }))).toBe(MILO);
-      expect(readAgentIdFromHostApiToken(runJwt({ agent_id: MILO }))).toBeNull();
-      expect(readAgentIdFromHostApiToken("pcp_static_api_key")).toBeNull();
-      expect(readAgentIdFromHostApiToken("a.!!!.c")).toBeNull();
-      expect(readAgentIdFromHostApiToken(null)).toBeNull();
+    it("has no per-agent bridge policy: every run gets the same route surface", async () => {
+      const bridgeModule = await import("./sandbox-callback-bridge.js");
+      expect("resolveSandboxCallbackBridgeRoutesForAgent" in bridgeModule).toBe(false);
+      expect("SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITER_AGENT_IDS" in bridgeModule).toBe(false);
+      expect(HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST).toBe(DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST);
     });
 
-    it("lets every agent read an instructions file", () => {
-      for (const agentId of [MILO, ATLAS, PAX, null]) {
-        expect(authorizeAs(agentId, { method: "GET", path: filePath })).toBeNull();
+    it("forwards instruction-bundle reads and writes; the server checks agents:configure", () => {
+      // The bridge forwards the run's own agent JWT. PUT is authorized by the
+      // route (`agent_instructions:update` / `agent_config:update` with
+      // `agents:configure` or `agents:suggest-changes`), not by a fork UUID list.
+      for (const request of [
+        { method: "GET", path: "/api/agents/agent-1/instructions-bundle/file" },
+        { method: "PUT", path: "/api/agents/agent-1/instructions-bundle/file" },
+        { method: "GET", path: "/api/agents/agent-1/instructions-bundle" },
+        { method: "GET", path: "/api/agents/agent-1/instructions-bundle/history" },
+      ]) {
+        expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBeNull();
       }
     });
 
-    it("lets only Milo and Atlas write an instructions file", () => {
-      expect(authorizeAs(MILO, { method: "PUT", path: filePath })).toBeNull();
-      expect(authorizeAs(ATLAS, { method: "PUT", path: filePath })).toBeNull();
-      for (const agentId of [PAX, null]) {
-        expect(authorizeAs(agentId, { method: "PUT", path: filePath })).toBe(`Route not allowed: PUT ${filePath}`);
+    it("denies board-only, instance-admin and unknown routes", () => {
+      // Routes such as POST /api/approvals/:id/approve or /agents/:id/pause are
+      // documented as board_or_agent and are forwarded; their handlers call
+      // assertBoard, so the server answers 403 for the agent JWT.
+      for (const request of [
+        { method: "GET", path: "/api/companies" },
+        { method: "GET", path: "/api/companies/co-1/invites" },
+        { method: "GET", path: "/api/companies/co-1/tools/gateways" },
+        { method: "POST", path: "/api/companies/co-1/tools/runtime-slots/slot-1/stop" },
+        { method: "DELETE", path: "/api/tool-profiles/profile-1" },
+        { method: "POST", path: "/api/connection-intents/inter-1/decline" },
+        { method: "PATCH", path: "/api/instance/settings/experimental" },
+        { method: "GET", path: "/api/admin/users" },
+        { method: "GET", path: "/api/plugins" },
+        { method: "POST", path: "/api/issues/issue-1/interactions/inter-1/skip" },
+        { method: "GET", path: "/api/issues/issue-1/interactions/inter-1" },
+        { method: "GET", path: "/api/does-not-exist" },
+        { method: "TRACE", path: "/api/agents/me" },
+      ]) {
+        expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBe(deniedMessage(request));
       }
-      expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "PUT", path: filePath })).not.toBeNull();
     });
 
-    it("keeps neighbouring agent config routes closed for writers", () => {
-      for (const agentId of [MILO, ATLAS, PAX]) {
-        for (const request of [
-          { method: "PUT", path: "/api/agents/agent-1/instructions-path" },
-          { method: "GET", path: "/api/agents/agent-1/config-revisions" },
-          { method: "POST", path: "/api/agents/agent-1/config-revisions/rev-1/rollback" },
-          { method: "PATCH", path: "/api/agents/agent-1/instructions-bundle" },
-          { method: "DELETE", path: filePath },
-          { method: "PUT", path: `${filePath}/x` },
-          { method: "POST", path: "/api/agents/agent-1/instructions-bundle/restore" },
-        ]) {
-          expect(authorizeAs(agentId, request)).toBe(`Route not allowed: ${request.method} ${request.path}`);
-        }
+    it("keeps credential, secret-management and export surfaces off the bridge", () => {
+      for (const request of [
+        { method: "GET", path: "/api/agents/agent-1/keys" },
+        { method: "POST", path: "/api/agents/agent-1/keys" },
+        { method: "DELETE", path: "/api/agents/agent-1/keys/key-1" },
+        { method: "GET", path: "/api/companies/co-1/secrets" },
+        { method: "POST", path: "/api/companies/co-1/secrets" },
+        { method: "PATCH", path: "/api/secrets/secret-1" },
+        { method: "DELETE", path: "/api/secrets/secret-1" },
+        { method: "POST", path: "/api/secrets/secret-1/rotate" },
+        { method: "GET", path: "/api/companies/co-1/secret-proposals" },
+        { method: "POST", path: "/api/companies/co-1/secret-proposals/p-1/approve" },
+        { method: "POST", path: "/api/companies/co-1/exports" },
+        { method: "POST", path: "/api/companies/co-1/export" },
+        { method: "POST", path: "/api/tool-gateway/sessions" },
+        { method: "POST", path: "/api/routine-triggers/t-1/rotate-secret" },
+        { method: "POST", path: "/api/invites/inv-1/revoke" },
+        { method: "GET", path: "/api/environments/env-1/secret-refs" },
+      ]) {
+        expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBe(deniedMessage(request));
       }
+    });
+
+    it("lets a board-only literal route win over a generic agent template", () => {
+      for (const path of ["/api/companies/stats", "/api/companies/issues", "/api/companies/STATS", "/api/Companies/Stats"]) {
+        expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "GET", path })).toBe(`Route not allowed: GET ${path}`);
+      }
+      expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "GET", path: "/api/companies/co-1" })).toBeNull();
+    });
+
+    it("denies non-canonical paths before the route match", () => {
+      for (const path of [
+        "/api/issues/../companies/stats",
+        "/api/issues/%2e%2e/companies/stats",
+        "/api/issues/./comments",
+        "/api/agents/me/secrets/..%2Fx/value",
+        "/api/agents/me/secrets/a%5cb/value",
+        "/api/issues/issue-1%00/comments",
+        "api/issues/issue-1",
+      ]) {
+        expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "GET", path })).toBe(`Route not allowed: GET ${path}`);
+      }
+    });
+
+    it("compiles OpenAPI templates to anchored one-segment parameters", async () => {
+      const { sandboxCallbackBridgePathTemplateToRegExp } = await import("./sandbox-callback-bridge.js");
+      const pattern = sandboxCallbackBridgePathTemplateToRegExp("/api/issues/{id}/comments");
+      expect(pattern.test("/api/issues/i-1/comments")).toBe(true);
+      expect(pattern.test("/api/issues/a/b/comments")).toBe(false);
+      expect(pattern.test("/api/issues/i-1/comments/x")).toBe(false);
+      expect(pattern.test("/api/issues//comments")).toBe(false);
+      expect(sandboxCallbackBridgePathTemplateToRegExp("/api/openapi.json").test("/api/openapiXjson")).toBe(false);
     });
   });
 
@@ -1568,7 +1620,6 @@ describe("sandbox callback bridge", () => {
       { method: "POST", path: "/api/issues/issue-1/work-products" },
       { method: "PATCH", path: "/api/work-products/wp-1" },
       { method: "GET", path: "/api/issues/issue-1/interactions" },
-      { method: "GET", path: "/api/issues/issue-1/interactions/inter-1" },
       { method: "POST", path: "/api/issues/issue-1/interactions" },
       { method: "POST", path: "/api/issues/issue-1/interactions/inter-1/accept" },
       { method: "POST", path: "/api/issues/issue-1/interactions/inter-1/reject" },
@@ -1609,40 +1660,21 @@ describe("sandbox callback bridge", () => {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBeNull();
     }
 
+    // Routes the server does not let an agent call (board-only, credential
+    // management, unknown paths) stay denied at the bridge. Routes an agent may
+    // call (for example environment create/delete with `environments:manage`)
+    // are forwarded and the server route decides.
     const denied: Array<{ method: string; path: string }> = [
       { method: "GET", path: "/api/companies/co-1/agent-commentary" },
       { method: "POST", path: "/api/companies/co-1/agent-commentary/other" },
-      { method: "POST", path: "/api/companies/co-1/email/inboxes" },
-      { method: "POST", path: "/api/companies/co-1/email/connections" },
-      { method: "POST", path: "/api/companies/co-1/email/inspect" },
-      { method: "POST", path: "/api/companies/co-1/email/deliveries/send-1/resolve" },
-      { method: "POST", path: "/api/email/inboxes/inbox-1/reconnect" },
-      { method: "POST", path: "/api/email/inboxes/inbox-1/control" },
       { method: "DELETE", path: "/api/companies/co-1/email/tasks/issue-1" },
       { method: "DELETE", path: "/api/secrets" },
-      // Pin the runtime-services regex to start/stop/restart only — anything
-      // else (delete, reset, wipe, etc.) must stay denied even if the API
-      // grows new actions later.
-      { method: "POST", path: "/api/execution-workspaces/ws-1/runtime-services/delete" },
-      { method: "POST", path: "/api/companies/co-1/agents" },
-      // The hire allowlist must not over-match: only the exact .txt discovery
-      // files, only agent-hires (not /agents), and no sub-resources beyond it.
       { method: "GET", path: "/llms/agent-configuration" },
       { method: "GET", path: "/llms/secrets.txt" },
       { method: "POST", path: "/api/companies/co-1/agent-hires/ap-1" },
       { method: "POST", path: "/api/issues/issue-1/approvals/ap-1" },
-      { method: "POST", path: "/api/agents/agent-1/pause" },
-      { method: "POST", path: "/api/agents/agent-1/terminate" },
       { method: "POST", path: "/api/agents/agent-1/keys" },
       { method: "POST", path: "/api/companies/co-1/exports" },
-      { method: "POST", path: "/api/companies/co-1/imports/apply" },
-      { method: "POST", path: "/api/companies/co-1/archive" },
-      { method: "DELETE", path: "/api/issues/issue-1/documents/plan" },
-      { method: "DELETE", path: "/api/issues/issue-1/approvals/ap-1" },
-      { method: "DELETE", path: "/api/work-products/wp-1" },
-      { method: "POST", path: "/api/approvals/ap-1/approve" },
-      { method: "POST", path: "/api/approvals/ap-1/reject" },
-      { method: "POST", path: "/api/companies/co-1/logo" },
       { method: "GET", path: "/api/companies/co-1/secrets" },
       { method: "PATCH", path: "/api/secrets/secret-1" },
       // Secret access stays confined to the caller's own run-bound grants.
@@ -1655,7 +1687,6 @@ describe("sandbox callback bridge", () => {
       { method: "POST", path: "/api/agents/me/secrets/..%2Fx/value" },
       { method: "POST", path: "/api/agents/me/secrets/./value" },
       { method: "POST", path: "/api/agents/me/secrets/../value" },
-      { method: "POST", path: `/api/agents/me/secrets/${"a".repeat(121)}/value` },
       { method: "DELETE", path: "/api/agents/me/secrets/SYNNAS_USER/value" },
       // Proposals: only the caller's own list/create/withdraw. Board review
       // (company-scoped list, approve, reject) and secret management stay denied.
@@ -1667,16 +1698,9 @@ describe("sandbox callback bridge", () => {
       { method: "PATCH", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b" },
       { method: "GET", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b" },
       { method: "DELETE", path: "/api/agents/me/secret-proposals" },
-      { method: "DELETE", path: "/api/agents/me/secret-proposals/not-a-uuid" },
       { method: "DELETE", path: "/api/agents/me/secret-proposals/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/x" },
-      // Environments: only list/read/update; lifecycle and secret surfaces stay denied.
-      { method: "POST", path: "/api/companies/co-1/environments" },
-      { method: "DELETE", path: "/api/environments/env-1" },
-      { method: "POST", path: "/api/environments/env-1/probe" },
+      // Environment secret references stay off the bridge.
       { method: "GET", path: "/api/environments/env-1/secret-refs" },
-      { method: "GET", path: "/api/environments/env-1/leases" },
-      { method: "GET", path: "/api/companies/co-1/environments/capabilities" },
-      { method: "PATCH", path: "/api/environments/env-1/custom-image-template" },
     ];
     for (const request of denied) {
       expect(authorizeSandboxCallbackBridgeRequestWithRoutes(request)).toBe(

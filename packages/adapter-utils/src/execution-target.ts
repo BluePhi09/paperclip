@@ -39,8 +39,6 @@ import {
   createSandboxCallbackBridgeToken,
   DEFAULT_SANDBOX_CALLBACK_BRIDGE_MAX_BODY_BYTES,
   HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
-  readAgentIdFromHostApiToken,
-  resolveSandboxCallbackBridgeRoutesForAgent,
   runSandboxBridgeControlCommand,
   SANDBOX_CALLBACK_BRIDGE_ENTRYPOINT,
   SANDBOX_CALLBACK_BRIDGE_HTTP2_MODE,
@@ -4387,11 +4385,10 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
   if (hostApiToken.length === 0) {
     throw new Error("Sandbox bridge mode requires a host-side Paperclip API token.");
   }
-  // Per-agent routes come from the host-side run JWT, never from the sandbox.
-  const bridgeRoutes = resolveSandboxCallbackBridgeRoutesForAgent(
-    readAgentIdFromHostApiToken(hostApiToken),
-    HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
-  );
+  // One route surface for every run: the agent-callable REST operations. The
+  // forwarded request carries the run's own agent JWT, so the server's route
+  // authorization (grants, consent, task binding) decides per agent.
+  const bridgeRoutes = HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST;
   // The forward budget for one relayed request. It stays at the broker's default
   // forward budget (30 s) when the caller sets no option, so current behavior
   // does not change.

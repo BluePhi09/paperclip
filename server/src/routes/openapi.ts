@@ -1384,6 +1384,11 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "PUT /api/companies/{companyId}/decision-model",
   "POST /api/companies/{companyId}/decision-model/test",
   ...browserUseOperations.map(([method, path]) => `${method.toUpperCase()} ${path}`),
+  // The handlers call assertBoard; agents read the actor-bound
+  // `attention/expert` feed and may only cancel their own decisions.
+  "GET /api/companies/{companyId}/attention",
+  "POST /api/decisions/{id}/decide",
+  "POST /api/decisions/{id}/dismiss",
   "GET /api/companies/{companyId}/ai-connections",
   "POST /api/companies/{companyId}/ai-connections",
   "POST /api/companies/{companyId}/ai-connections/local",

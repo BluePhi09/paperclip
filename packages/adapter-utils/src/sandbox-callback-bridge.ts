@@ -11,6 +11,10 @@ import {
   sandboxBridgeEnvelopeLimit,
   type SandboxCallbackBridgeBody,
 } from "./sandbox-callback-bridge-body.js";
+import {
+  SANDBOX_CALLBACK_BRIDGE_AGENT_API_OPERATIONS,
+  SANDBOX_CALLBACK_BRIDGE_DENIED_API_OPERATIONS,
+} from "./sandbox-callback-bridge-agent-routes.generated.js";
 import type { BridgeBodyReservation } from "./http2-bridge-server.js";
 
 import {
@@ -115,188 +119,64 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_MAX_BODY_BYTES = DEFAULT_BRIDGE_MAX
 export interface SandboxCallbackBridgeRouteRule {
   method: string;
   path: RegExp;
+  /** A deny rule wins over every allow rule that also matches. */
+  effect?: "allow" | "deny";
 }
 
-// Routes the in-sandbox heartbeat skill is documented to call. The server
-// still enforces actor-level permissions on top of this allowlist; the list
-// exists to bound the surface area a compromised CLI could reach via the
-// reverse bridge. Keep this in sync with the Paperclip skill in
-// `skills/paperclip/SKILL.md` and `references/api-reference.md`.
-export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCallbackBridgeRouteRule[] = [
+// Non-REST endpoints the in-sandbox tooling calls. They are not agent REST
+// operations in the server OpenAPI document, so they are listed by hand.
+export const SANDBOX_CALLBACK_BRIDGE_PROTOCOL_ROUTES: readonly SandboxCallbackBridgeRouteRule[] = [
   // Runtime capability authentication is independently checked by the controller.
   { method: "POST", path: /^\/runtime-tools\/github\/credentials$/ },
-  // Identity, inbox, agent self-management
-  { method: "GET", path: /^\/api\/agents\/me$/ },
-  { method: "POST", path: /^\/api\/companies\/[^/]+\/agent-commentary$/ },
-  { method: "GET", path: /^\/api\/agents\/me\/inbox-lite$/ },
-  { method: "GET", path: /^\/api\/agents\/me\/inbox\/mine$/ },
-  { method: "GET", path: /^\/api\/agents\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/agents\/[^/]+\/skills$/ },
-  { method: "POST", path: /^\/api\/agents\/[^/]+\/skills\/sync$/ },
-  { method: "PATCH", path: /^\/api\/agents\/[^/]+\/instructions-path$/ },
-  // Read one instructions-bundle file. The controller still checks read access
-  // to the target agent; writes are gated per agent below.
-  { method: "GET", path: /^\/api\/agents\/[^/]+\/instructions-bundle\/file$/ },
-
-  // Run-bound secret access (documented in the Paperclip skill). Only the
-  // caller's own grants: the controller requires a running heartbeat, an
-  // `access.*`/`env.*` binding on this agent and `secrets:read`, and registers
-  // each resolved value for run-log redaction. Secret management stays denied.
-  // The key segment mirrors the secret key format (`[a-zA-Z0-9_.-]{1,120}` in
-  // shared/validators/secret.ts), minus the `.`/`..` dot segments.
-  { method: "GET", path: /^\/api\/agents\/me\/secrets$/ },
-  { method: "POST", path: /^\/api\/agents\/me\/secrets\/(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,120}\/value$/ },
-  // Secret/binding proposals for board approval (documented in the Paperclip
-  // skill). The controller binds them to the caller's running heartbeat and
-  // never echoes values back; approval/rejection stays board-only and denied.
-  { method: "GET", path: /^\/api\/agents\/me\/secret-proposals$/ },
-  { method: "POST", path: /^\/api\/agents\/me\/secret-proposals$/ },
-  {
-    method: "DELETE",
-    path: /^\/api\/agents\/me\/secret-proposals\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
-  },
-
   // Read-only schema discovery for validated control-plane requests.
   { method: "GET", path: /^\/api\/openapi\.json$/ },
-
-  // Company-level reads used to discover work and context
-  { method: "GET", path: /^\/api\/companies\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/dashboard$/ },
-  // Actor-bound expert reads only; Board attention and Decision effects stay denied.
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/attention\/expert$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/agents$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/issues$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/projects$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/goals$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/org$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/approvals$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/routines$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/skills$/ },
-  { method: "GET", path: /^\/api\/projects\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/goals\/[^/]+$/ },
-
-  // Environment list/read/update for agents holding `environments:manage`.
-  // The controller checks the grant, limits it to single-company instances,
-  // redacts credentials, and denies driver/envVars/secret changes. Create,
-  // delete, probe, leases, and secret refs stay denied.
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/environments$/ },
-  { method: "GET", path: /^\/api\/environments\/[^/]+$/ },
-  { method: "PATCH", path: /^\/api\/environments\/[^/]+$/ },
-
-  // Task-bound email actions. Company, inbox ownership, task/run authority,
-  // and action policies are enforced by the controller; mailbox setup stays denied.
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/email\/inboxes$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/email\/tasks\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/email\/deliveries\/[^/]+$/ },
-  { method: "POST", path: /^\/api\/companies\/[^/]+\/email\/send$/ },
-
-  // Issue lifecycle: read context, checkout, update, comment, document, release
-  { method: "GET", path: /^\/api\/issues\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/issues\/[^/]+\/heartbeat-context$/ },
-  { method: "GET", path: /^\/api\/issues\/[^/]+\/comments(?:\/[^/]+)?$/ },
-  { method: "POST", path: /^\/api\/issues\/[^/]+\/comments$/ },
-  { method: "GET", path: /^\/api\/issues\/[^/]+\/documents(?:\/[^/]+)?$/ },
-  { method: "GET", path: /^\/api\/issues\/[^/]+\/documents\/[^/]+\/revisions$/ },
-  { method: "PUT", path: /^\/api\/issues\/[^/]+\/documents\/[^/]+$/ },
-  { method: "POST", path: /^\/api\/issues\/[^/]+\/checkout$/ },
-  { method: "POST", path: /^\/api\/issues\/[^/]+\/release$/ },
-  { method: "PATCH", path: /^\/api\/issues\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/issues\/[^/]+\/approvals$/ },
-
-  // Files: the queue encodes binary bodies; HTTP/2 carries the same bytes directly.
-  { method: "GET", path: /^\/api\/issues\/[^/]+\/attachments$/ },
-  { method: "POST", path: /^\/api\/companies\/[^/]+\/issues\/[^/]+\/attachments$/ },
-  { method: "GET", path: /^\/api\/attachments\/[^/]+\/content$/ },
-
-  // Work products: publish branch/commit/artifact metadata for completed work.
-  { method: "GET", path: /^\/api\/issues\/[^/]+\/work-products$/ },
-  { method: "POST", path: /^\/api\/issues\/[^/]+\/work-products$/ },
-  { method: "PATCH", path: /^\/api\/work-products\/[^/]+$/ },
-
-  // Issue-thread interactions (create, resolve, verdict, and withdraw)
-  { method: "GET", path: /^\/api\/issues\/[^/]+\/interactions(?:\/[^/]+)?$/ },
-  { method: "POST", path: /^\/api\/issues\/[^/]+\/interactions$/ },
-  { method: "POST", path: /^\/api\/issues\/[^/]+\/interactions\/[^/]+\/(?:accept|reject|respond|verdicts|withdraw)$/ },
-
-  // Subtasks / delegation
-  { method: "POST", path: /^\/api\/companies\/[^/]+\/issues$/ },
-
-  // Hiring (paperclip-create-agent skill): adapter/icon discovery, comparing
-  // existing agent configs, submitting the hire request, and linking the
-  // resulting approval to its source issue. Direct agent creation
-  // (POST /api/companies/:id/agents) stays denied — hires must go through the
-  // approval-gated agent-hires endpoint, which the server still permission-checks.
+  // Adapter/icon discovery for the paperclip-create-agent skill.
   { method: "GET", path: /^\/llms\/agent-configuration\.txt$/ },
   { method: "GET", path: /^\/llms\/agent-configuration\/[^/]+\.txt$/ },
   { method: "GET", path: /^\/llms\/agent-icons\.txt$/ },
-  { method: "GET", path: /^\/api\/companies\/[^/]+\/agent-configurations$/ },
-  { method: "POST", path: /^\/api\/companies\/[^/]+\/agent-hires$/ },
-  { method: "POST", path: /^\/api\/issues\/[^/]+\/approvals$/ },
+];
 
-  // Approvals (request, read, comment)
-  { method: "GET", path: /^\/api\/approvals\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/approvals\/[^/]+\/issues$/ },
-  { method: "GET", path: /^\/api\/approvals\/[^/]+\/comments$/ },
-  { method: "POST", path: /^\/api\/approvals\/[^/]+\/comments$/ },
-  { method: "POST", path: /^\/api\/companies\/[^/]+\/approvals$/ },
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-  // Execution workspaces and runtime services (start/stop/restart dev servers)
-  { method: "GET", path: /^\/api\/execution-workspaces\/[^/]+$/ },
-  { method: "POST", path: /^\/api\/execution-workspaces\/[^/]+\/runtime-services\/(?:start|stop|restart)$/ },
+/** Compile an OpenAPI path template (`/api/issues/{id}`) to an anchored regex. */
+export function sandboxCallbackBridgePathTemplateToRegExp(template: string, flags = ""): RegExp {
+  const source = template
+    .split("/")
+    .map((segment) => (/^\{[^}]+\}$/.test(segment) ? "[^/]+" : escapeRegExp(segment)))
+    .join("\\/");
+  return new RegExp(`^${source}$`, flags);
+}
 
-  // Routines (agents manage their own routines and triggers)
-  { method: "GET", path: /^\/api\/routines\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/routines\/[^/]+\/runs$/ },
-  { method: "POST", path: /^\/api\/companies\/[^/]+\/routines$/ },
-  { method: "PATCH", path: /^\/api\/routines\/[^/]+$/ },
-  { method: "POST", path: /^\/api\/routines\/[^/]+\/run$/ },
-  { method: "POST", path: /^\/api\/routines\/[^/]+\/triggers$/ },
-  { method: "PATCH", path: /^\/api\/routine-triggers\/[^/]+$/ },
-  { method: "DELETE", path: /^\/api\/routine-triggers\/[^/]+$/ },
-] as const;
+// The bridge forwards exactly the REST operations the server documents as
+// callable by an agent actor (`x-paperclip-authorization.actor` is `agent` or
+// `board_or_agent`). Every forwarded request carries the run's own agent JWT,
+// so the route's normal authorization decides: company scope, grants such as
+// `agents:configure` checked through `access.decide`, consent gates, and
+// task/run binding. The bridge adds no per-agent policy of its own.
+// Board-only, instance-admin, public and runtime-tools operations, and the
+// credential/secret management surfaces, are absent from the generated list
+// and stay denied (deny by default). The list is generated from the server
+// (`server/src/routes/sandbox-bridge-agent-routes.ts`) and a server test fails
+// when it drifts.
+export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCallbackBridgeRouteRule[] = [
+  // Case-insensitive, because Express routing is: `/api/companies/STATS` must
+  // not slip past the board-only `stats` route via `{companyId}`.
+  ...SANDBOX_CALLBACK_BRIDGE_DENIED_API_OPERATIONS.map(([method, template]) => ({
+    method,
+    path: sandboxCallbackBridgePathTemplateToRegExp(template, "i"),
+    effect: "deny" as const,
+  })),
+  ...SANDBOX_CALLBACK_BRIDGE_PROTOCOL_ROUTES,
+  ...SANDBOX_CALLBACK_BRIDGE_AGENT_API_OPERATIONS.map(([method, template]) => ({
+    method,
+    path: sandboxCallbackBridgePathTemplateToRegExp(template),
+  })),
+];
 
 // Keep the public alias for callers selecting the HTTP/2 transport.
 export const HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST = DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST;
-
-// Fork policy (BLU-592, approved on BLU-588): only these agents may write
-// instructions-bundle files through the bridge. The bridge takes the caller
-// identity from the host-side run JWT, never from sandbox-supplied headers or
-// bodies; the controller still enforces its own instruction permissions.
-export const SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITER_AGENT_IDS: readonly string[] = [
-  "d3c5140e-2a8e-4e08-a78b-276b0ca3b955", // Milo
-  "475f9a6f-5d99-408b-bba5-9322acbf315a", // Atlas
-];
-
-export const SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITE_ROUTE: SandboxCallbackBridgeRouteRule = {
-  method: "PUT",
-  path: /^\/api\/agents\/[^/]+\/instructions-bundle\/file$/,
-};
-
-/**
- * Read the agent id (`sub`) from a host-side Paperclip run JWT without
- * verifying it. Only call this with the token the host itself injects; the
- * server verifies the same token on every forwarded request.
- */
-export function readAgentIdFromHostApiToken(token: string | null | undefined): string | null {
-  const parts = token?.trim().split(".") ?? [];
-  if (parts.length !== 3 || !parts[1]) return null;
-  try {
-    const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as unknown;
-    const sub = claims && typeof claims === "object" ? (claims as { sub?: unknown }).sub : undefined;
-    return typeof sub === "string" && sub.length > 0 ? sub : null;
-  } catch {
-    return null;
-  }
-}
-
-/** The route allowlist for one run, given the agent id from its run JWT. */
-export function resolveSandboxCallbackBridgeRoutesForAgent(
-  agentId: string | null | undefined,
-  routes: readonly SandboxCallbackBridgeRouteRule[] = DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
-): readonly SandboxCallbackBridgeRouteRule[] {
-  if (!agentId || !SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITER_AGENT_IDS.includes(agentId)) return routes;
-  return [...routes, SANDBOX_CALLBACK_BRIDGE_INSTRUCTIONS_FILE_WRITE_ROUTE];
-}
 
 export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_HEADER_ALLOWLIST = [
   "accept",
@@ -520,14 +400,37 @@ export function createSandboxCallbackBridgeToken(bytes = DEFAULT_BRIDGE_TOKEN_BY
   return randomBytes(bytes).toString("base64url");
 }
 
+/**
+ * True when a path could resolve to a different route after URL
+ * normalization on the forward side: dot segments (also percent-encoded),
+ * encoded slashes, backslashes, or NUL bytes. Both transports deny these
+ * before the route match, so a template parameter can never absorb `..`.
+ */
+function hasNonCanonicalBridgePathSegment(requestPath: string): boolean {
+  if (/%2f|%5c|%00/i.test(requestPath) || requestPath.includes("\\") || requestPath.includes("\0")) return true;
+  return requestPath.split("/").some((segment) => {
+    let decoded = segment;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      return true;
+    }
+    return decoded === "." || decoded === "..";
+  });
+}
+
 export function authorizeSandboxCallbackBridgeRequestWithRoutes(
   request: Pick<SandboxCallbackBridgeRequest, "method" | "path">,
   routes: readonly SandboxCallbackBridgeRouteRule[] = DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
 ): string | null {
   const method = normalizeMethod(request.method);
-  return routes.some((route) => route.method === method && route.path.test(request.path))
-    ? null
-    : `Route not allowed: ${method} ${request.path}`;
+  const denied = `Route not allowed: ${method} ${request.path}`;
+  if (typeof request.path !== "string" || !request.path.startsWith("/") || hasNonCanonicalBridgePathSegment(request.path)) {
+    return denied;
+  }
+  const matching = routes.filter((route) => route.method === method && route.path.test(request.path));
+  if (matching.some((route) => route.effect === "deny")) return denied;
+  return matching.length > 0 ? null : denied;
 }
 
 export function sanitizeSandboxCallbackBridgeHeaders(

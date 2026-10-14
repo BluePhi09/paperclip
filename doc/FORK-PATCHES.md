@@ -21,10 +21,7 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | k8s-Plugin | Label `paperclip.io/agent-id` = echte Agent-ID | #14 | einreichen | upstream fix |
 | k8s-Plugin | Sandbox-Volumes konfigurierbar (`/tmp` 8Gi), `defaultResources` im Schema | #24 | einreichen | upstream fix; ersetzt nebula `vendor/0006` |
 | k8s-Plugin | Gepinnte Runtime-Images (Codex/Claude) | `af23c80be`, `14f69f1cb` | – | eine Image-Quelle in Fork-CI (Phase 1) |
-| Bridge | Run-gebundene Secret-Routen | #4, #5 | einreichen | Bridge-Allowlist aus Grants (Phase 2) oder nativer Runner |
-| Bridge | Secret-Proposal-Routen | #16 | – | wie oben |
-| Bridge | Environments list/read/PATCH für `environments:manage` | #17 | – | wie oben |
-| Bridge | Instructions-Bundle-Datei; Schreiben nur Milo/Atlas (hart codierte UUIDs) | #20 | – | **entfernen** in Phase 2 (Allowlist aus Grants) |
+| Bridge | Routen-Oberfläche aus Server-Agent-Autorisierung (OpenAPI `x-paperclip-authorization`) generiert; ersetzt statische Allowlist inkl. #4/#5/#16/#17 und die hart codierten Milo/Atlas-UUIDs aus #20 | Phase 2 (dieser PR) | upstream #14189 offen; nativer Runner `call_api` (#16040) folgt demselben Prinzip | upstream bietet grant-/routenbasierte Bridge-Autorisierung oder alle Sandbox-Runs laufen über den nativen Runner |
 | Tool-Gateway | Outbound-MCP-Connector (`packages/mcp-connector`) | `b9f1c0b51` ff. | upstream hat eigenen Connector? prüfen | upstream-Äquivalent |
 | Tool-Gateway | Cache-Hints `tools/list` | #13 | einreichen | upstream fix |
 | Tool-Gateway | Connection-Health bei Tool-Timeout erhalten | #15 | einreichen | upstream fix |
