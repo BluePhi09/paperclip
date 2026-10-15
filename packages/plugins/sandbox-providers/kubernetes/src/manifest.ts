@@ -1,5 +1,10 @@
 import type { PaperclipPluginManifestV1 } from "@paperclipai/plugin-sdk";
 import { DEFAULT_SANDBOX_VOLUME_SIZE_LIMITS, STORAGE_QUANTITY_PATTERN } from "./sandbox-volumes.js";
+import {
+  EGRESS_PRESET_CIDR_PATTERN,
+  EGRESS_PRESET_FQDN_PATTERN,
+  EGRESS_PRESET_NAME_PATTERN,
+} from "./egress-presets.js";
 
 const PLUGIN_ID = "paperclip.kubernetes-sandbox-provider";
 const PLUGIN_VERSION = "0.1.0-alpha.1";
@@ -82,6 +87,51 @@ const manifest: PaperclipPluginManifestV1 = {
             type: "string",
             enum: ["standard", "cilium"],
             description: "Network policy mode. `cilium` enables FQDN-based egress filtering via CiliumNetworkPolicy.",
+          },
+          egressPresets: {
+            type: "object",
+            description:
+              'Named egress presets, e.g. {"github": {"fqdns": ["github.com"], "ports": [{"port": 443, "protocol": "TCP"}]}}. A preset has no effect until it is assigned to an agent in agentEgressPresets. FQDNs require egressMode "cilium". Presets only add allow rules: a cluster egressDeny still wins.',
+            propertyNames: { pattern: EGRESS_PRESET_NAME_PATTERN },
+            additionalProperties: {
+              type: "object",
+              additionalProperties: false,
+              required: ["ports"],
+              properties: {
+                fqdns: {
+                  type: "array",
+                  items: { type: "string", pattern: EGRESS_PRESET_FQDN_PATTERN },
+                  description: "Exact hostnames (no wildcards).",
+                },
+                cidrs: {
+                  type: "array",
+                  items: { type: "string", pattern: EGRESS_PRESET_CIDR_PATTERN },
+                  description: "IPv4 CIDRs, e.g. 192.168.30.170/32.",
+                },
+                ports: {
+                  type: "array",
+                  minItems: 1,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["port"],
+                    properties: {
+                      port: { type: "integer", minimum: 1, maximum: 65535 },
+                      protocol: { type: "string", enum: ["TCP", "UDP"], description: "Default TCP." },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          agentEgressPresets: {
+            type: "object",
+            description:
+              'Agent ID -> egress preset names, e.g. {"<agent-uuid>": ["github", "npm"]}. Each listed preset is appended to that agent\'s per-lease egress policy and its pods get the label egress-preset.paperclip.io/<name>=true.',
+            additionalProperties: {
+              type: "array",
+              items: { type: "string", pattern: EGRESS_PRESET_NAME_PATTERN },
+            },
           },
           paperclipServerPodSelector: {
             type: "object",

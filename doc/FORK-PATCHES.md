@@ -20,6 +20,7 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | k8s-Plugin | Per-Lease-Egress, Operator-Hosts, Provider-Domains | `4335daa7c` ff. | Teil von #14001 | wie oben |
 | k8s-Plugin | Label `paperclip.io/agent-id` = echte Agent-ID | #14 | einreichen | upstream fix |
 | k8s-Plugin | Sandbox-Volumes konfigurierbar (`/tmp` 8Gi), `defaultResources` im Schema | #24 | einreichen | upstream fix; ersetzt nebula `vendor/0006` |
+| k8s-Plugin | Benannte Egress-Presets pro Agent (`egressPresets`/`agentEgressPresets`), ersetzt UUID-CNPs für öffentliche Ziele | #40 | einreichen | upstream fix |
 | k8s-Plugin | Gepinnte Runtime-Images (Codex/Claude) | `af23c80be`, `14f69f1cb` | – | eine Image-Quelle in Fork-CI (Phase 1) |
 | Bridge | Run-gebundene Secret-Routen | #4, #5 | einreichen | Bridge-Allowlist aus Grants (Phase 2) oder nativer Runner |
 | Bridge | Secret-Proposal-Routen | #16 | – | wie oben |
