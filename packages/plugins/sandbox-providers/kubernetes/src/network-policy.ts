@@ -18,6 +18,8 @@ export interface BuildNetworkPolicyInput {
   podSelector?: Record<string, string>;
   includeBaseRules?: boolean;
   ownerReferences?: Record<string, unknown>[];
+  /** Additional pre-built egress rules (e.g. assigned egress presets), appended last. */
+  extraEgress?: Record<string, unknown>[];
 }
 
 /**
@@ -128,6 +130,7 @@ export function buildNetworkPolicyManifests(input: BuildNetworkPolicyInput): Rec
               },
             ]
           : []),
+        ...(input.extraEgress ?? []),
       ],
     },
   };

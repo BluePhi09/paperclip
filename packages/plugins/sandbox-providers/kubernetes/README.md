@@ -117,6 +117,8 @@ Common optional fields:
 | `egressAllowFqdns` | `[]` | Additional FQDNs (beyond adapter defaults like `api.anthropic.com`). |
 | `egressAllowCidrs` | `[]` | Additional CIDRs to allow egress to. |
 | `egressMode` | `"standard"` | `standard` (NetworkPolicy + CIDRs) or `cilium` (CiliumNetworkPolicy + FQDN allow-list). |
+| `egressPresets` | (none) | Named `{ fqdns?, cidrs?, ports: [{ port, protocol? }] }` bundles; inert until assigned. See [Per-agent egress presets](#per-agent-egress-presets). |
+| `agentEgressPresets` | (none) | Agent ID → preset names appended to that agent's per-lease egress policy. |
 | `defaultResources` | requests `250m`/`512Mi`, limits `2`/`4Gi` | `{ requests: { cpu, memory }, limits: { cpu, memory } }` for the agent container. Keep within the tenant LimitRange/ResourceQuota. |
 | `sandboxVolumes` | workspace `8Gi`, home `1Gi`, cache `1Gi`, tmp `8Gi` | emptyDir `sizeLimit` overrides: `workspaceSizeLimit`, `homeSizeLimit`, `cacheSizeLimit`, `tmpSizeLimit` (Kubernetes quantities such as `16Gi`). A pod that exceeds a limit is evicted. |
 | `runtimeClassName` | (none) | e.g. `kata-fc` for Firecracker-backed microVMs. Cluster must have the RuntimeClass installed. |
@@ -142,6 +144,45 @@ Keep provider-level egress defaults narrow, then grant only the destinations a t
 ```
 
 The provider creates a workload-owned policy selected by the task run label, so the additional destinations do not become reachable from other concurrent agent pods. Cilium mode enforces FQDNs directly. Standard NetworkPolicy mode cannot express FQDNs, so an FQDN grant permits public IPv4 TCP 80/443 for that run while excluding private, loopback, link-local, CGNAT, and multicast ranges. Network failures that look policy-related include the grant path in stderr, and the sandbox exposes the effective policy through `PAPERCLIP_NETWORK_EGRESS_*` environment variables.
+
+### Per-agent egress presets
+
+Destinations that only some agents need (a Git forge, a package registry, an SSH host) can be defined once as named presets in the environment config and assigned to agents by ID. Nothing changes until `agentEgressPresets` assigns a preset to an agent.
+
+```json
+{
+  "egressMode": "cilium",
+  "egressPresets": {
+    "github": {
+      "fqdns": ["github.com", "api.github.com", "codeload.github.com"],
+      "ports": [{ "port": 443, "protocol": "TCP" }]
+    },
+    "nas-ssh": { "cidrs": ["192.168.30.170/32"], "ports": [{ "port": 22 }] }
+  },
+  "agentEgressPresets": {
+    "97ac1286-84c8-4430-8dc8-9e38505df1b5": ["github"]
+  }
+}
+```
+
+- **Where:** the config belongs to the environment (one Kubernetes environment per adapter/tenant setup), so presets are defined per environment and assigned per agent within it. Keys of `agentEgressPresets` are agent IDs: the lease request carries `agentId`, not the agent's URL key.
+- **Effect:** for each new lease of an assigned agent, the preset rules are appended to the lease's `<lease>-adapter-egress` policy (port-scoped `toFQDNs`/`toCIDRSet` in Cilium mode, port-scoped `ipBlock` in standard mode). The pod also gets one `egress-preset.paperclip.io/<name>: "true"` label per preset, and the lease metadata lists `egressPresets`. Running or resumed leases keep what they were acquired with.
+- **Validation:** preset names are lowercase DNS labels, FQDNs are exact hostnames (no wildcards), CIDRs are IPv4, ports are 1–65535 with `TCP` (default) or `UDP`, and each preset needs at least one port and one destination. Assignments to undefined presets are rejected. Preset FQDNs require `egressMode: "cilium"`, because standard NetworkPolicy cannot enforce FQDNs.
+- **Limits:** presets express only FQDN and CIDR destinations. Rules that need `toEntities` (e.g. `host`), `toEndpoints`, or TLS `serverNames` stay in cluster-side policies. Those policies can select `egress-preset.paperclip.io/<name>` instead of an agent UUID.
+- **Allow only:** presets only add allow rules. A Cilium `egressDeny` (or any cluster-wide deny) that matches the same pod and destination still wins, so a preset cannot open a range that the cluster operator denies.
+
+#### Migrating hand-written per-agent Cilium policies
+
+The following example uses one operator's tenant: policies `egress-agent-*` that select `paperclip.io/agent-id: <uuid>`, plus an R-49 guard policy. The guard has an `egressDeny` for the `kube-apiserver`/`host`/`remote-node` entities and for 10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16, fc00::/7 and fe80::/10. It applies to every `paperclip.io/role: agent` pod whose `agent-id` is **not** in an explicit UUID list (currently Nova and Otto).
+
+| Policy | Preset translation | What remains in GitOps |
+|---|---|---|
+| `egress-agent-pax-dev` (GitHub, GHCR, npm FQDNs on 443) | `"pax-dev": { "fqdns": ["github.com","api.github.com","codeload.github.com","objects.githubusercontent.com","raw.githubusercontent.com","registry.npmjs.org","ghcr.io","pkg-containers.githubusercontent.com"], "ports": [{"port":443}] }` | Nothing. All destinations are public, so the private-network deny does not interfere. Delete the policy after a preset lease has been verified. |
+| `egress-agent-lumen-lernhub` (Gitea HTTPS) | `"gitea": { "fqdns": ["gitea.bluephi09.me"], "ports": [{"port":443}] }` | The Gitea VIP is private (192.168.25.221) and is DNATed to the Traefik pod, so the FQDN rule alone does not reach it. The pod-to-Traefik `toEndpoints` rule with `serverNames: [gitea.bluephi09.me]` does. Keep that rule as one shared policy that selects `egress-preset.paperclip.io/gitea: "true"` instead of Lumen's UUID. |
+| `egress-agent-otto-nas` (SSH 22 to 192.168.30.170/32) | `"nas-ssh": { "cidrs": ["192.168.30.170/32"], "ports": [{"port":22}] }` | The rule works only because Otto's UUID is excluded from the R-49 deny and from the cluster-wide `synnas-ssh-egress-deny` policies. Those exclusions stay in GitOps. For any other agent, the preset rule is silently overridden. |
+| `egress-agent-nova-platform` (API VIP 6443, Talos 50000, Gitea) | CIDR parts only: `192.168.25.220/32` on 6443 and `192.168.25.76/32` on 50000, plus the `gitea` preset | The working path is the `toEntities: [host]` rule on 6443/50000 (kube-vip traffic is classified as `host`) and the Traefik SNI rule, which presets cannot express. Bare CIDR rules timed out in live probes. Keep the policy, optionally selecting a `platform` preset label. The R-49 exclusion of Nova's UUID (the deny also covers `host`) stays in GitOps. |
+
+**Private CIDRs under a global `egressDeny`:** Cilium evaluates deny before allow across all policies that select a pod. A preset with a private CIDR (or a host/node destination) therefore has no effect on an agent that the R-49 guard still selects. Today the only way to give an agent private-network reach is to remove it from the guard, by adding its UUID to the guard's `NotIn` list. That happened for Nova (API VIP/Talos via `host`) and Otto (NAS SSH), and it is reviewed through GitOps. It is technically possible to key that exclusion on a preset label instead (`egress-preset.paperclip.io/<name>` `DoesNotExist`). Doing so moves the private-network decision from GitOps into the Paperclip environment config, which board users (and agents with environment-manage permission) can edit, so it is a deliberate trust decision and is not done by this plugin. Public-destination presets (Pax-style) need no cluster change.
 
 ## What gets created in your cluster
 
