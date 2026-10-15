@@ -33,6 +33,18 @@ describe("plugin", () => {
     expect(pattern.test("8Gi")).toBe(true);
     expect(pattern.test("8GB")).toBe(false);
   });
+  it("exposes egressPresets and agentEgressPresets in the manifest schema", () => {
+    const properties = manifest.environmentDrivers?.[0]?.configSchema?.properties as Record<string, any>;
+    const preset = properties.egressPresets.additionalProperties;
+    expect(properties.egressPresets.type).toBe("object");
+    expect(Object.keys(preset.properties).sort()).toEqual(["cidrs", "fqdns", "ports"]);
+    expect(preset.required).toEqual(["ports"]);
+    expect(preset.properties.ports.items.properties.port).toMatchObject({ minimum: 1, maximum: 65535 });
+    const name = new RegExp(properties.egressPresets.propertyNames.pattern);
+    expect(name.test("nas-ssh")).toBe(true);
+    expect(name.test("NAS_ssh")).toBe(false);
+    expect(properties.agentEgressPresets.additionalProperties.items.pattern).toBe(properties.egressPresets.propertyNames.pattern);
+  });
   it("exports the kubernetes driver", () => {
     expect(plugin.definition.onEnvironmentAcquireLease).toBeTypeOf("function");
     expect(plugin.definition.onEnvironmentValidateConfig).toBeTypeOf("function");

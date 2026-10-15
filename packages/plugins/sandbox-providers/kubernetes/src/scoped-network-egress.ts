@@ -1,6 +1,7 @@
 import type { KubeClients } from "./kube-client.js";
 import { buildNetworkPolicyManifests } from "./network-policy.js";
 import { buildCiliumNetworkPolicyManifest } from "./cilium-network-policy.js";
+import { buildCiliumEgressPresetRules, buildStandardEgressPresetRules, type EgressPreset } from "./egress-presets.js";
 
 export const NETWORK_EGRESS_GRANT_PATH = "executionWorkspaceSettings.networkEgress";
 
@@ -39,8 +40,15 @@ export async function createScopedNetworkEgressPolicy(input: {
   suffix?: string;
   /** Also allow DNS and the Paperclip callback; the policy is created even with an empty grant. */
   baseRules?: { paperclipServerNamespace: string; paperclipServerPodSelector?: Record<string, string> };
+  /** Port-scoped named egress presets assigned to this lease's agent. */
+  presets?: EgressPreset[];
 }): Promise<string | null> {
-  if (!input.baseRules && input.grant.allowFqdns.length === 0 && input.grant.allowCidrs.length === 0) return null;
+  if (
+    !input.baseRules &&
+    input.grant.allowFqdns.length === 0 &&
+    input.grant.allowCidrs.length === 0 &&
+    !input.presets?.length
+  ) return null;
   const suffix = input.suffix ?? "-egress";
   const maxWorkloadLength = 253 - suffix.length;
   const workloadName = input.workloadName.length <= maxWorkloadLength
@@ -58,6 +66,7 @@ export async function createScopedNetworkEgressPolicy(input: {
       endpointSelector: { "paperclip.io/run-id": input.runId },
       includeBaseRules: Boolean(input.baseRules),
       ownerReferences: [input.ownerReference],
+      ...(input.presets?.length ? { extraEgress: buildCiliumEgressPresetRules(input.presets) } : {}),
     });
     await input.clients.custom.createNamespacedCustomObject({
       group: "cilium.io",
@@ -77,6 +86,7 @@ export async function createScopedNetworkEgressPolicy(input: {
       podSelector: { "paperclip.io/run-id": input.runId },
       includeBaseRules: Boolean(input.baseRules),
       ownerReferences: [input.ownerReference],
+      ...(input.presets?.length ? { extraEgress: buildStandardEgressPresetRules(input.presets) } : {}),
     });
     await input.clients.networking.createNamespacedNetworkPolicy({ namespace: input.namespace, body: manifest as never });
   }
