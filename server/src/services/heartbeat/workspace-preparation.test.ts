@@ -138,6 +138,8 @@ describe.skipIf(!support.supported)("heartbeat workspace preparation boundary", 
           contract: { revision: "1", objective: "Preserve the controller", criteria: [{ id: "objective", requirement: "Preserve the original checkpoint path" }] } },
         runtimeContext: nativeRuntimeContextFixture(),
       });
+      // Fork (#9): one active lease per run; the first attempt's lease is released before recovery re-acquires.
+      await db.update(environmentLeases).set({ status: "released", releasedAt: new Date() }).where(eq(environmentLeases.heartbeatRunId, input.run.id));
       input.reuse.persistedNativeExecutionInput = admitted;
       input.run.runtimeMode = "native";
       input.run.runnerProfileJson = { nativeExecutionInput: admitted };
