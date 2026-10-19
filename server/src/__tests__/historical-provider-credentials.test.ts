@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { companies, companySecrets, companySecretVersions, createDb } from "@paperclipai/db";
 import type { SandboxEnvironmentConfig } from "@paperclipai/shared";
@@ -7,6 +7,7 @@ const resolve = vi.hoisted(() => vi.fn());
 vi.mock("../services/secrets.js", () => ({ secretService: () => ({ resolveSecretValueForSandboxCleanup: resolve }) }));
 import { historicalProviderCredentials } from "../services/historical-provider-credentials.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const value = "fixture-original-provider-key";
 const hash = createHash("sha256").update(value).digest("hex");
@@ -17,7 +18,7 @@ if (!support.supported) console.warn(`Skipping provider credential database test
 (support.supported ? describe : describe.skip)("historical provider credential identity", () => {
   let db: ReturnType<typeof createDb>, database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
   beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("historical-credentials-"); db = createDb(database.connectionString); }, 60_000);
-  afterEach(async () => { resolve.mockReset(); await db.execute(sql`SET client_min_messages = warning; TRUNCATE companies CASCADE`); });
+  afterEach(async () => { resolve.mockReset(); await truncateTablesWithDeadlockRetry(db, "SET client_min_messages = warning; TRUNCATE companies CASCADE"); });
   afterAll(async () => { await db?.$client.end(); await database?.cleanup(); });
   async function seed() {
     const companyId = randomUUID(); await db.insert(companies).values({ id: companyId, name: "Credential fixture", issuePrefix: `T${companyId.slice(0, 6)}` });

@@ -6,6 +6,7 @@ import { agents, agentApiKeys, agentWakeupRequests, companies, createDb, heartbe
 import { beginIdleTrackedWork, idleWorkSnapshot } from "../services/task-admission.js";
 import { readIdleSleepSafety, type IdleSleepDrainStatus } from "../services/idle-sleep-safety.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const now = Date.UTC(2020, 0, 1);
 const ownerId = "d0b833f4-4098-42de-8420-1907f3aa4895";
@@ -23,7 +24,7 @@ if (!support.supported) console.warn(`Skipping issue schedule Postgres tests: ${
     database = await startEmbeddedPostgresTestDatabase("idle-issue-schedule-");
     db = createDb(database.connectionString);
   }, 60_000);
-  afterEach(async () => { await db.execute(sql`TRUNCATE companies, plugins, environments CASCADE`); });
+  afterEach(async () => { await truncateTablesWithDeadlockRetry(db, "TRUNCATE companies, plugins, environments CASCADE"); });
   afterAll(async () => { await db?.$client.end(); await database?.cleanup(); });
   const readScheduled = () => readIdleSleepSafety(db, owned, () => now, ownerId, emptyLocal, undefined, undefined, true);
   const readIssueSchedules = () => readIdleSleepSafety(db, owned, () => now, ownerId, emptyLocal, undefined, undefined, true, true);

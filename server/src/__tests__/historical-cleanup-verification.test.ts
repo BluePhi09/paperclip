@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { agents, companies, createDb, environmentCustomImageSetupSessions, environmentLeases, environments, heartbeatRuns } from "@paperclipai/db";
 import { historicalCleanupVerificationService } from "../services/historical-cleanup-verification.js";
@@ -7,6 +7,7 @@ import { withoutCleanupVerification } from "../services/cleanup-verification-pro
 import { idleWorkSnapshot } from "../services/task-admission.js";
 import { readIdleSleepSafety, type IdleSleepDrainStatus } from "../services/idle-sleep-safety.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const now = Date.UTC(2020, 0, 1), ownerId = randomUUID();
 const owned = (): IdleSleepDrainStatus => ({ ownerId, draining: true, startedAt: new Date(now - 1000),
@@ -16,7 +17,7 @@ if (!support.supported) console.warn(`Skipping historical cleanup database tests
 (support.supported ? describe : describe.skip)("historical cleanup verification", () => {
   let db: ReturnType<typeof createDb>, database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
   beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("historical-cleanup-"); db = createDb(database.connectionString); }, 60_000);
-  afterEach(async () => { await db.execute(sql`SET client_min_messages = warning; TRUNCATE companies, plugins, environments CASCADE`); });
+  afterEach(async () => { await truncateTablesWithDeadlockRetry(db, "SET client_min_messages = warning; TRUNCATE companies, plugins, environments CASCADE"); });
   afterAll(async () => { await db?.$client.end(); await database?.cleanup(); });
   const read = () => readIdleSleepSafety(db, owned, () => now, ownerId, async () => "none", undefined, undefined, true, true);
   const state = async () => (await read()).backgroundWork;

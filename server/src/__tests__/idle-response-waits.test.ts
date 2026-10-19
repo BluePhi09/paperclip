@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   agents, companies, createDb, heartbeatRuns, issues, issueRecoveryActions,
@@ -9,6 +9,7 @@ import {
 import { readIdleSleepSafety, type IdleSleepDrainStatus } from "../services/idle-sleep-safety.js";
 import { getMergeConfirmationPullRequestReferences } from "../services/issue-thread-interactions.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const now = Date.UTC(2020, 0, 1);
 const ownerId = randomUUID();
@@ -25,7 +26,7 @@ if (!support.supported) console.warn(`Skipping response-wait database tests: ${s
     database = await startEmbeddedPostgresTestDatabase("idle-response-waits-");
     db = createDb(database.connectionString);
   }, 60_000);
-  afterEach(async () => { await db.execute(sql`TRUNCATE companies, plugins, environments CASCADE`); });
+  afterEach(async () => { await truncateTablesWithDeadlockRetry(db, "TRUNCATE companies, plugins, environments CASCADE"); });
   afterAll(async () => { await db?.$client.end(); await database?.cleanup(); });
   const read = (schedules = true) => readIdleSleepSafety(db, owned, () => now, ownerId,
     async () => "none", undefined, undefined, schedules, schedules);

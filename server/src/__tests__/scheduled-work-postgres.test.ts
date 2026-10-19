@@ -1,11 +1,11 @@
 import { agents, companies, createDb, issues, routines, routineTriggers } from "@paperclipai/db";
-import { sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import type { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
 import { DELIVERY_QUEUES, type DeliveryQueue } from "../services/delivery-work-notifications.js";
 import { registerScheduledWork } from "../services/scheduled-work.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const support = await getEmbeddedPostgresTestSupport();
 describe.skipIf(!support.supported)("scheduled deadline database queries", () => {
@@ -58,7 +58,7 @@ describe.skipIf(!support.supported)("scheduled deadline database queries", () =>
     for (const task of tasks.values()) await task.run(new AbortController().signal);
     expect(tasks.get(DELIVERY_QUEUES.routineSchedules)!.nextRunAt!()).toBe(at(10).getTime());
     expect(tasks.get(DELIVERY_QUEUES.issueMonitors)!.nextRunAt!()).toBe(at(15).getTime());
-    await db.execute(sql`truncate table companies restart identity cascade`);
+    await truncateTablesWithDeadlockRetry(db, "truncate table companies restart identity cascade");
     for (const task of tasks.values()) await task.run(new AbortController().signal);
     for (const task of tasks.values()) expect(task.nextRunAt!()).toBeNull();
   });

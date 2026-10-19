@@ -39,6 +39,9 @@ describe("reconstruction after confirmed native workspace loss", () => {
     providerExecute.mockClear();
     await db.transaction(async tx => {
     await tx.execute(sql`set local client_min_messages = warning`);
+    // Fork: governance_audit_events carries an append-only trigger that also
+    // fires for TRUNCATE ... CASCADE (see truncate-with-deadlock-retry.ts).
+    await tx.execute(sql`set local session_replication_role = replica`);
     await tx.execute(sql`truncate companies cascade`);
   }); });
 

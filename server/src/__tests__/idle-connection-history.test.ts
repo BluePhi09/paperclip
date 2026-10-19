@@ -9,6 +9,7 @@ import { beginIdleTrackedWork } from "../services/task-admission.js";
 import { connectionIntentDeliveryService } from "../services/connection-intent-delivery.js";
 import { readIdleSleepSafety, type IdleSleepDrainStatus } from "../services/idle-sleep-safety.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 const now = Date.UTC(2020, 0, 1); const ownerId = randomUUID();
 const owned = (): IdleSleepDrainStatus => ({ ownerId, draining: true, startedAt: new Date(now - 1000),
@@ -19,7 +20,7 @@ if (!support.supported) console.warn(`Skipping connection-history database tests
 (support.supported ? describe : describe.skip)("idle connection and local lease history", () => {
   let db: ReturnType<typeof createDb>; let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
   beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("idle-connection-history-"); db = createDb(database.connectionString); }, 60_000);
-  afterEach(async () => { await db.execute(sql`TRUNCATE companies, plugins, environments CASCADE`); });
+  afterEach(async () => { await truncateTablesWithDeadlockRetry(db, "TRUNCATE companies, plugins, environments CASCADE"); });
   afterAll(async () => { await db?.$client.end(); await database?.cleanup(); });
   const read = () => readIdleSleepSafety(db, owned, () => now, ownerId, async () => "none", undefined, undefined, true, true);
   async function seed(status = "done") {

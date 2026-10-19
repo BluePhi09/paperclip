@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { agents, companies, createDb, executionWorkspaces, heartbeatRuns, issues, projects, projectWorkspaces } from "@paperclipai/db";
 import { isGitWorkspaceExpirationEligible } from "../services/git-workspace-expiration.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { truncateTablesWithDeadlockRetry } from "./helpers/truncate-with-deadlock-retry.js";
 
 type Plan = { "Relation Name"?: string; "Actual Loops"?: number; Plans?: Plan[] };
 const flatten = (plan: Plan): Plan[] => [plan, ...(plan.Plans ?? []).flatMap(flatten)];
@@ -17,7 +18,7 @@ describeDatabase("Git expiration eligibility", () => {
     database = await startEmbeddedPostgresTestDatabase("git-expiration-eligibility-");
     db = createDb(database.connectionString, { maxConnections: 1 });
   });
-  afterEach(async () => { vi.restoreAllMocks(); await db.execute(sql`TRUNCATE TABLE companies CASCADE`); });
+  afterEach(async () => { vi.restoreAllMocks(); await truncateTablesWithDeadlockRetry(db, "TRUNCATE TABLE companies CASCADE"); });
   afterAll(async () => { await db?.$client.end({ timeout: 1 }); await database?.cleanup(); });
 
   async function fixture() {
