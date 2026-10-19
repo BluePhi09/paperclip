@@ -36,7 +36,9 @@ describePostgres("execution identity query contracts", () => {
     const ids: unknown[] = [ours.id, ours.id.toUpperCase(), ours.id.replaceAll("-", ""), `{${ours.id}}`, "bad", "", null, 42, {}, [ours.id], elsewhere.id, foreignRun.id];
     const actions = await db.insert(issueRecoveryActions).values(ids.map((runId, index) => ({
       companyId: f.companyId, sourceIssueId: f.issueId, kind: "active_run_watchdog", status: "resolved", ownerType: "board",
-      cause: "legacy_execution_requires_reconciliation", fingerprint: `fixture-${index}`, evidence: { runId }, nextAction: "Fixture",
+      cause: "legacy_execution_requires_reconciliation",
+      // Fork: the predicate binds fingerprint to evidence.runId (#9); keep that binding so only the runId spelling is tested.
+      fingerprint: typeof runId === "string" ? `legacy-execution:${runId}` : `fixture-${index}`, evidence: { runId }, nextAction: "Fixture",
     }))).returning();
     const matches = await db.select({ id: issueRecoveryActions.id }).from(issueRecoveryActions)
       .where(and(eq(issueRecoveryActions.companyId, f.companyId), conversationRecoveryActionPredicate()));

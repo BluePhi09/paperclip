@@ -57,6 +57,7 @@ describe.skipIf(!support.supported)("heartbeat workspace preparation boundary", 
     await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: true });
   });
 
+  // Fork (#9): acquisition authority binds via nativeIssueId/contextSnapshot.issueId and needs a live legacy controller claim.
   async function fixture(isolated = false) {
     const [company] = await db.insert(companies).values({ name: "Workspace preparation", issuePrefix: "WSP" }).returning();
     const [agent] = await db.insert(agents).values({ companyId: company.id, name: "Workspace agent", status: "running", adapterType: "process" }).returning();
@@ -71,7 +72,7 @@ describe.skipIf(!support.supported)("heartbeat workspace preparation boundary", 
     await execFile("git", ["-C", source, "commit", "-m", "Source"]);
     const [projectWorkspace] = await db.insert(projectWorkspaces).values({ companyId: company.id, projectId: project.id, name: "Source", cwd: source, isPrimary: true }).returning();
     const [issue] = await db.insert(issues).values({ companyId: company.id, title: "Prepare this workspace", identifier: "WSP-1", projectId: project.id, projectWorkspaceId: projectWorkspace.id, assigneeAgentId: agent.id }).returning();
-    const [run] = await db.insert(heartbeatRuns).values({ companyId: company.id, agentId: agent.id, issueId: issue.id, scopeKind: "issue", status: "running", runtimeMode: "legacy", ...legacyControllerClaim("legacy") }).returning();
+    const [run] = await db.insert(heartbeatRuns).values({ companyId: company.id, agentId: agent.id, issueId: issue.id, contextSnapshot: { issueId: issue.id }, scopeKind: "issue", status: "running", runtimeMode: "legacy", ...legacyControllerClaim("legacy") }).returning();
     const localEnvironment = await environmentService(db).ensureLocalEnvironment(company.id);
     const envOrchestrator = environmentRunOrchestrator(db);
     const resolver = createHeartbeatWorkspaceResolver(db);
@@ -105,7 +106,7 @@ describe.skipIf(!support.supported)("heartbeat workspace preparation boundary", 
     input.reuse.reusableExistingExecutionWorkspace = workspace;
     input.reuse.workspaceReuseRequest = resolveExecutionWorkspaceReuseRequestForIssue({ issueExecutionWorkspaceId: workspace.id, issueExecutionWorkspacePreference: "reuse_existing", existingExecutionWorkspaceStatus: workspace.status });
     input.task.issueRef = { ...input.task.issueRef!, executionWorkspaceId: workspace.id, executionWorkspacePreference: "reuse_existing" };
-    const [run] = await db.insert(heartbeatRuns).values({ companyId: input.run.companyId, agentId: input.agent.id, issueId: input.task.issueId, scopeKind: "issue", status: "running", runtimeMode: "legacy", ...legacyControllerClaim("legacy") }).returning();
+    const [run] = await db.insert(heartbeatRuns).values({ companyId: input.run.companyId, agentId: input.agent.id, issueId: input.task.issueId, contextSnapshot: { issueId: input.task.issueId }, scopeKind: "issue", status: "running", runtimeMode: "legacy", ...legacyControllerClaim("legacy") }).returning();
     input.run = run;
   }
 
@@ -224,7 +225,7 @@ describe.skipIf(!support.supported)("heartbeat workspace preparation boundary", 
     input.task.workspaceSelection = issue.workspaceSelection ?? null;
     await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, input.run.id));
     const [run] = await db.insert(heartbeatRuns).values({ companyId: issue.companyId, agentId: input.agent.id,
-      issueId: issue.id, scopeKind: "issue", status: "running", runtimeMode: "legacy" }).returning();
+      issueId: issue.id, contextSnapshot: { issueId: issue.id }, scopeKind: "issue", status: "running", runtimeMode: "legacy", ...legacyControllerClaim("legacy") }).returning();
     input.run = run;
     if (scenario === "legacy-untyped-source") {
       await db.update(issues).set({ workspaceSelection: null }).where(eq(issues.id, issue.id));
