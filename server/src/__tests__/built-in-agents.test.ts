@@ -634,9 +634,9 @@ describeEmbeddedPostgres("built-in agents", () => {
     expect(result.defaultGrantsEnsured).toBeGreaterThanOrEqual(4);
 
     const rootGrantKeys = await permissionKeysForAgent(root.id);
-    expect(rootGrantKeys).toEqual(expect.arrayContaining([
-      "agents:configure", "agents:suggest-changes", "skills:create", "skills:suggest-changes",
-    ]));
+    // Fork-Patch (BLU-625): the root agent's *:suggest-changes grants came from
+    // the former new-agent defaults; only the root change grants remain.
+    expect(rootGrantKeys).toEqual(expect.arrayContaining(["agents:configure", "skills:create"]));
 
     const state = await builtInAgentService(db).get(companyId, "reflection-coach");
     expect(state).toMatchObject({
