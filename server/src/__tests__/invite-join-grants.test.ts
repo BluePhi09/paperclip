@@ -17,6 +17,12 @@ const defaultAgentGrants = NEW_STANDARD_AGENT_DEFAULT_GRANT_KEYS.map((permission
 }));
 
 describe("agentJoinGrantsFromDefaults", () => {
+  it("defaults new agents to tasks:assign only (Fork-Patch BLU-625)", () => {
+    expect(agentJoinGrantsFromDefaults(null, invitedAgentId)).toEqual([
+      { permissionKey: "tasks:assign", scope: null },
+    ]);
+  });
+
   it("adds all new-agent grants when invite defaults do not specify grants", () => {
     expect(agentJoinGrantsFromDefaults(null, invitedAgentId)).toEqual(defaultAgentGrants);
   });
