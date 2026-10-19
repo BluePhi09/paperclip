@@ -1,21 +1,15 @@
 import { LOW_TRUST_REVIEW_PRESET, type PermissionKey } from "@paperclipai/shared";
 
-/** Direct grants for newly activated standard agents. Existing agents are not backfilled. */
+/**
+ * Direct grants for newly activated standard agents. Existing agents are not backfilled.
+ *
+ * Fork-Patch (BLU-625, Vera BLU-579/BLU-624): new agents receive only
+ * tasks:assign. Upstream #15283/#15631 widened this to 14 unscoped grants
+ * (incl. agents:configure, tools:manage_connections); wider access is granted
+ * explicitly by the board per agent.
+ */
 export const NEW_STANDARD_AGENT_DEFAULT_GRANT_KEYS = [
-  "agents:configure",
-  "agents:suggest-changes",
-  "skills:create",
-  "skills:suggest-changes",
-  "tools:manage_connections",
-  "tools:manage_profiles",
-  "tools:view_audit",
-  "audit:view_agent_actions",
-  "tools:use",
-  "tools:manage_runtime",
-  "inbox:manage",
   "tasks:assign",
-  "tasks:assign_scope",
-  "tasks:manage_active_checkouts",
 ] as const satisfies readonly PermissionKey[];
 
 export function newStandardAgentGrantScope(
