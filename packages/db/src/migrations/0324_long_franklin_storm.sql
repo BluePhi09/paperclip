@@ -137,7 +137,7 @@ DO $$ BEGIN
 END $$;--> statement-breakpoint
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tool_connections_transport_check' AND conrelid = 'tool_connections'::regclass) THEN
-    ALTER TABLE "tool_connections" ADD CONSTRAINT "tool_connections_transport_check" CHECK ("tool_connections"."transport" in ('mcp_remote', 'connector', 'rest_api', 'local_stdio', 'chat_sdk', 'voice', 'runtime_auth'));
+    ALTER TABLE "tool_connections" ADD CONSTRAINT "tool_connections_transport_check" CHECK ("tool_connections"."transport" in ('mcp_remote', 'rest_api', 'local_stdio', 'chat_sdk', 'voice', 'runtime_auth'));
   END IF;
 END $$;--> statement-breakpoint
 DO $$ BEGIN
