@@ -16,7 +16,7 @@ exact execution ID explicitly.
 | Decide on an installed service action | `service-approve`, `service-decline` | Assign an authenticated local MCP fixture with Ask first; match its tool action and connection ID; no provider call before approval; exactly one after approval and a verified document; none after decline. |
 | Decline a new connection | `connection-decline` | Start without service connections; match a Notion connection intent; click Not now; verify the saved rejection, no new connection or repeated request, and an explanation followed by Done. |
 | Request an email address | `agentmail-setup` | Enable Chat connectors, ask for an email address, and require a durable AgentMail card for the requesting agent and user. Reload and verify one password field, the direct API-key link, and no access selectors or modal. Decline and verify no connection or repeated request. |
-| Continue work after a controller restart | `recover-controller` | Observe saved source, persist a user message, restart the isolated controller, and independently test the delivered result. |
+| Continue work after a controller restart | `recover-controller` | Observe saved source, persist a user message, restart the isolated controller, and independently test the delivered result. Native Daytona cases keep the controller offline for 125 seconds before restarting. |
 | Stop work and change direction | `stop-redirect` | Click Stop, send one new request, reload, observe exactly one stored user message and the new answer, and reach Done. |
 | Create and edit a company skill | `create-skill-studio` | Create one skill through the runner, verify its persisted library entry and activity-feed card, open Skill Studio, save an edit, and verify the edit after returning. Local Codex, local ACPX Claude, and warm Daytona cells are explicit. |
 
@@ -46,6 +46,36 @@ for 52 cells total. Hiring/reuse and delegation have one attempt and a
 restart, a verified first download supplies the persistence checkpoint; the
 controller is interrupted during a subsequent revision with another queued
 requirement.
+
+The native Codex and ACPX Daytona restart cells require a completed native tool
+receipt while that revision is still running. They keep the controller offline
+for 125 seconds after its health listener stops, then start its replacement.
+Before and after restart each pins
+the same run, normalized session, Runner identity, PID/start time, and active
+sandbox lease. The original receipt prefix must remain unchanged. A run that
+ends before either active observation leaves the fault boundary unexercised;
+it cannot pass from the final ZIP alone. The cell no longer exempts an original
+Codex remote run that fails with `process_lost` and is replaced.
+
+Completion requires one original provider turn and control-plane terminal,
+the same native receipt prefix, no failed native tool receipts, and consistent
+results for every stable completed tool identity. Reattached activity can
+redeliver an identical start or tool receipt; changed content or a second
+submission fails. It also requires
+a committed run and successful `workspace_finalize` receipt, and no pending
+workspace operation or recovery. Existing independent ZIP and preserved-download
+checks still apply. These receipt checks do not prove that arbitrary external
+effects with different tool IDs cannot repeat.
+
+`remote-restart-before.json`, `remote-restart-after.json` and
+`remote-restart-final.json` retain receipt identities and hashes. They exclude
+provider text, tool arguments, command output, and raw provider sandbox IDs.
+The suite definition version and harness digest change with this oracle.
+Its deterministic calibration is not a claim that a live Daytona run passed.
+
+```sh
+pnpm test:e2e:runner -- --id everyday-workflows.runner-codex.daytona.recover-controller --max-automatic-retries 0
+```
 
 ```sh
 pnpm test:e2e:runner -- --list --suite everyday-workflows

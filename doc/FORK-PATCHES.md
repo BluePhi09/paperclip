@@ -3,7 +3,7 @@
 Der Fork ist upstream `paperclipai/paperclip` plus diese Patch-Liste. Eigene Features kommen als Plugin.
 Jede Zeile: Zweck, Fork-PR, upstream-Stand, Löschbedingung. Ein Patch, dessen Löschbedingung erfüllt ist, wird beim nächsten Upstream-Sync entfernt.
 
-Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
+Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-26.
 
 ## Regeln
 
@@ -25,7 +25,7 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | Bridge | Secret-Proposal-Routen | #16 | – | wie oben |
 | Bridge | Environments list/read/PATCH für `environments:manage` | #17 | – | wie oben |
 | Bridge | Instructions-Bundle-Datei; Schreiben nur Milo/Atlas (hart codierte UUIDs) | #20 | – | **entfernen** in Phase 2 (Allowlist aus Grants) |
-| Tool-Gateway | Outbound-MCP-Connector (`packages/mcp-connector`) | `b9f1c0b51` ff. | upstream hat eigenen Connector? prüfen | upstream-Äquivalent |
+| Tool-Gateway | Outbound-MCP-Connector (`packages/mcp-connector`, Migration 0378; Transport-Helfer in `tool-access/connector-transport.ts`) | `b9f1c0b51` ff. | upstream hat eigenen Connector? prüfen | upstream-Äquivalent |
 | Tool-Gateway | Cache-Hints `tools/list` | #13 | einreichen | upstream fix |
 | Tool-Gateway | Connection-Health bei Tool-Timeout erhalten | #15 | einreichen | upstream fix |
 | Tool-Gateway | Gateway-Rejections als HTTP-Fehler in Reviews | #19 | einreichen | upstream fix |
@@ -41,7 +41,7 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | AI-Connections | Modell-Discovery über AI-Gateways, archivierte Accounts ausblenden | `3b71215c5`, `175bd6929` | einreichen | upstream fix |
 | Decisions | Audiences, Briefs, native Agent-Diskussion | #7, #8 | – | **behalten** (Entscheidung 13.10.2026), mittelfristig als Plugin prüfen |
 | Environments | Run-Acquisitions reservieren, gemessene Runtime-Identität | #9 | – | **behalten** (Entscheidung 13.10.2026) |
-| DB (Altlast) | Governance-Tabellen aus Migrationen 0336/0337 + Append-only-Trigger bleiben (Schema in `packages/db/src/schema/governance_verification.ts`, Lösch-Guard in `company-deletion.ts`, `session_replication_role` in Test-Cleanup) | #11 (Feature entfernt) | – | eigene, bewusst destruktive Drop-Migration nach Philipps OK |
+| DB (Altlast) | Governance-Tabellen aus Migrationen 0379/0380 (vor Sync 2026-10-26: 0336/0337) + Append-only-Trigger bleiben; Trigger in Test-DBs per `test-embedded-postgres.ts` deaktiviert (Schema in `packages/db/src/schema/governance_verification.ts`, Lösch-Guard in `company-deletion.ts`, `session_replication_role` in Test-Cleanup) | #11 (Feature entfernt) | – | eigene, bewusst destruktive Drop-Migration nach Philipps OK |
 | CI | Fork-Workflows, GHCR lowercase, Integrations-Image mit k8s-Plugin | #18, #21, `65b8ffcf1` | – | dauerhaft (Fork-Infrastruktur) |
 | CI | `ci / policy` grün im Fork (lokaler pr-trusted, Sync-Lockfile) | #28 | – | dauerhaft |
 | E2B | Self-Hosted-Env an Worker durchreichen | #3 | einreichen | upstream fix |

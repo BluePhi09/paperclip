@@ -1,5 +1,9 @@
+import { writeEnvironmentCleanup, notifyEnvironmentCleanup } from "./environment-cleanup-notifications.js";
+import { withoutCleanupVerification } from "./cleanup-verification-proof.js";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+
+import { SANDBOX_PLATFORM_PROBE_METADATA_KEY } from "./environment-custom-image-runtime.js";
+import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -319,6 +323,14 @@ function mergeManagedEnvironmentMetadata(
     else merged[key] = value;
   }
   return merged;
+}
+
+function preserveInvalidatedSnapshotProofs(replacement: SQL): SQL {
+  const proofs = sql`(select coalesce(jsonb_object_agg(entry.key, entry.value || '{"invalidated":true}'::jsonb), '{}'::jsonb)
+    from jsonb_each(coalesce(${environments.metadata}->${SANDBOX_PLATFORM_PROBE_METADATA_KEY}, '{}'::jsonb)) as entry
+    where entry.value->>'v' = '2')`;
+  return sql`case when ${proofs} = '{}'::jsonb then ${replacement}
+    else coalesce(${replacement}, '{}'::jsonb) || jsonb_build_object(${SANDBOX_PLATFORM_PROBE_METADATA_KEY}::text, ${proofs}) end`;
 }
 
 export function environmentService(db: Db) {
@@ -861,6 +873,24 @@ export function environmentService(db: Db) {
   };
 
   return {
+    recordSandboxPlatformProbe: async (input: {
+      environmentId: string;
+      companyId: string;
+      config: Record<string, unknown>;
+      proof: Record<string, unknown> | null;
+    }): Promise<boolean> => {
+      const existing = sql`coalesce(${environments.metadata}->${SANDBOX_PLATFORM_PROBE_METADATA_KEY}, '{}'::jsonb)`;
+      const previous = sql`${existing}->${input.companyId}`;
+      const probes = input.proof === null
+        ? sql`case when ${previous}->>'v' = '2'
+          then jsonb_set(${existing}, ARRAY[${input.companyId}]::text[], ${previous} || '{"invalidated":true}'::jsonb, true)
+          else ${existing} - ${input.companyId} end`
+        : sql`${existing} || ${JSON.stringify({ [input.companyId]: input.proof })}::jsonb`;
+      const rows = await db.update(environments).set({
+        metadata: sql`jsonb_set(coalesce(${environments.metadata}, '{}'::jsonb), ARRAY[${SANDBOX_PLATFORM_PROBE_METADATA_KEY}]::text[], ${probes}, true)`,
+      }).where(and(eq(environments.id, input.environmentId), eq(environments.driver, "sandbox"), eq(environments.config, input.config))).returning({ id: environments.id });
+      return rows.length > 0;
+    },
     list: async (
       companyIdOrFilters?: string | EnvironmentListFilters,
       maybeFilters?: EnvironmentListFilters,
@@ -1120,20 +1150,29 @@ export function environmentService(db: Db) {
       if ("envVars" in patch && patch.envVars !== undefined) {
         values.envVars = (patch.envVars ?? {}) as Record<string, unknown>;
       }
+      const changesTarget = patch.config !== undefined || patch.driver !== undefined;
+      let metadataUpdate: SQL | undefined;
       if (patch.metadata !== undefined) {
-        values.metadata = withoutManagedEnvironmentArchiveToken(patch.metadata ?? null);
-      } else if (patch.status !== undefined) {
-        const existingMetadata = await writeDb
-          .select({ metadata: environments.metadata })
-          .from(environments)
-          .where(eq(environments.id, id))
-          .then((rows) => rows[0]?.metadata ?? null);
-        values.metadata = withoutManagedEnvironmentArchiveToken(existingMetadata);
+        const userMetadata = withoutManagedEnvironmentArchiveToken(patch.metadata ?? null);
+        if (userMetadata) delete userMetadata[SANDBOX_PLATFORM_PROBE_METADATA_KEY];
+        if (changesTarget) {
+          const replacement = userMetadata === null ? sql`null::jsonb` : sql`${JSON.stringify(userMetadata)}::jsonb`;
+          metadataUpdate = preserveInvalidatedSnapshotProofs(replacement);
+        } else {
+          const replacement = userMetadata === null ? sql`null::jsonb` : sql`${JSON.stringify(userMetadata)}::jsonb`;
+          metadataUpdate = sql`case when ${environments.metadata} ? ${SANDBOX_PLATFORM_PROBE_METADATA_KEY}
+            then coalesce(${replacement}, '{}'::jsonb) || jsonb_build_object(
+              ${SANDBOX_PLATFORM_PROBE_METADATA_KEY}::text, ${environments.metadata}->${SANDBOX_PLATFORM_PROBE_METADATA_KEY})
+            else ${replacement} end`;
+        }
+      } else if (changesTarget || patch.status !== undefined) {
+        metadataUpdate = sql`${environments.metadata} - ${MANAGED_ENVIRONMENT_ARCHIVE_TOKEN_METADATA_KEY}`;
+        if (changesTarget) metadataUpdate = preserveInvalidatedSnapshotProofs(sql`${metadataUpdate} - ${SANDBOX_PLATFORM_PROBE_METADATA_KEY}`);
       }
 
       const row = await writeDb
         .update(environments)
-        .set(values)
+        .set({ ...values, ...(metadataUpdate ? { metadata: metadataUpdate } : {}) })
         .where(eq(environments.id, id))
         .returning()
         .then((rows) => rows[0] ?? null)
@@ -1456,7 +1495,7 @@ export function environmentService(db: Db) {
         releasedAt: null,
         failureReason: null,
         cleanupStatus: null,
-        metadata: input.metadata ?? null,
+        metadata: withoutCleanupVerification(input.metadata),
         createdAt: now,
         updatedAt: now,
       };
@@ -1592,7 +1631,7 @@ export function environmentService(db: Db) {
                     expiresAt: input.expiresAt ?? null,
                     failureReason: null,
                     cleanupStatus: null,
-                    metadata: input.metadata ?? null,
+                    metadata: withoutCleanupVerification(input.metadata),
                     updatedAt: now,
                   })
                   .where(
@@ -1659,7 +1698,12 @@ export function environmentService(db: Db) {
       },
     ) => {
       const now = new Date();
-      const release = async (tx: Db) => {
+      const releaseMetadata = options?.remoteExecutionTermination
+        ? sql`coalesce(${environmentLeases.metadata}, '{}'::jsonb) || ${JSON.stringify({ remoteExecutionTermination: options.remoteExecutionTermination })}::jsonb`
+        : sql`${environmentLeases.metadata} - 'remoteExecutionTermination'`;
+      const cleanupSettled = options?.expectedPendingCleanupAttemptId && options.cleanupStatus === "success"
+        && status !== "pending_cleanup";
+      const row = await writeEnvironmentCleanup(db, async (tx) => {
       // Take issue -> run before the cleanup row, just like publication/retirement.
       // The lease transition and ledger completion must commit together: otherwise
       // a lost ledger write leaves an expired row that the sweep never revisits.
@@ -1668,7 +1712,7 @@ export function environmentService(db: Db) {
       const run = snapshot?.heartbeatRunId && typeof identity?.token === "string" && typeof identity.environmentId === "string"
         && status === "expired" && options?.cleanupStatus === "success"
         ? await lockAcquisitionRun(tx, { ...snapshot, environmentId: identity.environmentId }) : null;
-      const row = await tx
+      const updatedRow = await tx
         .update(environmentLeases)
         .set({
           status,
@@ -1679,9 +1723,9 @@ export function environmentService(db: Db) {
           ...(options?.cleanupStatus !== undefined ? { cleanupStatus: options.cleanupStatus } : {}),
           // A later release without a receipt cannot reuse an earlier stop's
           // authority (for example after a same-run lease resume).
-          metadata: options?.remoteExecutionTermination
-            ? sql`coalesce(${environmentLeases.metadata}, '{}'::jsonb) || ${JSON.stringify({ remoteExecutionTermination: options.remoteExecutionTermination })}::jsonb`
-            : sql`${environmentLeases.metadata} - 'remoteExecutionTermination'`,
+          metadata: cleanupSettled
+            ? sql`coalesce(${releaseMetadata}, '{}'::jsonb) || '{"pendingCleanupInFlight":false,"pendingCleanupLeaseExpiresAtMs":0}'::jsonb`
+            : releaseMetadata,
         })
         .where(and(eq(environmentLeases.id, id), options?.expectedPendingCleanupAttemptId
           ? and(eq(environmentLeases.status, "pending_cleanup"),
@@ -1690,15 +1734,15 @@ export function environmentService(db: Db) {
         .returning()
         .then((rows) => rows[0] ?? null);
       const current = run && readRunAcquisition(run);
-      if (row && run && current && current.token === identity?.token && acquisitionUnknown(current.state)
+      if (updatedRow && run && current && current.token === identity?.token && acquisitionUnknown(current.state)
         && current.environmentId === identity?.environmentId
-        && current.issueId === row.issueId && current.executionWorkspaceId === row.executionWorkspaceId
-        && row.metadata?.acquisitionCleanup && JSON.stringify(row.metadata.acquisitionCleanup) === JSON.stringify(identity)) {
-        await writeRunAcquisition(tx, run.id, { ...current, state: "cleanup_confirmed", cleanupLeaseId: row.id });
+        && current.issueId === updatedRow.issueId && current.executionWorkspaceId === updatedRow.executionWorkspaceId
+        && updatedRow.metadata?.acquisitionCleanup && JSON.stringify(updatedRow.metadata.acquisitionCleanup) === JSON.stringify(identity)) {
+        await writeRunAcquisition(tx, run.id, { ...current, state: "cleanup_confirmed", cleanupLeaseId: updatedRow.id });
       }
+      return updatedRow;
+      });
       return row ? toEnvironmentLease(row) : null;
-      };
-      return db.transaction(tx => release(tx as unknown as Db));
     },
 
     /**
@@ -1746,6 +1790,7 @@ export function environmentService(db: Db) {
           .where(eq(environments.id, input.environmentId))
           .for("update");
         const environmentIdForRow = environmentRows[0]?.id ?? null;
+        await notifyEnvironmentCleanup(tx);
         return tx
           .insert(environmentLeases)
           .values({
@@ -1764,7 +1809,7 @@ export function environmentService(db: Db) {
             releasedAt: now,
             failureReason: input.failureReason,
             cleanupStatus: "failed",
-            metadata: input.metadata ?? null,
+            metadata: withoutCleanupVerification(input.metadata),
             createdAt: now,
             updatedAt: now,
           })
@@ -1781,16 +1826,16 @@ export function environmentService(db: Db) {
       id: string,
       metadata: Record<string, unknown> | null,
     ): Promise<EnvironmentLease | null> => {
-      const row = await db
+      const row = await writeEnvironmentCleanup(db, tx => tx
         .update(environmentLeases)
         .set({
-          metadata,
+          metadata: withoutCleanupVerification(metadata),
           lastUsedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(environmentLeases.id, id))
         .returning()
-        .then((rows) => rows[0] ?? null);
+        .then((rows) => rows[0] ?? null));
       return row ? toEnvironmentLease(row) : null;
     },
 
@@ -1799,7 +1844,7 @@ export function environmentService(db: Db) {
       status: Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed"> = "released",
     ): Promise<EnvironmentLease[]> => {
       const now = new Date();
-      const rows = await db
+      const rows = await writeEnvironmentCleanup(db, tx => tx
         .update(environmentLeases)
         .set({
           status,
@@ -1813,7 +1858,7 @@ export function environmentService(db: Db) {
             eq(environmentLeases.status, "active"),
           ),
         )
-        .returning();
+        .returning());
       return rows.map(toEnvironmentLease);
     },
   };

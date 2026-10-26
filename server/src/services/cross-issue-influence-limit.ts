@@ -161,6 +161,11 @@ export async function observeCrossIssueInfluence(
       throw crossIssueInfluenceRunContextError();
     }
 
+    // An unscoped run (timer heartbeat with no checked-out issue) has no source
+    // issue, so every issue write it makes is cross-issue by definition and
+    // spends the cap. The locked run row above is the attribution anchor;
+    // rejecting these writes as run-less left live heartbeat runs unable to
+    // comment or update any task at all.
     const snapshotIssueId = readRunSourceIssueId(run.contextSnapshot);
     const claimedIssueIds = snapshotIssueId
       ? []
@@ -172,12 +177,9 @@ export async function observeCrossIssueInfluence(
     // writes to it are its own work and stay free. Several claims mean
     // the run is juggling issues at once and has no single subject, so
     // every write it makes is metered against the cap — a run cannot
-    // buy free writes by checking out one issue after another. No
-    // claim at all stays unattributable and fails closed.
+    // buy free writes by checking out one issue after another. No claim
+    // at all leaves the run unscoped, and its writes spend the cap too.
     const sourceIssueId = snapshotIssueId ?? (claimedIssueIds.length === 1 ? claimedIssueIds[0] : null);
-    if (!sourceIssueId && claimedIssueIds.length === 0) {
-      throw crossIssueInfluenceRunContextError();
-    }
     if (
       sourceIssueId !== null &&
       (sourceIssueId === input.targetIssueId ||
