@@ -938,7 +938,7 @@ describeEmbeddedPostgres("access service", () => {
     await expect(access.canUser(company.id, operator.principalId, "tasks:assign")).resolves.toBe(true);
     for (const permissionKey of [
       "agents:create", "agents:configure", "skills:create", "environments:manage",
-      "users:invite", "pipelines:write", "tools:manage_connections", "tools:manage_profiles",
+      "users:invite", "tools:manage_connections", "tools:manage_profiles",
       "tools:manage_runtime", "tools:use", "tools:admin", "tools:view_audit",
       "audit:view_agent_actions", "joins:approve", "users:manage_permissions",
     ] as const) {

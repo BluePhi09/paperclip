@@ -5,6 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import postgres from "postgres";
 import { applyPendingMigrations, closeRegisteredClients, ensurePostgresDatabase } from "./client.js";
 import {
   createEmbeddedPostgresLogBuffer,
@@ -702,6 +703,22 @@ async function startEmbeddedPostgresClusterForSuite(
   return { ...started, mode: "fresh" };
 }
 
+// Fork (BluePhi09): the legacy governance tables (migrations 0379/0380) keep a
+// statement-level append-only trigger on governance_audit_events that also
+// fires for TRUNCATE ... CASCADE from `companies`. Upstream suites wipe their
+// fixtures that way, so disable the trigger in throwaway test databases only.
+// Production databases never go through this helper.
+async function disableGovernanceAuditAppendOnlyTrigger(connectionString: string): Promise<void> {
+  const sql = postgres(connectionString, { max: 1, onnotice: () => {} });
+  try {
+    await sql.unsafe(
+      "ALTER TABLE IF EXISTS governance_audit_events DISABLE TRIGGER governance_audit_append_only",
+    );
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 export async function startEmbeddedPostgresTestDatabase(
   tempDirPrefix: string,
 ): Promise<EmbeddedPostgresTestDatabase> {
@@ -714,6 +731,7 @@ export async function startEmbeddedPostgresTestDatabase(
     await ensurePostgresDatabase(adminConnectionStringFor(port), "paperclip");
     const connectionString = databaseConnectionStringFor(port);
     await applyPendingMigrations(connectionString);
+    await disableGovernanceAuditAppendOnlyTrigger(connectionString);
 
     return {
       connectionString,

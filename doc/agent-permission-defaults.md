@@ -14,7 +14,7 @@ This document describes the server defaults for an ordinary, standard trust agen
 
 ## Not granted by default
 
-Apart from `tasks:assign`, no permission key has a blanket grant for new standard agents. This includes `agents:configure`, `agents:suggest-changes`, `agents:create` (the flag above is separate), `skills:create`, `skills:suggest-changes`, all `tools:*` keys, `audit:view_agent_actions`, `inbox:manage`, `tasks:assign_scope`, `tasks:manage_active_checkouts`, `environments:manage`, `users:invite`, `users:manage_permissions`, `pipelines:write`, and `joins:approve`. Existing agents keep their current permissions. The defaults above apply when a new standard agent is created or a pending new hire is activated. Some actions have separate bounded paths; the absence of a grant row does not describe every route decision.
+Apart from `tasks:assign`, no permission key has a blanket grant for new standard agents. This includes `agents:configure`, `agents:suggest-changes`, `agents:create` (the flag above is separate), `skills:create`, `skills:suggest-changes`, all `tools:*` keys, `audit:view_agent_actions`, `inbox:manage`, `tasks:assign_scope`, `tasks:manage_active_checkouts`, `environments:manage`, `users:invite`, `users:manage_permissions`, and `joins:approve`. Existing agents keep their current permissions. The defaults above apply when a new standard agent is created or a pending new hire is activated. Some actions have separate bounded paths; the absence of a grant row does not describe every route decision.
 
 The default grant does not grant company administration, user permission management, blanket tool administration, or cross-company access. The responsible user's permissions, route checks, and the normal approval gates still apply.
 

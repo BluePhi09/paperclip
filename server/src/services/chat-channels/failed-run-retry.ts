@@ -1,5 +1,8 @@
 import { continuingTeamsFilePublication, type ContinuingTeamsFileTransfer } from "./microsoft-teams/file-transfer-source.js";
-import { notifyChatPublicationWork } from "../chat-work-notifications.js";
+import { readTaskChatRetryIntent, taskChatRetryCanAwaitRecovery, taskChatRetryExecutionStopped } from "./task-retry-authority.js";
+import { notifyChatActionWork, notifyChatPublicationWork } from "../chat-work-notifications.js";
+import { FAILED_RUN_RETRY_STALE_MS, dueChatAction } from "../chat-action-work.js";
+import { readChatAuthorizationRun } from "./authorization-run-read.js";
 
 import {
   createHash,
@@ -13,7 +16,6 @@ import {
   isNotNull,
   isNull,
   like,
-  lte,
   ne,
   notInArray,
   or,
@@ -78,6 +80,7 @@ import {
   NativeChatReviewPresentationContentionError,
 } from "../native-runtime/native-chat-review-presentation.js";
 import { isExternalChatWaitAuthorizationContention } from "../native-runtime/chat-attachment-reuse.js";
+import { CHAT_CONVERSATION_ID_KEY } from "../../modules/run-dispatch/index.js";
 import { projectSafeChatPublication } from "../chat-publication-projection.js";
 
 import {
@@ -104,7 +107,6 @@ type ChatFailedRunRetryOptions = {
   lifecycleRuntimeFence: (delivery: DeliveryRow) => RetryRuntimeFence | null;
   isShuttingDown: () => boolean;
   wakeup: IssueAssignmentWakeupDeps["wakeup"];
-  staleProcessingMs: number;
 };
 
 export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOptions) {
@@ -115,7 +117,6 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
     lifecycleRuntimeFence,
     isShuttingDown,
     wakeup,
-    staleProcessingMs: DELIVERY_PROCESSING_STALE_MS,
   } = options;
 
 
@@ -548,6 +549,8 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
     tx: DbOrTransaction,
     source: Pick<FailedChatRetrySource, "failedRunId" | "issueId" | "agentId">,
     companyId: string,
+    taskRetryIntentId?: string,
+    allowPendingRecovery = false,
   ) {
     const [run] = await tx
       .select()
@@ -561,6 +564,17 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
       )
       .for("share", { noWait: true });
     if (!run) throw failedChatRetryDenied();
+    if (taskRetryIntentId) {
+      if (!await readTaskChatRetryIntent(tx as unknown as Db, { companyId, issueId: source.issueId,
+        agentId: source.agentId, sourceRunId: run.id, intentId: taskRetryIntentId })) throw failedChatRetryDenied();
+      if (await taskChatRetryExecutionStopped(tx as unknown as Db, run)) return;
+      if (allowPendingRecovery && await taskChatRetryCanAwaitRecovery(
+        tx as unknown as Db, run, source.issueId, taskRetryIntentId,
+      )) return;
+      // A still-live/unknown executor remains held. The exact pre-provider
+      // proof below can establish a never-started native attempt.
+      if (run.runtimeMode !== "native") throw failedChatRetryDenied();
+    }
     if (run.runtimeMode !== "native") return;
     const { coordinator, leases, retiredOwner } =
       await failedNativeRetryCoordinator(tx, run, source.issueId);
@@ -636,6 +650,7 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
       retryActionId?: string;
       runId?: string;
       publication?: boolean;
+      taskRetryIntentId?: string;
       /** Internal selector for already committed output, never retry admission. */
       committedResponse?: {
         resultId: string;
@@ -674,17 +689,8 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
         ),
       )
       .for("share", { noWait: true });
-    const [failedRun] = await tx
-      .select()
-      .from(heartbeatRuns)
-      .where(
-        and(
-          eq(heartbeatRuns.id, input.failedRunId),
-          eq(heartbeatRuns.companyId, input.companyId),
-          eq(heartbeatRuns.agentId, input.agentId),
-        ),
-      )
-      .for("share", { noWait: true });
+    const evidence = await readChatAuthorizationRun(tx, input, Boolean(input.committedResponse));
+    const failedRun = evidence.run;
     if (
       !issue ||
       issue.assigneeAgentId !== input.agentId ||
@@ -693,9 +699,10 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
       !failedRun ||
       !failedRun.wakeupRequestId ||
       (!input.committedResponse &&
-        (!["failed", "timed_out"].includes(failedRun.status) ||
+        (!(["failed", "timed_out"].includes(failedRun.status) ||
+            (input.taskRetryIntentId && failedRun.status === "cancelled")) ||
           !failedRun.finishedAt)) ||
-      (!input.committedResponse &&
+      (!input.committedResponse && !input.taskRetryIntentId &&
         failedRun.runtimeMode !== "native" &&
         !(
           [
@@ -704,14 +711,18 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
             "process_exit",
             "timeout",
           ].includes(failedRun.errorCode ?? "") ||
-          (await isPreProviderReviewedChatFailure(tx, failedRun))
+          (evidence.kind === "retry" && await isPreProviderReviewedChatFailure(tx, evidence.run))
         )) ||
       (!input.publication &&
         ["backlog", "done", "cancelled"].includes(issue.status))
     )
       throw failedChatRetryDenied();
-    if (failedRun.runtimeMode === "native" && !input.committedResponse)
-      await failedNativeRetryCoordinator(tx, failedRun, issue.id);
+    if (input.taskRetryIntentId && !await readTaskChatRetryIntent(tx as unknown as Db, {
+      companyId: input.companyId, issueId: issue.id, agentId: input.agentId,
+      sourceRunId: failedRun.id, intentId: input.taskRetryIntentId,
+    })) throw failedChatRetryDenied();
+    if (failedRun.runtimeMode === "native" && evidence.kind === "retry" && !input.taskRetryIntentId)
+      await failedNativeRetryCoordinator(tx, evidence.run, issue.id);
     const context = failedRun.contextSnapshot ?? {};
     const provider = CHAT_PROVIDERS.find(
       (value) => context.source === `chat:${value}`,
@@ -901,6 +912,8 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
           ...input,
           failedRunId: priorIntent.payload.failedRunId,
           committedResponse: undefined,
+          taskRetryIntentId: typeof priorIntent.payload.taskRetryIntentId === "string"
+            ? priorIntent.payload.taskRetryIntentId : undefined,
         },
         ancestors,
       );
@@ -1224,10 +1237,12 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
       agentId: string;
       failedRunId: string;
       initiatedByUserId: string;
+      retryIntentId?: string;
     },
   ): Promise<{ actionId: string; issueId: string }> {
-    const source = await failedChatRetrySource(tx, input);
-    const providerActionId = `failed-run-retry:${source.failedRunId}`;
+    const source = await failedChatRetrySource(tx, { ...input, taskRetryIntentId: input.retryIntentId });
+    const providerActionId = input.retryIntentId
+      ? `task-retry:${input.retryIntentId}` : `failed-run-retry:${source.failedRunId}`;
     const [existing] = await tx
       .select()
       .from(chatActions)
@@ -1247,7 +1262,7 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
         throw failedChatRetryDenied();
       return { actionId: existing.id, issueId: input.issueId };
     }
-    await assertFailedNativeRetryState(tx, source, input.companyId);
+    if (!input.retryIntentId) await assertFailedNativeRetryState(tx, source, input.companyId);
     const [busy] = await tx
       .select({ id: heartbeatRuns.id })
       .from(heartbeatRuns)
@@ -1265,6 +1280,7 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
       .limit(1);
     if (busy || !input.initiatedByUserId) throw failedChatRetryDenied();
     const now = new Date();
+    await notifyChatActionWork(tx, "failed_run_retry");
     const [intent] = await tx
       .insert(chatActions)
       .values({
@@ -1278,6 +1294,7 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
           version: 1,
           ...source,
           initiatedByUserId: input.initiatedByUserId,
+          ...(input.retryIntentId ? { taskRetryIntentId: input.retryIntentId } : {}),
         },
         status: "issued",
         result: { code: "failed_chat_retry_queued", attemptCount: 0 },
@@ -1332,7 +1349,13 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
     const source = await failedChatRetrySource(tx, {
       ...input,
       failedRunId: snapshot.payload.failedRunId,
+      taskRetryIntentId: typeof snapshot.payload.taskRetryIntentId === "string"
+        ? snapshot.payload.taskRetryIntentId : undefined,
     });
+    if (typeof snapshot.payload.taskRetryIntentId === "string" && !await readTaskChatRetryIntent(tx as unknown as Db, {
+      companyId: input.companyId, issueId: input.issueId, agentId: input.agentId,
+      sourceRunId: source.failedRunId, intentId: snapshot.payload.taskRetryIntentId, chatActionId: snapshot.id,
+    })) throw failedChatRetryDenied();
     const [intent] = await tx
       .select()
       .from(chatActions)
@@ -1409,7 +1432,9 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
         ...input,
         retryActionId: input.wakeupRequestId,
       });
-      await assertFailedNativeRetryState(tx, source, input.companyId);
+      await assertFailedNativeRetryState(tx, source, input.companyId,
+        typeof source.intent.payload.taskRetryIntentId === "string" ? source.intent.payload.taskRetryIntentId : undefined,
+        input.phase === "admission");
       const context = input.contextSnapshot;
       const hint = context.chatFailedRunRetry as
         | Record<string, unknown>
@@ -1424,6 +1449,8 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
         hint?.version !== 1 ||
         hint.actionId !== source.intent.id ||
         hint.failedRunId !== source.failedRunId ||
+        (typeof source.intent.payload.taskRetryIntentId === "string" &&
+          (context.taskRetryRequestId !== source.intent.payload.taskRetryIntentId || context.forceFreshSession !== true)) ||
         !Array.isArray(context.externalAttachmentOmissions) ||
         JSON.stringify(
           context.externalAttachmentOmissions.map((entry) =>
@@ -1508,36 +1535,42 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
       !["issued", "processing"].includes(candidate.status) ||
       (candidate.status === "processing" &&
         candidate.updatedAt.getTime() >
-          now.getTime() - DELIVERY_PROCESSING_STALE_MS) ||
+          now.getTime() - FAILED_RUN_RETRY_STALE_MS) ||
       (typeof candidate.result?.retryAt === "string" &&
         Date.parse(candidate.result.retryAt) > now.getTime())
     )
       return failedChatRetryReceipt(candidate);
-    const [claimed] = await db
-      .update(chatActions)
-      .set({ status: "processing", updatedAt: now })
-      .where(
-        and(
-          eq(chatActions.id, candidate.id),
-          eq(chatActions.status, candidate.status),
-          eq(chatActions.updatedAt, candidate.updatedAt),
-        ),
-      )
-      .returning();
-    if (!claimed) return failedChatRetryReceipt(candidate);
-    const attemptCount = Number(candidate.result?.attemptCount ?? 0) + 1;
-    const settle = async (status: string, result: Record<string, unknown>) => {
-      const [current] = await db
+    const [claimed] = await db.transaction(async (tx) => {
+      await notifyChatActionWork(tx, "failed_run_retry");
+      return tx
         .update(chatActions)
-        .set({ status, result, updatedAt: new Date() })
+        .set({ status: "processing", updatedAt: now })
         .where(
           and(
-            eq(chatActions.id, claimed.id),
-            eq(chatActions.status, "processing"),
-            eq(chatActions.updatedAt, now),
+            eq(chatActions.id, candidate.id),
+            eq(chatActions.status, candidate.status),
+            eq(chatActions.updatedAt, candidate.updatedAt),
           ),
         )
         .returning();
+    });
+    if (!claimed) return failedChatRetryReceipt(candidate);
+    const attemptCount = Number(candidate.result?.attemptCount ?? 0) + 1;
+    const settle = async (status: string, result: Record<string, unknown>) => {
+      const [current] = await db.transaction(async (tx) => {
+        await notifyChatActionWork(tx, "failed_run_retry");
+        return tx
+          .update(chatActions)
+          .set({ status, result, updatedAt: new Date() })
+          .where(
+            and(
+              eq(chatActions.id, claimed.id),
+              eq(chatActions.status, "processing"),
+              eq(chatActions.updatedAt, now),
+            ),
+          )
+          .returning();
+      });
       return failedChatRetryReceipt(current ?? claimed);
     };
     try {
@@ -1551,14 +1584,22 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
         authorizeFailedChatRunRetry(tx, scope),
       );
       const existing = await db
-        .select({ id: agentWakeupRequests.id })
+        .select()
         .from(agentWakeupRequests)
         .where(eq(agentWakeupRequests.id, claimed.id));
-      if (!existing.length) {
+      const resumeTaskRetry = typeof claimed.payload.taskRetryIntentId === "string" &&
+        existing[0]?.status === "deferred_issue_execution" && !existing[0].runId &&
+        existing[0].payload?.taskRetryRequestId === claimed.payload.taskRetryIntentId;
+      if (!existing.length || resumeTaskRetry) {
         const context = {
           issueId: source.issueId,
+          ...(typeof claimed.payload.taskRetryIntentId === "string" ? {
+            taskRetryRequestId: claimed.payload.taskRetryIntentId, forceFreshSession: true,
+            previousRunId: source.failedRunId,
+          } : {}),
           taskKey: source.taskKey,
           source: `chat:${source.provider}`,
+          [CHAT_CONVERSATION_ID_KEY]: source.conversationId,
           wakeCommentId: source.commentIds.at(-1)!,
           wakeCommentIds: source.commentIds,
           retryOfRunId: source.failedRunId,
@@ -1579,6 +1620,8 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
           payload: context,
           contextSnapshot: context,
           allowRunCoalescing: false,
+          ...(typeof claimed.payload.taskRetryIntentId === "string"
+            ? { taskRetryRequestId: claimed.payload.taskRetryIntentId } : {}),
           requestedByActorType: source.requestedByActorType,
           requestedByActorId: source.requestedByActorId,
           durableChatRequest: createDurableChatWakeupRequest({
@@ -1597,6 +1640,8 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
                 tx,
                 current,
                 claimed.companyId,
+                typeof claimed.payload.taskRetryIntentId === "string" ? claimed.payload.taskRetryIntentId : undefined,
+                true, // The durable wake callback validates admission; later phases recheck containment.
               );
             },
           }),
@@ -1618,11 +1663,6 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
         .select()
         .from(agentWakeupRequests)
         .where(eq(agentWakeupRequests.id, claimed.id));
-      if (receipt)
-        return settle("processed", {
-          code: "failed_chat_retry_durable",
-          attemptCount,
-        });
       const denied =
         error &&
         typeof error === "object" &&
@@ -1634,6 +1674,24 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
           "chat_failed_run_retry_not_authorized",
           "chat_action_authorization_changed",
         ].includes(String(error.details.code));
+      if (receipt) {
+        if (denied && typeof claimed.payload.taskRetryIntentId === "string" &&
+            receipt.status === "deferred_issue_execution" && !receipt.runId &&
+            receipt.payload?.taskRetryRequestId === claimed.payload.taskRetryIntentId) {
+          // Receipt existence proves the earlier wait, not current authority.
+          // Retire only this unadmitted wake; an admitted run keeps its history.
+          await db.update(agentWakeupRequests).set({
+            status: "failed", error: "chat_failed_run_retry_not_authorized",
+            finishedAt: new Date(), updatedAt: new Date(),
+          }).where(and(eq(agentWakeupRequests.id, receipt.id),
+            eq(agentWakeupRequests.companyId, claimed.companyId),
+            eq(agentWakeupRequests.status, "deferred_issue_execution"), isNull(agentWakeupRequests.runId)));
+          return settle("failed", { code: "failed_chat_retry_not_authorized", attemptCount });
+        }
+        return settle(["skipped", "failed", "cancelled"].includes(receipt.status) ? "failed" : "processed", {
+          code: "failed_chat_retry_durable", attemptCount,
+        });
+      }
       const retryable = !denied && attemptCount < 8;
       return settle(retryable ? "issued" : "failed", {
         code: retryable
@@ -1669,26 +1727,10 @@ export function createChatFailedRunRetry(db: Db, options: ChatFailedRunRetryOpti
 
   async function processFailedChatRunRetries(limit = 20) {
     if (isShuttingDown()) return 0;
-    const now = new Date();
     const candidates = await db
       .select({ id: chatActions.id })
       .from(chatActions)
-      .where(
-        and(
-          eq(chatActions.kind, "failed_run_retry"),
-          or(
-            eq(chatActions.status, "issued"),
-            and(
-              eq(chatActions.status, "processing"),
-              lte(
-                chatActions.updatedAt,
-                new Date(now.getTime() - DELIVERY_PROCESSING_STALE_MS),
-              ),
-            ),
-          ),
-          sql`(${chatActions.result}->>'retryAt' is null or (${chatActions.result}->>'retryAt')::timestamptz <= ${now.toISOString()}::timestamptz)`,
-        ),
-      )
+      .where(dueChatAction("failed_run_retry"))
       .orderBy(asc(chatActions.createdAt), asc(chatActions.id))
       .limit(Math.max(1, Math.min(50, limit)));
     for (const candidate of candidates)

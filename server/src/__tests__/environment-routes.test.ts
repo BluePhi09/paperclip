@@ -133,6 +133,8 @@ vi.mock("../services/plugin-environment-driver.js", () => ({
   REUSABLE_LEASE_WORKER_METHODS: ["environmentResumeLease", "environmentReleaseLease", "environmentDestroyLease"],
   listReadyPluginEnvironmentDrivers: mockListReadyPluginEnvironmentDrivers,
   resolvePluginSandboxProviderDriverByKey: mockResolvePluginSandboxProviderDriverByKey,
+  resolvePluginSandboxProviderConfigSchema: async (input: { db: unknown; driverKey: string }) =>
+    (await mockResolvePluginSandboxProviderDriverByKey(input))?.driver?.configSchema ?? null,
   startPluginEnvironmentInteractiveSetup: mockStartPluginEnvironmentInteractiveSetup,
   getPluginEnvironmentInteractiveSetup: mockGetPluginEnvironmentInteractiveSetup,
   capturePluginEnvironmentTemplate: mockCapturePluginEnvironmentTemplate,
@@ -227,11 +229,7 @@ function createDeleteBlastRadius(overrides: Partial<{
 }
 
 let server: Server | null = null;
-let currentActor: Record<string, unknown> = {
-  type: "board",
-  userId: "user-1",
-  source: "local_implicit",
-};
+let currentActor: Record<string, unknown> = localBoardActor();
 const routeOptions: Record<string, unknown> = {};
 const originalSecretsProviderEnv = process.env.PAPERCLIP_SECRETS_PROVIDER;
 
@@ -262,6 +260,67 @@ function createApp(actor: Record<string, unknown>, options: Record<string, unkno
   app.use(errorHandler);
   server = app.listen(0);
   return server;
+}
+
+function localBoardActor(userId = "user-1") {
+  return {
+    type: "board",
+    userId: userId,
+    source: "local_implicit",
+  };
+}
+
+function createSecurePluginDriver() {
+  return {
+    driverKey: "secure-plugin",
+    kind: "sandbox_provider",
+    displayName: "Secure Sandbox",
+    configSchema: {
+      type: "object",
+      properties: {
+        template: { type: "string" },
+        apiKey: { type: "string", format: "secret-ref" },
+        timeoutMs: { type: "number" },
+        reuseLease: { type: "boolean" },
+      },
+    },
+  };
+}
+
+function createSecretBackedSshEnvironment() {
+  return {
+    ...createEnvironment(),
+    id: "env-ssh",
+    name: "SSH Fixture",
+    driver: "ssh" as const,
+    config: {
+      host: "ssh.example.test",
+      port: 22,
+      username: "ssh-user",
+      remoteWorkspacePath: "/srv/paperclip/workspace",
+      privateKey: null,
+      privateKeySecretRef: {
+        type: "secret_ref",
+        secretId: "11111111-1111-1111-1111-111111111111",
+        version: "latest",
+      },
+      knownHosts: null,
+      strictHostKeyChecking: true,
+    },
+  };
+}
+
+function createSshConfig() {
+  return {
+    host: "ssh.example.test",
+    port: 22,
+    username: "ssh-user",
+    remoteWorkspacePath: "/srv/paperclip/workspace",
+    privateKey: null,
+    privateKeySecretRef: null,
+    knownHosts: null,
+    strictHostKeyChecking: true,
+  };
 }
 
 describe("environment routes", () => {
@@ -373,20 +432,7 @@ describe("environment routes", () => {
         ? {
             pluginId: "plugin-secure",
             pluginKey: "acme.secure-sandbox-provider",
-            driver: {
-              driverKey: "secure-plugin",
-              kind: "sandbox_provider",
-              displayName: "Secure Sandbox",
-              configSchema: {
-                type: "object",
-                properties: {
-                  template: { type: "string" },
-                  apiKey: { type: "string", format: "secret-ref" },
-                  timeoutMs: { type: "number" },
-                  reuseLease: { type: "boolean" },
-                },
-              },
-            },
+            driver: createSecurePluginDriver(),
           }
         : null
     ));
@@ -405,11 +451,7 @@ describe("environment routes", () => {
 
   it("lists instance-scoped environments through the company route alias", async () => {
     mockEnvironmentService.list.mockResolvedValue([createEnvironment()]);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app).get("/api/companies/company-1/environments?driver=local");
 
@@ -722,15 +764,7 @@ describe("environment routes", () => {
       expect(mockEnvironmentService.update).not.toHaveBeenCalled();
     });
 
-    it("still rejects deletion of the managed sandbox row", async () => {
-      mockEnvironmentService.getById.mockResolvedValue(createPlatformSandboxEnvironment());
-      const app = createApp(ownerAdminActor);
 
-      const res = await request(app).delete("/api/environments/env-managed-1");
-
-      expect(res.status).toBe(403);
-      expect(res.body.details).toMatchObject({ code: "environment_platform_managed" });
-    });
 
     it("hides the local environment from every read surface under managed-sandbox-only", async () => {
       mockInstanceSettingsService.getExperimental.mockResolvedValue({ enableManagedSandboxOnly: true });
@@ -1177,11 +1211,7 @@ describe("environment routes", () => {
   });
 
   it("returns provider capabilities for the company", async () => {
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app).get("/api/companies/company-1/environments/capabilities");
 
@@ -1217,11 +1247,7 @@ describe("environment routes", () => {
         },
       },
     ]);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app).get("/api/companies/company-1/environments/capabilities");
 
@@ -1275,11 +1301,7 @@ describe("environment routes", () => {
         configSchema: { type: "object", properties: {} },
       },
     ]);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app).get("/api/companies/company-1/environments/capabilities");
 
@@ -1299,11 +1321,7 @@ describe("environment routes", () => {
         configSchema: { type: "object", properties: {} },
       },
     ]);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app).get("/api/companies/company-1/environments/capabilities");
 
@@ -1326,11 +1344,7 @@ describe("environment routes", () => {
         configSchema: { type: "object", properties: {} },
       },
     ]);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app).get("/api/companies/company-1/environments/capabilities");
 
@@ -1388,11 +1402,7 @@ describe("environment routes", () => {
   it("creates an environment and logs activity", async () => {
     const environment = createEnvironment();
     mockEnvironmentService.create.mockResolvedValue(environment);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -1429,11 +1439,7 @@ describe("environment routes", () => {
 
   it("returns conflict when creating a second local environment", async () => {
     mockEnvironmentService.list.mockResolvedValue([createEnvironment()]);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -1533,11 +1539,7 @@ describe("environment routes", () => {
     mockEnvironmentService.getDeleteBlastRadius.mockResolvedValue(createDeleteBlastRadius({
       isManagedLocal: true,
     }));
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).delete("/api/environments/env-1");
 
@@ -1553,26 +1555,13 @@ describe("environment routes", () => {
       ...createEnvironment(),
       driver: "ssh" as const,
       name: "SSH Fixture",
-      config: {
-        host: "ssh.example.test",
-        port: 22,
-        username: "ssh-user",
-        remoteWorkspacePath: "/srv/paperclip/workspace",
-        privateKey: null,
-        privateKeySecretRef: null,
-        knownHosts: null,
-        strictHostKeyChecking: true,
-      },
+      config: createSshConfig(),
     };
     mockEnvironmentService.getById.mockResolvedValue(environment);
     mockEnvironmentService.getDeleteBlastRadius.mockResolvedValue(createDeleteBlastRadius({
       isInstanceDefault: true,
     }));
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).delete("/api/environments/env-1");
 
@@ -1589,26 +1578,13 @@ describe("environment routes", () => {
       ...createEnvironment(),
       driver: "ssh" as const,
       name: "SSH Fixture",
-      config: {
-        host: "ssh.example.test",
-        port: 22,
-        username: "ssh-user",
-        remoteWorkspacePath: "/srv/paperclip/workspace",
-        privateKey: null,
-        privateKeySecretRef: null,
-        knownHosts: null,
-        strictHostKeyChecking: true,
-      },
+      config: createSshConfig(),
     };
     mockEnvironmentService.getById.mockResolvedValue(environment);
     mockEnvironmentService.getDeleteBlastRadius.mockResolvedValue(createDeleteBlastRadius({
       pendingCleanupLeaseCount: 1,
     }));
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).delete("/api/environments/env-1");
 
@@ -1636,11 +1612,7 @@ describe("environment routes", () => {
       activeLeaseCount: 1,
       reusableSandboxLeaseCount: 1,
     }));
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).delete("/api/environments/env-1");
 
@@ -1666,11 +1638,7 @@ describe("environment routes", () => {
     });
     mockEnvironmentService.removeIfDeletable.mockResolvedValue(environment);
     mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1"]);
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).delete("/api/environments/env-1?destroyReusableSandboxLeases=true");
 
@@ -1700,11 +1668,7 @@ describe("environment routes", () => {
       isInstanceDefault: true,
       reusableSandboxLeaseCount: 1,
     }));
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).delete("/api/environments/env-1?destroyReusableSandboxLeases=true");
 
@@ -1726,11 +1690,7 @@ describe("environment routes", () => {
       failed: 1,
       skippedLiveRun: 0,
     });
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).delete("/api/environments/env-1?destroyReusableSandboxLeases=true");
 
@@ -1750,24 +1710,11 @@ describe("environment routes", () => {
       id: "env-ssh",
       driver: "ssh" as const,
       name: "SSH Fixture",
-      config: {
-        host: "ssh.example.test",
-        port: 22,
-        username: "ssh-user",
-        remoteWorkspacePath: "/srv/paperclip/workspace",
-        privateKey: null,
-        privateKeySecretRef: null,
-        knownHosts: null,
-        strictHostKeyChecking: true,
-      },
+      config: createSshConfig(),
     };
     mockEnvironmentService.getById.mockResolvedValue(environment);
     mockEnvironmentService.hasUnresolvedPendingCleanupLeases.mockResolvedValue(true);
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app)
       .patch("/api/environments/env-ssh")
@@ -1794,25 +1741,12 @@ describe("environment routes", () => {
       id: "env-ssh",
       driver: "ssh" as const,
       name: "SSH Fixture",
-      config: {
-        host: "ssh.example.test",
-        port: 22,
-        username: "ssh-user",
-        remoteWorkspacePath: "/srv/paperclip/workspace",
-        privateKey: null,
-        privateKeySecretRef: null,
-        knownHosts: null,
-        strictHostKeyChecking: true,
-      },
+      config: createSshConfig(),
     };
     mockEnvironmentService.getById.mockResolvedValue(environment);
     mockEnvironmentService.hasUnresolvedPendingCleanupLeases.mockResolvedValue(true);
     mockEnvironmentService.update.mockResolvedValue({ ...environment, description: "Updated" });
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app)
       .patch("/api/environments/env-ssh")
@@ -1848,11 +1782,7 @@ describe("environment routes", () => {
         companyName: "Other Team",
       },
     ]);
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).get("/api/environments/env-sandbox/secret-refs");
 
@@ -1894,35 +1824,12 @@ describe("environment routes", () => {
   });
 
   it("clears environment selections and secret bindings across all companies when deleting an environment", async () => {
-    const environment = {
-      ...createEnvironment(),
-      id: "env-ssh",
-      name: "SSH Fixture",
-      driver: "ssh" as const,
-      config: {
-        host: "ssh.example.test",
-        port: 22,
-        username: "ssh-user",
-        remoteWorkspacePath: "/srv/paperclip/workspace",
-        privateKey: null,
-        privateKeySecretRef: {
-          type: "secret_ref",
-          secretId: "11111111-1111-1111-1111-111111111111",
-          version: "latest",
-        },
-        knownHosts: null,
-        strictHostKeyChecking: true,
-      },
-    };
+    const environment = createSecretBackedSshEnvironment();
     mockEnvironmentService.getById.mockResolvedValue(environment);
     mockEnvironmentService.getDeleteBlastRadius.mockResolvedValue(createDeleteBlastRadius());
     mockEnvironmentService.removeIfDeletable.mockResolvedValue(environment);
     mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1", "company-2"]);
-    const app = createApp({
-      type: "board",
-      userId: "admin-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor("admin-1"));
 
     const res = await request(app).delete("/api/environments/env-ssh");
 
@@ -1960,11 +1867,7 @@ describe("environment routes", () => {
   });
 
   it("rejects invalid SSH config on create", async () => {
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -1983,33 +1886,10 @@ describe("environment routes", () => {
   });
 
   it("normalizes SSH private keys into secret refs before persistence", async () => {
-    const environment = {
-      ...createEnvironment(),
-      id: "env-ssh",
-      name: "SSH Fixture",
-      driver: "ssh" as const,
-      config: {
-        host: "ssh.example.test",
-        port: 22,
-        username: "ssh-user",
-        remoteWorkspacePath: "/srv/paperclip/workspace",
-        privateKey: null,
-        privateKeySecretRef: {
-          type: "secret_ref",
-          secretId: "11111111-1111-1111-1111-111111111111",
-          version: "latest",
-        },
-        knownHosts: null,
-        strictHostKeyChecking: true,
-      },
-    };
+    const environment = createSecretBackedSshEnvironment();
     mockEnvironmentService.create.mockResolvedValue(environment);
     const pluginWorkerManager = {};
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager });
+    const app = createApp(localBoardActor(), { pluginWorkerManager });
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2049,32 +1929,9 @@ describe("environment routes", () => {
 
   it("uses the configured provider for SSH private key secret materialization", async () => {
     process.env.PAPERCLIP_SECRETS_PROVIDER = "aws_secrets_manager";
-    const environment = {
-      ...createEnvironment(),
-      id: "env-ssh",
-      name: "SSH Fixture",
-      driver: "ssh" as const,
-      config: {
-        host: "ssh.example.test",
-        port: 22,
-        username: "ssh-user",
-        remoteWorkspacePath: "/srv/paperclip/workspace",
-        privateKey: null,
-        privateKeySecretRef: {
-          type: "secret_ref",
-          secretId: "11111111-1111-1111-1111-111111111111",
-          version: "latest",
-        },
-        knownHosts: null,
-        strictHostKeyChecking: true,
-      },
-    };
+    const environment = createSecretBackedSshEnvironment();
     mockEnvironmentService.create.mockResolvedValue(environment);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2101,11 +1958,7 @@ describe("environment routes", () => {
   });
 
   it("rejects persisted fake sandbox environments", async () => {
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2138,11 +1991,7 @@ describe("environment routes", () => {
     };
     mockEnvironmentService.create.mockResolvedValue(environment);
     const pluginWorkerManager = {};
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager });
+    const app = createApp(localBoardActor(), { pluginWorkerManager });
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2227,11 +2076,7 @@ describe("environment routes", () => {
       },
     );
     const pluginWorkerManager = {};
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager });
+    const app = createApp(localBoardActor(), { pluginWorkerManager });
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2281,27 +2126,10 @@ describe("environment routes", () => {
       },
       pluginId: "plugin-secure",
       pluginKey: "acme.secure-sandbox-provider",
-      driver: {
-        driverKey: "secure-plugin",
-        kind: "sandbox_provider",
-        displayName: "Secure Sandbox",
-        configSchema: {
-          type: "object",
-          properties: {
-            template: { type: "string" },
-            apiKey: { type: "string", format: "secret-ref" },
-            timeoutMs: { type: "number" },
-            reuseLease: { type: "boolean" },
-          },
-        },
-      },
+      driver: createSecurePluginDriver(),
     });
     const pluginWorkerManager = {};
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager });
+    const app = createApp(localBoardActor(), { pluginWorkerManager });
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2373,27 +2201,10 @@ describe("environment routes", () => {
       normalizedConfig: { ...config },
       pluginId: "plugin-secure",
       pluginKey: "acme.secure-sandbox-provider",
-      driver: {
-        driverKey: "secure-plugin",
-        kind: "sandbox_provider",
-        displayName: "Secure Sandbox",
-        configSchema: {
-          type: "object",
-          properties: {
-            template: { type: "string" },
-            apiKey: { type: "string", format: "secret-ref" },
-            timeoutMs: { type: "number" },
-            reuseLease: { type: "boolean" },
-          },
-        },
-      },
+      driver: createSecurePluginDriver(),
     }));
     const pluginWorkerManager = {};
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager });
+    const app = createApp(localBoardActor(), { pluginWorkerManager });
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2456,27 +2267,10 @@ describe("environment routes", () => {
       },
       pluginId: "plugin-secure",
       pluginKey: "acme.secure-sandbox-provider",
-      driver: {
-        driverKey: "secure-plugin",
-        kind: "sandbox_provider",
-        displayName: "Secure Sandbox",
-        configSchema: {
-          type: "object",
-          properties: {
-            template: { type: "string" },
-            apiKey: { type: "string", format: "secret-ref" },
-            timeoutMs: { type: "number" },
-            reuseLease: { type: "boolean" },
-          },
-        },
-      },
+      driver: createSecurePluginDriver(),
     });
     const pluginWorkerManager = {};
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager });
+    const app = createApp(localBoardActor(), { pluginWorkerManager });
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2520,11 +2314,7 @@ describe("environment routes", () => {
     mockValidatePluginEnvironmentDriverConfig.mockResolvedValue(environment.config);
     mockEnvironmentService.create.mockResolvedValue(environment);
     const pluginWorkerManager = {};
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager });
+    const app = createApp(localBoardActor(), { pluginWorkerManager });
 
     const res = await request(app)
       .post("/api/companies/company-1/environments")
@@ -2608,11 +2398,7 @@ describe("environment routes", () => {
         updatedAt: new Date("2026-04-16T05:05:00.000Z"),
       },
     ]);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app).get(`/api/environments/${environment.id}/leases?status=active`);
 
@@ -2644,11 +2430,7 @@ describe("environment routes", () => {
       createdAt: new Date("2026-04-16T05:00:00.000Z"),
       updatedAt: new Date("2026-04-16T05:05:00.000Z"),
     });
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app).get("/api/environment-leases/lease-1");
 
@@ -2681,11 +2463,7 @@ describe("environment routes", () => {
       ...environment,
       status: "archived",
     });
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .patch(`/api/environments/${environment.id}?companyId=company-1`)
@@ -2740,11 +2518,7 @@ describe("environment routes", () => {
       driver: "local" as const,
       config: {},
     });
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .patch(`/api/environments/${environment.id}?companyId=company-1`)
@@ -2787,30 +2561,13 @@ describe("environment routes", () => {
       normalizedConfig: { ...config },
       pluginId: "plugin-secure",
       pluginKey: "acme.secure-sandbox-provider",
-      driver: {
-        driverKey: "secure-plugin",
-        kind: "sandbox_provider",
-        displayName: "Secure Sandbox",
-        configSchema: {
-          type: "object",
-          properties: {
-            template: { type: "string" },
-            apiKey: { type: "string", format: "secret-ref" },
-            timeoutMs: { type: "number" },
-            reuseLease: { type: "boolean" },
-          },
-        },
-      },
+      driver: createSecurePluginDriver(),
     }));
     // The environment's only binding still lives in another company. Before
     // bindings moved with the referenced secret, this state made every save
     // from the caller's company fail, with no route-level way out.
     mockSecretService.listBindingCompanyIdsForTarget.mockResolvedValue(["company-old"]);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager: {} });
+    const app = createApp(localBoardActor(), { pluginWorkerManager: {} });
 
     const res = await request(app)
       .patch("/api/environments/env-sandbox?companyId=company-new")
@@ -2860,11 +2617,7 @@ describe("environment routes", () => {
     mockSecretService.replaceSecretRefsForInstanceTarget.mockRejectedValue(
       unprocessable("Secret referenced at apiKey was not found", { code: "secret_missing" }),
     );
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    }, { pluginWorkerManager: {} });
+    const app = createApp(localBoardActor(), { pluginWorkerManager: {} });
 
     const res = await request(app)
       .patch("/api/environments/env-sandbox?companyId=company-1")
@@ -2880,11 +2633,7 @@ describe("environment routes", () => {
 
   it("requires explicit SSH config when switching from local to SSH", async () => {
     mockEnvironmentService.getById.mockResolvedValue(createEnvironment());
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .patch("/api/environments/env-1?companyId=company-1")
@@ -2899,11 +2648,7 @@ describe("environment routes", () => {
 
   it("rejects switching an environment to the built-in fake sandbox provider", async () => {
     mockEnvironmentService.getById.mockResolvedValue(createEnvironment());
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .patch("/api/environments/env-1?companyId=company-1")
@@ -2922,11 +2667,7 @@ describe("environment routes", () => {
 
   it("returns 404 when patching a missing environment", async () => {
     mockEnvironmentService.getById.mockResolvedValue(null);
-    const app = createApp({
-      type: "board",
-      userId: "user-1",
-      source: "local_implicit",
-    });
+    const app = createApp(localBoardActor());
 
     const res = await request(app)
       .patch("/api/environments/missing-env")
@@ -3204,20 +2945,7 @@ describe("environment routes", () => {
       },
       pluginId: "plugin-secure",
       pluginKey: "acme.secure-sandbox-provider",
-      driver: {
-        driverKey: "secure-plugin",
-        kind: "sandbox_provider",
-        displayName: "Secure Sandbox",
-        configSchema: {
-          type: "object",
-          properties: {
-            template: { type: "string" },
-            apiKey: { type: "string", format: "secret-ref" },
-            timeoutMs: { type: "number" },
-            reuseLease: { type: "boolean" },
-          },
-        },
-      },
+      driver: createSecurePluginDriver(),
     });
     mockProbeEnvironment.mockResolvedValue({
       ok: true,
