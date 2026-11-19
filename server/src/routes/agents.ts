@@ -2678,6 +2678,41 @@ export function agentRoutes(
     );
   }
 
+  function collectCompanySecretRefIds(value: unknown, out = new Set<string>()): Set<string> {
+    if (Array.isArray(value)) {
+      for (const entry of value) collectCompanySecretRefIds(entry, out);
+    } else if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (record.type === "secret_ref" && typeof record.secretId === "string") out.add(record.secretId);
+      for (const entry of Object.values(record)) collectCompanySecretRefIds(entry, out);
+    }
+    return out;
+  }
+
+  // Saving a secret_ref creates the agent's secret binding, and agent_config:update
+  // is allow_self. An agent key may keep the target's references and pass on
+  // references it holds itself (as hire inheritance does); only the board
+  // attaches any other company secret to an agent.
+  async function assertAgentAddsNoForeignSecretRefs(
+    req: Request,
+    target: { id: string; companyId: string },
+    existingAdapterConfig: Record<string, unknown>,
+    nextAdapterConfig: Record<string, unknown>,
+  ) {
+    if (req.actor.type !== "agent") return;
+    const held = collectCompanySecretRefIds(existingAdapterConfig);
+    let added = [...collectCompanySecretRefIds(nextAdapterConfig)].filter((id) => !held.has(id));
+    if (added.length > 0 && req.actor.agentId && req.actor.agentId !== target.id) {
+      const actorAgent = await svc.getById(req.actor.agentId);
+      const own = actorAgent?.companyId === target.companyId
+        ? collectCompanySecretRefIds(actorAgent.adapterConfig) : new Set<string>();
+      added = added.filter((id) => !own.has(id));
+    }
+    if (added.length > 0) {
+      throw forbidden("Agent keys cannot attach company secrets they do not already reference; ask the board to bind them.");
+    }
+  }
+
   function assertNoAgentProcessAdapterMutation(req: Request, adapterType: string, mutatesConfiguration: boolean) {
     if (req.actor.type !== "agent" || adapterType !== "process" || !mutatesConfiguration) return;
     throw forbidden("Agent keys cannot configure host-executed process adapters.");
@@ -5759,6 +5794,7 @@ export function agentRoutes(
           rawEffectiveAdapterConfig,
         );
       }
+      await assertAgentAddsNoForeignSecretRefs(req, existing, existingAdapterConfig, rawEffectiveAdapterConfig);
       const existingRunnerProvider =
         existing.adapterType === "paperclip_runner"
           ? existingAdapterConfig.provider

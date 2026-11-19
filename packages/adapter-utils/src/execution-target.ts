@@ -41,8 +41,6 @@ import {
   createSandboxCallbackBridgeToken,
   DEFAULT_SANDBOX_CALLBACK_BRIDGE_MAX_BODY_BYTES,
   HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
-  readAgentIdFromHostApiToken,
-  resolveSandboxCallbackBridgeRoutesForAgent,
   runSandboxBridgeControlCommand,
   SANDBOX_CALLBACK_BRIDGE_ENTRYPOINT,
   SANDBOX_CALLBACK_BRIDGE_HTTP2_MODE,
@@ -1911,6 +1909,10 @@ function buildBridgeResponseHeaders(response: Response): Record<string, string> 
 
 function buildBridgeForwardUrl(baseUrl: string, request: { path: string; query: string }): URL {
   const url = new URL(request.path, baseUrl);
+  // Defense in depth: the authorized path must be exactly the forwarded path.
+  if (url.origin !== new URL(baseUrl).origin || url.pathname !== request.path || url.search || url.hash) {
+    throw new Error(`Bridge refused a non-canonical path: ${JSON.stringify(request.path)}`);
+  }
   const query = request.query.trim();
   url.search = query.startsWith("?") ? query.slice(1) : query;
   return url;
@@ -4475,11 +4477,10 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
   if (hostApiToken.length === 0) {
     throw new Error("Sandbox bridge mode requires a host-side Paperclip API token.");
   }
-  // Per-agent routes come from the host-side run JWT, never from the sandbox.
-  const bridgeRoutes = resolveSandboxCallbackBridgeRoutesForAgent(
-    readAgentIdFromHostApiToken(hostApiToken),
-    HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST,
-  );
+  // One route surface for every run: the agent-callable REST operations. The
+  // forwarded request carries the run's own agent JWT, so the server's route
+  // authorization (grants, consent, task binding) decides per agent.
+  const bridgeRoutes = HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST;
   // The forward budget for one relayed request. It stays at the broker's default
   // forward budget (30 s) when the caller sets no option, so current behavior
   // does not change.

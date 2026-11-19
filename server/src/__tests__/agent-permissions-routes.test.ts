@@ -1025,7 +1025,9 @@ describe("agent permission routes", () => {
   });
 
   it("allows a provider credential reference without allowing arbitrary environment variables", async () => {
-    mockAgentService.getById.mockResolvedValue({ ...baseAgent, adapterType: "claude_local" });
+    // Fork: the agent may only pass on a secret it already references.
+    mockAgentService.getById.mockResolvedValue({ ...baseAgent, adapterType: "claude_local",
+      adapterConfig: { env: { ANTHROPIC_API_KEY: { type: "secret_ref", secretId: "33333333-3333-4333-8333-333333333333" } } } });
     const app = await createApp({ type: "agent", agentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", companyId, source: "agent_key", runId: "run-1" });
     const res = await requestApp(app, (baseUrl) => request(baseUrl)
       .patch(`/api/agents/${agentId}`)
@@ -1046,8 +1048,9 @@ describe("agent permission routes", () => {
   });
 
   it("allows native Claude credential references in partial updates using the saved harness", async () => {
+    // Fork: the agent may only pass on a secret it already references.
     mockAgentService.getById.mockResolvedValue({ ...baseAgent, adapterType: "paperclip_runner",
-      adapterConfig: { provider: "acpx", acpxAgent: "claude" } });
+      adapterConfig: { provider: "acpx", acpxAgent: "claude", env: { ANTHROPIC_API_KEY: { type: "secret_ref", secretId: "33333333-3333-4333-8333-333333333333" } } } });
     const app = await createApp({ type: "agent", agentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", companyId, source: "agent_key", runId: "run-1" });
     const res = await requestApp(app, baseUrl => request(baseUrl).patch(`/api/agents/${agentId}`)
       .send({ adapterConfig: { env: { ANTHROPIC_API_KEY: { type: "secret_ref", secretId: "33333333-3333-4333-8333-333333333333" } } } }));

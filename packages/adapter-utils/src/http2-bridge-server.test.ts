@@ -1953,7 +1953,7 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
     try {
       const response = await gateway.forwardRequest({
         method: "DELETE",
-        path: "/api/agents/me",
+        path: "/api/agents/me/inbox-lite",
         query: "",
         headers: {},
         body: Buffer.alloc(0),
