@@ -41,7 +41,7 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-11-19 (Sync gegen upstream `1c676
 | Environments | Run-Acquisitions reservieren, gemessene Runtime-Identität | #9 | – | **behalten** (Entscheidung 13.10.2026) |
 | DB (Altlast) | Governance-Tabellen aus Migrationen 0336/0337 (seit Sync 2026-11-19: 0500/0501) + Append-only-Trigger bleiben (Schema in `packages/db/src/schema/governance_verification.ts`, Lösch-Guard in `company-deletion.ts`, `session_replication_role` in Test-Cleanup) | #11 (Feature entfernt) | – | eigene, bewusst destruktive Drop-Migration nach Philipps OK |
 | CI | Fork-Workflows, GHCR lowercase, Integrations-Image mit k8s-Plugin | #18, #21, `65b8ffcf1` | – | dauerhaft (Fork-Infrastruktur) |
-| CI | `ci / policy` grün im Fork (lokaler pr-trusted, Sync-Lockfile) | #28 | – | dauerhaft |
+| CI | `ci / policy` grün im Fork (lokaler pr-trusted, Sync-Lockfile); seit Sync 2026-11-19 ruft `pr.yml` wirklich den lokalen `pr-trusted.yml` (und dieser `ci-routing.yml`) auf, vorher lief upstreams `@master`-Kopie und die Fork-Ausnahmen griffen nie | #28 | – | dauerhaft |
 | CI | Sync-Branches `sync/upstream-*`: Ausnahme in `lockfile-trust.mjs` und im Inline-Fallback, Migrations-Reihenfolge-Check übersprungen (Fork-Nummern kollidieren mit upstream) | Sync 2026-11-19 | – | dauerhaft |
 | DB | Fork-Migrationen 0335–0337 byte-gleich als 0499–0501; neue 0502 lässt `connector` (Fork) und `plugin` (upstream 0491) im `tool_connections_transport_check` zu | Sync 2026-11-19 | – | solange `packages/mcp-connector` bleibt |
 | Server | Agent-Default-Grants nur `tasks:assign`: upstream-`agents:read` (#18766) nicht für neue Agenten; Migration 0423 vergibt es bestehenden Agenten trotzdem | BLU-625 | – | Entscheidung Vera |
