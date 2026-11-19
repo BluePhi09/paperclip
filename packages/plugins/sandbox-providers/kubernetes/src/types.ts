@@ -2,6 +2,7 @@ import { z } from "zod";
 import { adapterRegistrySchema } from "./adapter-registry.js";
 import { KNOWN_ADAPTER_TYPES } from "./adapter-defaults.js";
 import { isValidStorageQuantity } from "./sandbox-volumes.js";
+import { agentEgressPresetsSchema, egressPresetsSchema, validateEgressPresetConfig } from "./egress-presets.js";
 
 const cidrRegex = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
 
@@ -62,6 +63,13 @@ export const kubernetesProviderConfigSchema = z
     egressAllowFqdns: z.array(z.string()).default([]),
     egressAllowCidrs: z.array(z.string().regex(cidrRegex, "Invalid CIDR")).default([]),
     egressMode: z.enum(["cilium", "standard"]).default("standard"),
+    /**
+     * Named egress presets (destinations + ports). Unused unless assigned to an
+     * agent through `agentEgressPresets`. Preset FQDNs require `egressMode: "cilium"`.
+     */
+    egressPresets: egressPresetsSchema.optional(),
+    /** Agent ID -> preset names appended to that agent's per-lease egress policy. */
+    agentEgressPresets: agentEgressPresetsSchema.optional(),
     /** Labels on the Paperclip API pod accepting callbacks; defaults to the upstream app label. */
     paperclipServerPodSelector: z
       .record(
@@ -131,7 +139,12 @@ export const kubernetesProviderConfigSchema = z
       message:
         "kubernetes provider requires one of `inCluster` or `kubeconfig`",
     },
-  );
+  )
+  .superRefine((cfg, ctx) => {
+    for (const message of validateEgressPresetConfig(cfg)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    }
+  });
 
 export type KubernetesProviderConfig = z.infer<typeof kubernetesProviderConfigSchema>;
 
@@ -165,6 +178,8 @@ export interface KubernetesLeaseMetadata {
     allowFqdns: string[];
     allowCidrs: string[];
   };
+  /** Names of the egress presets applied to this lease's agent; absent when none. */
+  egressPresets?: string[];
   /**
    * True when this lease's backend has NO data channel for the native file-sync
    * transport. Native sync streams over a pod exec, which only the `sandbox-cr`

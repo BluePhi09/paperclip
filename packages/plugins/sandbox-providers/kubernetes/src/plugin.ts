@@ -49,6 +49,7 @@ import {
   NETWORK_EGRESS_GRANT_PATH,
   parseScopedNetworkEgressGrant,
 } from "./scoped-network-egress.js";
+import { egressPresetLabels, resolveAgentEgressPresets } from "./egress-presets.js";
 import {
   deriveCompanySlug,
   deriveNamespaceName,
@@ -397,12 +398,20 @@ const plugin = definePlugin({
     // (e.g. CiliumNetworkPolicy endpointSelectors) match on, so it must carry
     // the real agent id. Fall back to runId only for callers that do not pass
     // agentId (older hosts).
-    const labels = paperclipLabels({
-      runId: params.runId,
-      agentId: params.agentId ?? params.runId,
-      companyId: params.companyId,
-      adapterType: effectiveAdapterType,
-    });
+    // Named egress presets assigned to this agent (none unless configured).
+    // They extend the per-lease adapter policy below and are advertised as
+    // `egress-preset.paperclip.io/<name>` pod labels so cluster-side policies
+    // can select agents by preset instead of by agent UUID.
+    const assignedEgressPresets = resolveAgentEgressPresets(config, params.agentId);
+    const labels = {
+      ...paperclipLabels({
+        runId: params.runId,
+        agentId: params.agentId ?? params.runId,
+        companyId: params.companyId,
+        adapterType: effectiveAdapterType,
+      }),
+      ...egressPresetLabels(assignedEgressPresets.names),
+    };
 
     const image = resolveImage(
       { imageOverride: null },
@@ -482,6 +491,7 @@ const plugin = definePlugin({
           paperclipServerNamespace: PAPERCLIP_SERVER_NAMESPACE,
           paperclipServerPodSelector: config.paperclipServerPodSelector,
         },
+        presets: assignedEgressPresets.presets,
       },
       releaseWorkload,
     );
@@ -539,6 +549,7 @@ const plugin = definePlugin({
       remoteCwd: "/workspace",
       scopedNetworkPolicyName,
       scopedNetworkEgress,
+      ...(assignedEgressPresets.names.length > 0 ? { egressPresets: assignedEgressPresets.names } : {}),
       // Native file sync streams over a pod exec; only the sandbox-cr backend
       // exposes one. Flag the job backend so the server keeps the base64 fallback
       // rather than routing its sync to a hook that would reject immediately.

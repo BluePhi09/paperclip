@@ -8,6 +8,8 @@ export interface BuildCiliumNetworkPolicyInput {
   endpointSelector?: Record<string, string>;
   includeBaseRules?: boolean;
   ownerReferences?: Record<string, unknown>[];
+  /** Additional pre-built egress rules (e.g. assigned egress presets), appended last. */
+  extraEgress?: Record<string, unknown>[];
 }
 
 // Design note: no ingress rules are defined here. Paperclip-server does NOT
@@ -56,6 +58,8 @@ export function buildCiliumNetworkPolicyManifest(input: BuildCiliumNetworkPolicy
       toCIDRSet: input.egressAllowCidrs.map((cidr) => ({ cidr })),
     });
   }
+
+  if (input.extraEgress) egress.push(...input.extraEgress);
 
   return {
     apiVersion: "cilium.io/v2",
