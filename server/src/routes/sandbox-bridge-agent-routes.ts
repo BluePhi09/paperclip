@@ -83,6 +83,23 @@ export function isSandboxBridgeCredentialRoute(method: string, path: string): bo
     || /\/(secrets|setup-secret|secret-proposals|secret-provider-configs|secret-refs|user-secrets|user-secret-definitions|keys|board-api-keys|credentials|setup-token-login-sessions|board-claim|invites|join-requests|gateway-tokens|tokens|token|rotate-secret|terminal-session-token|claim-api-key)(\/|$)/.test(path);
 }
 
+/**
+ * Run and workspace control, provider traces and recovery actions stay off the
+ * bridge even where an agent may call them directly: upstream keeps sandboxed
+ * runs from steering their own or other runs (see the bridge tests "keeps
+ * execution control and unrelated reads denied"). Read-only run diagnostics
+ * (`GET /api/heartbeat-runs/{runId}`, `.../events`, `/api/issues/{id}/recovery-actions`) stay allowed.
+ */
+export function isSandboxBridgeExecutionControlRoute(method: string, path: string): boolean {
+  return /^\/api\/heartbeat-runs\/\{[^}]+\}\/(cancel|retry|watchdog-decisions|provider-trace)(\/|$)/.test(path)
+    || /^\/api\/companies\/\{[^}]+\}\/(provider-traces|execution-workspaces)(\/|$)/.test(path)
+    // The bridge has always served a workspace read and its runtime services.
+    || (/^\/api\/execution-workspaces(\/|$)/.test(path)
+      && !(method === "GET" && path === "/api/execution-workspaces/{id}")
+      && !(method === "POST" && path === "/api/execution-workspaces/{id}/runtime-services/{action}"))
+    || (method !== "GET" && /^\/api\/issues\/\{[^}]+\}\/recovery-actions\//.test(path));
+}
+
 function segments(path: string): string[] {
   return path.replace(/^\//, "").split("/");
 }
@@ -121,7 +138,8 @@ export function buildSandboxBridgeAgentRouteSurface(document: Json): SandboxBrid
       const actor = operation?.["x-paperclip-authorization"]?.actor;
       const callable = (AGENT_ACTORS.has(actor) || AGENT_AUTHORIZED_ROUTES_LABELED_BOARD.has(`${method} ${path}`))
         && !isProtocolOperation(path, operation)
-        && !isSandboxBridgeCredentialRoute(method, path);
+        && !isSandboxBridgeCredentialRoute(method, path)
+        && !isSandboxBridgeExecutionControlRoute(method, path);
       (callable ? allowed : excluded).push([method, path]);
     }
   }

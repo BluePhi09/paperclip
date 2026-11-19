@@ -1568,13 +1568,12 @@ describe("sandbox callback bridge", () => {
     it("denies board-only, instance-admin and unknown routes", () => {
       // Routes such as POST /api/approvals/:id/approve or /agents/:id/pause are
       // documented as board_or_agent and are forwarded; their handlers call
-      // assertBoard, so the server answers 403 for the agent JWT.
+      // assertBoard, so the server answers 403 for the agent JWT. Tool gateway,
+      // runtime-slot and profile management became agent-callable upstream
+      // (connection API parity) and are forwarded for the server to decide.
       for (const request of [
         { method: "GET", path: "/api/companies" },
         { method: "GET", path: "/api/companies/co-1/invites" },
-        { method: "GET", path: "/api/companies/co-1/tools/gateways" },
-        { method: "POST", path: "/api/companies/co-1/tools/runtime-slots/slot-1/stop" },
-        { method: "DELETE", path: "/api/tool-profiles/profile-1" },
         { method: "POST", path: "/api/connection-intents/inter-1/decline" },
         { method: "PATCH", path: "/api/instance/settings/experimental" },
         { method: "GET", path: "/api/admin/users" },
@@ -1775,13 +1774,11 @@ describe("sandbox callback bridge", () => {
     // Routes the server does not let an agent call (board-only, credential
     // management, unknown paths) stay denied at the bridge. Routes an agent may
     // call (for example environment create/delete with `environments:manage`)
-    // are forwarded and the server route decides.
+    // are forwarded and the server route decides; this includes the company
+    // activity feed, agent-action audit and agent-commentary reads.
     const denied: Array<{ method: string; path: string }> = [
       { method: "POST", path: "/api/issues/issue-1/activity" },
       { method: "GET", path: "/api/issues/issue-1/activity/extra" },
-      { method: "GET", path: "/api/companies/co-1/activity" },
-      { method: "GET", path: "/api/companies/co-1/audit/agent-actions" },
-      { method: "GET", path: "/api/companies/co-1/agent-commentary" },
       { method: "POST", path: "/api/companies/co-1/agent-commentary/other" },
       { method: "DELETE", path: "/api/companies/co-1/email/tasks/issue-1" },
       { method: "DELETE", path: "/api/secrets" },
