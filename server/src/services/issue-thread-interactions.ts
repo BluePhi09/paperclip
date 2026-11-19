@@ -751,7 +751,8 @@ function parseStoredInteractionResult<S extends z.ZodTypeAny>(
 // input length limits. Read those exact values across upgrades; never truncate
 // an identity or relax target types, URLs, revisions, or resolution authority.
 // New writes still use the strict shared payload schema.
-const storedRequestConfirmationPayloadSchema = requestConfirmationPayloadSchema.extend({
+// safeExtend: the fork's brief refinement (superRefine) forbids plain extend.
+const storedRequestConfirmationPayloadSchema = requestConfirmationPayloadSchema.safeExtend({
   target: z.discriminatedUnion("type", [
     requestConfirmationIssueDocumentTargetSchema,
     requestConfirmationIssueAttachmentTargetSchema,
