@@ -3,7 +3,7 @@
 Der Fork ist upstream `paperclipai/paperclip` plus diese Patch-Liste. Eigene Features kommen als Plugin.
 Jede Zeile: Zweck, Fork-PR, upstream-Stand, Löschbedingung. Ein Patch, dessen Löschbedingung erfüllt ist, wird beim nächsten Upstream-Sync entfernt.
 
-Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
+Pflege: Pax (wöchentlicher Sync). Stand: 2026-11-19 (Sync gegen upstream `1c67687998`).
 
 ## Regeln
 
@@ -27,7 +27,6 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | Bridge | Instructions-Bundle-Datei; Schreiben nur Milo/Atlas (hart codierte UUIDs) | #20 | – | **entfernen** in Phase 2 (Allowlist aus Grants) |
 | Tool-Gateway | Outbound-MCP-Connector (`packages/mcp-connector`) | `b9f1c0b51` ff. | upstream hat eigenen Connector? prüfen | upstream-Äquivalent |
 | Tool-Gateway | Cache-Hints `tools/list` | #13 | einreichen | upstream fix |
-| Tool-Gateway | Connection-Health bei Tool-Timeout erhalten | #15 | einreichen | upstream fix |
 | Tool-Gateway | Gateway-Rejections als HTTP-Fehler in Reviews | #19 | einreichen | upstream fix |
 | Tool-Gateway | Board-Approval schließt Bestätigungskarte | #27 | einreichen | upstream fix |
 | Interactions | Tool-Action-Karten aus Supersede-Sweep, verwaiste Approvals schließen | #26 (Draft) | einreichen | upstream fix |
@@ -37,13 +36,16 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | Server | Rollen-Default-Grants beim Schreiben erhalten | Port von upstream #15917 | offen | upstream merged #15917 |
 | Server/UI | Board bearbeitet Agent-Grants (PATCH /members/:id/permissions für Agent-Principals, nur Board; Grant-Editor auf Agent-Seite) | Port von upstream #6358 + Fork-Erweiterung | #6358 offen | upstream merged #6358 + Grant-Editor-UI |
 | Server | Wakeup/Release in offener Transaktion | upstream #14257 | offen | upstream merged #14257 |
-| Server | Adapter-Runtime für Environment-Tests | `de852e0cf` | einreichen | upstream fix |
 | AI-Connections | Modell-Discovery über AI-Gateways, archivierte Accounts ausblenden | `3b71215c5`, `175bd6929` | einreichen | upstream fix |
-| Decisions | Audiences, Briefs, native Agent-Diskussion | #7, #8 | – | **behalten** (Entscheidung 13.10.2026), mittelfristig als Plugin prüfen |
+| Decisions | Audiences, Briefs, native Agent-Diskussion (Typ heißt seit Sync 2026-11-19 `AttentionDecisionAudience`, Feld `decisionAudience`; upstream belegt `AttentionAudience`/`audience` für die Platzierung) | #7, #8 | – | **behalten** (Entscheidung 13.10.2026), mittelfristig als Plugin prüfen |
 | Environments | Run-Acquisitions reservieren, gemessene Runtime-Identität | #9 | – | **behalten** (Entscheidung 13.10.2026) |
-| DB (Altlast) | Governance-Tabellen aus Migrationen 0336/0337 + Append-only-Trigger bleiben (Schema in `packages/db/src/schema/governance_verification.ts`, Lösch-Guard in `company-deletion.ts`, `session_replication_role` in Test-Cleanup) | #11 (Feature entfernt) | – | eigene, bewusst destruktive Drop-Migration nach Philipps OK |
+| DB (Altlast) | Governance-Tabellen aus Migrationen 0336/0337 (seit Sync 2026-11-19: 0500/0501) + Append-only-Trigger bleiben (Schema in `packages/db/src/schema/governance_verification.ts`, Lösch-Guard in `company-deletion.ts`, `session_replication_role` in Test-Cleanup) | #11 (Feature entfernt) | – | eigene, bewusst destruktive Drop-Migration nach Philipps OK |
 | CI | Fork-Workflows, GHCR lowercase, Integrations-Image mit k8s-Plugin | #18, #21, `65b8ffcf1` | – | dauerhaft (Fork-Infrastruktur) |
-| CI | `ci / policy` grün im Fork (lokaler pr-trusted, Sync-Lockfile) | #28 | – | dauerhaft |
+| CI | `ci / policy` grün im Fork (lokaler pr-trusted, Sync-Lockfile); seit Sync 2026-11-19 ruft `pr.yml` wirklich den lokalen `pr-trusted.yml` (und dieser `ci-routing.yml`) auf, vorher lief upstreams `@master`-Kopie und die Fork-Ausnahmen griffen nie | #28 | – | dauerhaft |
+| CI | Sync-Branches `sync/upstream-*`: Ausnahme in `lockfile-trust.mjs` und im Inline-Fallback, Migrations-Reihenfolge-Check übersprungen (Fork-Nummern kollidieren mit upstream) | Sync 2026-11-19 | – | dauerhaft |
+| DB | Fork-Migrationen 0335–0337 byte-gleich als 0499–0501; neue 0502 lässt `connector` (Fork) und `plugin` (upstream 0491) im `tool_connections_transport_check` zu | Sync 2026-11-19 | – | solange `packages/mcp-connector` bleibt |
+| Server | Agent-Default-Grants nur `tasks:assign`: upstream-`agents:read` (#18766) nicht für neue Agenten; Migration 0423 vergibt es bestehenden Agenten trotzdem | BLU-625 | – | Entscheidung Vera |
+| Server | `PAPERCLIP_MAX_CONCURRENT_RUNS_PER_AGENT` auch in upstream-`timer-policy.ts` (`parseHeartbeatPolicy`, `maxConcurrentRunsSql`) | #33 | – | wie #33 |
 | E2B | Self-Hosted-Env an Worker durchreichen | #3 | einreichen | upstream fix |
 
 ## Entfernt
@@ -51,4 +53,6 @@ Pflege: Pax (wöchentlicher Sync). Stand: 2026-10-13.
 | Bereich | Zweck | Fork-PR | Entfernt |
 |---|---|---|---|
 | Evidence | Evidence-Packs, Ausführung an reviewte Evidenz gebunden | #10 | 15.10.2026 (Entscheidung 13.10.2026); keine Tabellen, nur JSON-Feld `executionPolicy.evidencePack` (wird jetzt ignoriert/verworfen) |
+| Tool-Gateway | Connection-Health bei Tool-Timeout erhalten | #15 | 19.11.2026: upstream verwirft die MCP-Session nach Timeout und markiert Health nicht mehr |
+| Server | Adapter-Runtime für Environment-Tests | `de852e0cf` | 19.11.2026: upstream übergibt `adapterType` selbst |
 | Governance | Governance-Verification-Service | #11 | 15.10.2026 (Entscheidung 13.10.2026); Tabellen bleiben, siehe Zeile „DB (Altlast)“ |

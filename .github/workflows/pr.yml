@@ -1,7 +1,10 @@
 name: PR
+run-name: >-
+  ${{ contains(github.event.pull_request.labels.*.name, 'profile-ci') && (github.event.action != 'labeled' || github.event.label.name == 'profile-ci') && format('CI profile · PR #{0}', github.event.pull_request.number) || '' }}
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   actions: read
@@ -10,6 +13,8 @@ permissions:
 
 jobs:
   ci:
-    # Master requires CODEOWNERS review for .github/**, including this workflow.
-    # The AWS runner group permits pr-trusted.yml@refs/heads/master.
-    uses: paperclipai/paperclip/.github/workflows/pr-trusted.yml@master
+    if: github.event.action != 'labeled' || github.event.label.name == 'profile-ci' || github.event.label.name == 'full-ci'
+    # Fork patch (BluePhi09): run the fork's own trusted workflow so its policy
+    # exceptions apply; upstream's @master copy ignores them. Fork CI runs on
+    # GitHub-hosted runners, so upstream's AWS runner-group pin does not apply.
+    uses: ./.github/workflows/pr-trusted.yml

@@ -18,7 +18,7 @@ const surface = vi.hoisted(() => ({ suppressReadReceipt: [] as Array<boolean | u
 vi.mock("../pages/IssueDetail", () => ({ TaskDetailSurface: ({ suppressReadReceipt }: { suppressReadReceipt?: boolean }) => { surface.suppressReadReceipt.push(suppressReadReceipt); return <div>Native conversation</div>; } }));
 vi.mock("./IssueLinkQuicklook", () => ({ IssueLinkQuicklook: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a> }));
 const agent = { id: "agent-1", companyId: "company-1", name: "Planner", status: "idle" } as Agent;
-const item: AttentionItem = { id: "card", companyId: "company-1", audience: "human", sourceKind: "issue_thread_interaction",
+const item: AttentionItem = { id: "card", companyId: "company-1", audience: { kind: "pool", userId: null, reason: "none" }, stale: null, required: false, changeFingerprint: "fixture", closeModes: [], obligationKey: null, obligationLeadId: null, decisionAudience: "human", sourceKind: "issue_thread_interaction",
   subject: { kind: "interaction", identifier: null, status: "pending", href: null, id: "card-1", companyId: "company-1", title: "Expose the media server?", metadata: { createdByAgentId: agent.id } },
   relatedIssue: { kind: "issue", identifier: null, status: "in_progress", title: "Plan", href: null, id: "task-1", companyId: "company-1" },
   whyNow: "Human response required", decisionVerbs: [], inlineResolvable: false, entryRule: "pending", exitRule: "answered",

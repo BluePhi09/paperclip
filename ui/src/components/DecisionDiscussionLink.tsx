@@ -29,7 +29,7 @@ export function DecisionDiscussionLink({ item, companyId, agents, userId }: {
           navigate(destination.to, { state: destination.state });
         } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not open the chat."); }
       }}>Discuss with {target.agent?.name}</Button>
-      <p className="text-muted-foreground">{item.audience === "agent" ? "Opens a chat with the assigned expert reviewer." : "Opens a chat with the agent who asked."} Nothing is sent or decided.</p>
+      <p className="text-muted-foreground">{item.decisionAudience === "agent" ? "Opens a chat with the assigned expert reviewer." : "Opens a chat with the agent who asked."} Nothing is sent or decided.</p>
     </>}
     {sameCompany && item.relatedIssue && <Link disableIssueQuicklook to={`/issues/${encodeURIComponent(item.relatedIssue.id)}`} className="underline">Open linked task</Link>}
     {error && <p role="alert" className="text-destructive">{error}</p>}

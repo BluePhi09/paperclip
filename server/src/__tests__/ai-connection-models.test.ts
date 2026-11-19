@@ -108,7 +108,7 @@ it("allows the shared audience, then immediately denies a removed audience membe
   expect(guardedRemoteHttpFetch).toHaveBeenCalledTimes(1);
 });
 
-it.each(["revoked", "expired", "needs_reauthorization"])("denies %s grants before network/cache access", async status => {
+it.each(["revoked", "expired", "needs_reauthorization"] as const)("denies %s grants before network/cache access", async status => {
   const account = await create();
   expect((await request(app()).get(url(account))).status).toBe(200);
   await db.update(connectionGrants).set({ status }).where(eq(connectionGrants.id, account.grantId));
@@ -116,7 +116,7 @@ it.each(["revoked", "expired", "needs_reauthorization"])("denies %s grants befor
   expect(guardedRemoteHttpFetch).toHaveBeenCalledTimes(1);
 });
 
-it.each([{ status: "archived" }, { enabled: false }, { healthStatus: "error" }])("denies unavailable connections before network access: %j", async change => {
+it.each<Partial<typeof toolConnections.$inferInsert>>([{ status: "archived" }, { enabled: false }, { healthStatus: "error" }])("denies unavailable connections before network access: %j", async change => {
   const account = await create();
   await db.update(toolConnections).set(change).where(eq(toolConnections.id, account.connectionId));
   expect((await request(app()).get(url(account))).status).toBe(change.status === "archived" ? 404 : 422);
