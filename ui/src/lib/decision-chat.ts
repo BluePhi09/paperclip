@@ -7,7 +7,7 @@ export function decisionChatTarget(item: AttentionItem, companyId: string, agent
   if (item.companyId !== companyId || item.subject.companyId !== companyId ||
     (item.relatedIssue && item.relatedIssue.companyId !== companyId)) return unavailable("This decision belongs to another company.");
   const metadata = item.subject.metadata;
-  const id = item.audience === "agent" ? item.resolverAgentId
+  const id = item.decisionAudience === "agent" ? item.resolverAgentId
     : item.sourceKind === "decision" ? metadata?.originAgentId
     : item.sourceKind === "issue_thread_interaction" ? metadata?.createdByAgentId : null;
   if (typeof id !== "string") return unavailable("No responsible agent is recorded for this decision. Open the linked task instead.");

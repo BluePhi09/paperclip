@@ -567,7 +567,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "paperclipAskUserQuestions",
-      "Create human-only questions. Each question requires a concise brief with mainSummary, explicit purpose and labeled selectionConsequences matching options. Missing context returns decision_context_missing; clarify internally, never invent facts.",
+      "Create human-only questions. Ask independent questions together in one interaction instead of one per card. Each question requires a concise brief with mainSummary, explicit purpose and labeled selectionConsequences matching options. Missing context returns decision_context_missing; clarify internally, never invent facts.",
       createAskUserQuestionsToolSchema,
       async ({ issueId, ...body }) =>
         client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/interactions`, {

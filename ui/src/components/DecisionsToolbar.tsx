@@ -13,6 +13,7 @@ import {
   type AttentionSortOrder,
 } from "../lib/attention";
 import { cn } from "../lib/utils";
+import { ToolbarSearch } from "./ToolbarSearch";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -27,6 +28,8 @@ const SEVERITY_LABELS: Record<string, string> = {
 interface DecisionsToolbarProps {
   audience?: "human" | "agent" | "unclassified" | "all";
   onAudienceChange?: (next: "human" | "agent" | "unclassified" | "all") => void;
+  query: string;
+  onQueryChange: (query: string) => void;
   /** Number of decisions currently shown, for the count pill. */
   visibleCount: number;
   filterOptions: ReturnType<typeof buildAttentionFilterOptions>;
@@ -43,10 +46,13 @@ interface DecisionsToolbarProps {
  * desk (WhatNeedsMe) and the per-queue page so both surfaces expose an identical
  * control set. All state lives in the parent; this is presentation
  * plus the filter popover only.
+ * Canonical proposal reference: Components / Toolbars / Decisions.
  */
 export function DecisionsToolbar({
   audience,
   onAudienceChange,
+  query,
+  onQueryChange,
   visibleCount,
   filterOptions,
   filters,
@@ -58,17 +64,13 @@ export function DecisionsToolbar({
 }: DecisionsToolbarProps) {
   const activeFilterCount = countActiveAttentionFilters(filters);
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div data-canonical-toolbar="decisions" role="toolbar" aria-label="Decisions controls" className="flex flex-wrap items-center gap-2">
       {onAudienceChange && <div role="tablist" aria-label="Decision audience" className="flex flex-wrap items-center gap-2">
         {([["human", "My decisions"], ["agent", "Expert votes"], ["unclassified", "Unclassified"], ["all", "All"]] as const).map(([value, label]) => (
           <button key={value} type="button" role="tab" aria-selected={audience === value} className={cn("rounded-sm px-2 py-1.5 text-sm", audience === value ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent")} onClick={() => onAudienceChange(value)}>{label}</button>
         ))}
       </div>}
-      {visibleCount > 0 && (
-        <span className="text-sm text-muted-foreground">
-          {visibleCount} {visibleCount === 1 ? "decision" : "decisions"}
-        </span>
-      )}
+      <ToolbarSearch query={query} onQueryChange={onQueryChange} label="Search decisions" placeholder="Search decisions…" />
       {/* Filter */}
       <Popover>
         <PopoverTrigger asChild>
@@ -78,6 +80,7 @@ export function DecisionsToolbar({
             size="icon"
             className={cn("h-8 w-8 shrink-0", activeFilterCount > 0 && "bg-accent")}
             title="Filter"
+            data-active={activeFilterCount > 0}
             aria-label="Filter"
           >
             <ListFilter className="h-3.5 w-3.5" />
@@ -96,6 +99,7 @@ export function DecisionsToolbar({
             size="icon"
             className={cn("h-8 w-8 shrink-0", groupBy !== "none" && "bg-accent")}
             title="Group"
+            data-active={groupBy !== "none"}
             aria-label="Group"
           >
             <Layers className="h-3.5 w-3.5" />
@@ -153,6 +157,7 @@ export function DecisionsToolbar({
           </div>
         </PopoverContent>
       </Popover>
+      <span data-toolbar-count className="w-full text-xs text-muted-foreground" aria-live="polite">{visibleCount} {visibleCount === 1 ? "decision" : "decisions"}</span>
     </div>
   );
 }

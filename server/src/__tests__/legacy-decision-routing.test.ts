@@ -67,7 +67,8 @@ describeEmbeddedPostgres("legacy decision routing", () => {
     const [comment] = await db.insert(issueComments).values({ companyId, issueId, authorAgentId: creatorId, body: "Two questions for you" }).returning();
     // Distinct creation times keep the plan order (createdAt, id) deterministic.
     let sequence = 0;
-    const legacy = (values: Partial<typeof issueThreadInteractions.$inferInsert> & Pick<typeof issueThreadInteractions.$inferInsert, "kind" | "payload">) => ({
+    // Legacy rows carry pre-validation payloads on purpose, so they are not typed as current inserts.
+    const legacy = (values: Record<string, unknown> & { kind: string; payload: unknown }) => ({
       id: randomUUID(), companyId, issueId, status: "pending", continuationPolicy: "wake_assignee",
       requestedResolverPolicy: "human_only", effectiveResolverPolicy: "human_only", createdByAgentId: creatorId,
       createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence++)), ...values,

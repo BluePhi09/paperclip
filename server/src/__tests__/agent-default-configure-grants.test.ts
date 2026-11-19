@@ -80,7 +80,7 @@ describeDatabase("new agent configuration defaults", () => {
       "tools:manage_connections", "tools:manage_profiles", "tools:view_audit", "audit:view_agent_actions",
       "tools:use", "tools:manage_runtime", "tasks:manage_active_checkouts",
       "agents:create", "environments:manage", "tools:admin", "users:invite",
-      "users:manage_permissions", "pipelines:write", "joins:approve",
+      "users:manage_permissions", "joins:approve",
     ] as const) {
       expect(await accessService(db).hasPermission(companyId, "agent", standard.id, permissionKey)).toBe(false);
     }

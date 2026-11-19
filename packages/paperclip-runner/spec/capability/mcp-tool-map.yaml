@@ -331,10 +331,10 @@
     {
       "id": "mcp:paperclipAskUserQuestions",
       "name": "paperclipAskUserQuestions",
-      "description": "Create human-only questions. Each question requires a concise brief with mainSummary, explicit purpose and labeled selectionConsequences matching options. Missing context returns decision_context_missing; clarify internally, never invent facts.",
+      "description": "Create human-only questions. Ask independent questions together in one interaction instead of one per card. Each question requires a concise brief with mainSummary, explicit purpose and labeled selectionConsequences matching options. Missing context returns decision_context_missing; clarify internally, never invent facts.",
       "sourceKind": "legacy_mcp_alias",
       "sourceAnchor": "packages/mcp-server/src/tools.ts:568",
-      "expectedSemantics": "Create human-only questions. Each question requires a concise brief with mainSummary, explicit purpose and labeled selectionConsequences matching options. Missing context returns decision_context_missing; clarify internally, never invent facts.",
+      "expectedSemantics": "Create human-only questions. Ask independent questions together in one interaction instead of one per card. Each question requires a concise brief with mainSummary, explicit purpose and labeled selectionConsequences matching options. Missing context returns decision_context_missing; clarify internally, never invent facts.",
       "foldedInto": "eval:ix-questions-01",
       "evidenceId": "mcp:paperclipAskUserQuestions"
     },

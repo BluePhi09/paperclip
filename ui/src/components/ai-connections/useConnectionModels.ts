@@ -2,9 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { aiRoutingModel, type AiConnectionBinding, type AiProviderRouting } from "@paperclipai/shared";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { agentsApi } from "@/api/agents";
+import { useQueryView } from "@/components/QueryView";
 import { queryKeys } from "@/lib/queryKeys";
 
-export function useConnectionModels(
+export function useConnectionModelsState(
   companyId: string | null | undefined,
   binding: AiConnectionBinding | undefined,
   harness: string,
@@ -31,7 +32,6 @@ export function useConnectionModels(
     queryFn: () => agentsApi.adapterModels(companyId!, "opencode_local", { provider: "openrouter" }),
     enabled: Boolean(companyId && discover),
     staleTime: 60_000,
-    retry: false,
   });
   const discoverCustom = Boolean(connection && connection.status === "connected" &&
     (routing?.kind === "gateway" || routing?.kind === "local") && !routing.models.length);
@@ -45,21 +45,22 @@ export function useConnectionModels(
     retry: false,
   });
   const discovery = discoverCustom ? customCatalog : catalog;
+  const catalogView = useQueryView(catalog);
   const effectiveRouting: AiProviderRouting | undefined = routing ?? (openRouter
     ? { kind: "openrouter", protocol: "chat", auth: "bearer", models: [] }
     : undefined);
   const modelOptions = discover
-    ? (catalog.data ?? []).map((m) => ({ ...m, id: harness === "opencode_local" ? m.id : m.id.replace(/^openrouter\//, "") }))
+    ? (catalog.data ?? []).map((m) => ({ ...m, id: ["opencode_local", "pi_local"].includes(harness) ? m.id : m.id.replace(/^openrouter\//, "") }))
     : discoverCustom ? (customCatalog.isError ? [] : customCatalog.data?.models ?? []).map(m => ({ id: m.id, label: m.id }))
     : routing?.models ?? [];
-  return effectiveRouting
+  const connectionModels = effectiveRouting
     ? {
         models: modelOptions.map((m) => ({
           id: aiRoutingModel(effectiveRouting, harness, m.id),
           label: m.label ?? m.id,
         })),
-        isLoading: (discover || discoverCustom) && discovery.isLoading,
-        error: (discover || discoverCustom) ? discovery.error : null,
+        isLoading: (discover && (catalog.isLoading || catalogView.kind === "reconnecting")) || (discoverCustom && customCatalog.isLoading),
+        error: discover && catalogView.kind === "error" ? catalog.error : discoverCustom ? customCatalog.error : null,
         refreshing: (discover || discoverCustom) && discovery.isFetching,
         refreshModels: discoverCustom ? async () => {
           // Keep the same observer/error state, but explicitly bypass the server TTL.
@@ -71,4 +72,19 @@ export function useConnectionModels(
           aiRoutingModel(effectiveRouting, harness, model),
       }
     : undefined;
+  return {
+    connectionModels,
+    loading: accounts.isLoading,
+    refreshing: accounts.isFetching,
+    error: accounts.error,
+    refresh: async () => { await accounts.refetch(); },
+  };
+}
+
+export function useConnectionModels(
+  companyId: string | null | undefined,
+  binding: AiConnectionBinding | undefined,
+  harness: string,
+) {
+  return useConnectionModelsState(companyId, binding, harness).connectionModels;
 }

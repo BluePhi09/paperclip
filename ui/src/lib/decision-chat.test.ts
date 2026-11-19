@@ -5,7 +5,7 @@ import { decisionChatTarget, nativeChatDraftNavigation } from "./decision-chat";
 import { loadDraft, loadDraftSubmission, saveDraft, saveDraftSubmission } from "./composer-draft";
 
 const agent = { id: "agent-1", companyId: "company-1", name: "Planner", status: "idle" } as Agent;
-const item: AttentionItem = { id: "interaction:card-1", companyId: "company-1", audience: "human", sourceKind: "issue_thread_interaction",
+const item: AttentionItem = { id: "interaction:card-1", companyId: "company-1", audience: { kind: "pool", userId: null, reason: "none" }, stale: null, required: false, changeFingerprint: "fixture", closeModes: [], obligationKey: null, obligationLeadId: null, decisionAudience: "human", sourceKind: "issue_thread_interaction",
   subject: { kind: "interaction", identifier: null, status: "pending", href: null, id: "card-1", companyId: "company-1", title: "Expose the media server?", metadata: { createdByAgentId: agent.id, targetRevisionId: "revision-5" } },
   relatedIssue: { kind: "issue", status: "in_progress", title: "Plan media server access", href: null, id: "task-1", companyId: "company-1", identifier: "ACME-12" },
   whyNow: "Human choice required", decisionVerbs: [], inlineResolvable: false, entryRule: "pending", exitRule: "answered",
@@ -24,7 +24,7 @@ describe("decision chat navigation", () => {
   });
   it("uses the named expert resolver instead of the source author", () => {
     const expert = { ...agent, id: "expert" };
-    expect(decisionChatTarget({ ...item, audience: "agent", resolverAgentId: expert.id }, "company-1", [agent, expert]).agent).toBe(expert);
+    expect(decisionChatTarget({ ...item, decisionAudience: "agent", resolverAgentId: expert.id }, "company-1", [agent, expert]).agent).toBe(expert);
   });
   it.each(["paused", "terminated", "pending_approval"])("does not offer unavailable %s agents", (status) => {
     expect(decisionChatTarget(item, "company-1", [{ ...agent, status } as Agent]).agent).toBeNull();
