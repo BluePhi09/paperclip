@@ -372,11 +372,21 @@ export function createSandboxCallbackBridgeToken(bytes = DEFAULT_BRIDGE_TOKEN_BY
 /**
  * True when a path could resolve to a different route after URL
  * normalization on the forward side: dot segments (also percent-encoded),
- * encoded slashes, backslashes, or NUL bytes. Both transports deny these
- * before the route match, so a template parameter can never absorb `..`.
+ * encoded slashes, backslashes, NUL bytes, `?`/`#` (the forwarder rebuilds
+ * the URL from the path and drops everything after them), whitespace or
+ * control characters, or any path the URL parser does not keep verbatim.
+ * Both transports deny these before the route match, so a template parameter
+ * can never absorb `..`, a query, or a fragment.
  */
 function hasNonCanonicalBridgePathSegment(requestPath: string): boolean {
   if (/%2f|%5c|%00/i.test(requestPath) || requestPath.includes("\\") || requestPath.includes("\0")) return true;
+  if (/[?#\s\x00-\x1f\x7f]/.test(requestPath)) return true;
+  try {
+    const parsed = new URL(requestPath, "http://bridge.internal");
+    if (parsed.host !== "bridge.internal" || parsed.pathname !== requestPath || parsed.search || parsed.hash) return true;
+  } catch {
+    return true;
+  }
   return requestPath.split("/").some((segment) => {
     let decoded = segment;
     try {

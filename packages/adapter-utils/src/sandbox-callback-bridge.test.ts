@@ -1631,6 +1631,24 @@ describe("sandbox callback bridge", () => {
       }
     });
 
+    // Queue requests carry the query separately; the forwarder rebuilds the URL
+    // from the path, so anything after `?`/`#` would vanish after the match.
+    it("denies queries, fragments and other non-verbatim paths that would bypass deny rules or templates", () => {
+      for (const path of [
+        "/api/companies/stats?",
+        "/api/companies/stats#",
+        "/api/companies/?",
+        "/api/agents/?",
+        "/api/companies/x?/agents",
+        "/api/issues/issue-1 /comments",
+        "/api/issues/issue-1\t/comments",
+        "//evil.example/api/issues/issue-1",
+      ]) {
+        expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "GET", path })).toBe(`Route not allowed: GET ${path}`);
+      }
+      expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "GET", path: "/api/issues/PAP-12" })).toBeNull();
+    });
+
     it("compiles OpenAPI templates to anchored one-segment parameters", async () => {
       const { sandboxCallbackBridgePathTemplateToRegExp } = await import("./sandbox-callback-bridge.js");
       const pattern = sandboxCallbackBridgePathTemplateToRegExp("/api/issues/{id}/comments");

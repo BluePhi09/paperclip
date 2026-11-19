@@ -1909,6 +1909,10 @@ function buildBridgeResponseHeaders(response: Response): Record<string, string> 
 
 function buildBridgeForwardUrl(baseUrl: string, request: { path: string; query: string }): URL {
   const url = new URL(request.path, baseUrl);
+  // Defense in depth: the authorized path must be exactly the forwarded path.
+  if (url.origin !== new URL(baseUrl).origin || url.pathname !== request.path || url.search || url.hash) {
+    throw new Error(`Bridge refused a non-canonical path: ${JSON.stringify(request.path)}`);
+  }
   const query = request.query.trim();
   url.search = query.startsWith("?") ? query.slice(1) : query;
   return url;
